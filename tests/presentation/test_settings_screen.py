@@ -180,7 +180,7 @@ async def test_loads_wpm_display_value():
 
 
 @pytest.mark.asyncio
-async def test_wordlist_url_shows_default_as_placeholder():
+async def test_wordlist_url_prefills_default_when_empty():
     app = App()
     screen, _settings_repo, _store = _build_screen()
     async with app.run_test() as pilot:
@@ -188,10 +188,9 @@ async def test_wordlist_url_shows_default_as_placeholder():
         await pilot.pause()
 
         url_input = app.screen.query_one("#settings-wordlist-url", Input)
-        assert url_input.value == ""
-        assert url_input.placeholder == DEFAULT_WORDLIST_URL
+        assert url_input.value == DEFAULT_WORDLIST_URL
         help_text = str(app.screen.query_one("#settings-wordlist-help", Static).content)
-        assert "Import" in help_text
+        assert "Download default list" in help_text
         status = str(app.screen.query_one("#settings-wordlist-status", Static).content)
         assert "Markov" in status
 
@@ -226,6 +225,24 @@ async def test_import_uses_default_url_when_field_empty():
 
         app.screen.query_one("#settings-wordlist-url", Input).value = ""
         app.screen.query_one("#settings-wordlist-import", Button).press()
+        await pilot.pause()
+
+        assert settings_repo.settings.wordlist_url == DEFAULT_WORDLIST_URL
+        assert app.screen.query_one("#settings-wordlist-url", Input).value == DEFAULT_WORDLIST_URL
+        status = str(app.screen.query_one("#settings-wordlist-status", Static).content)
+        assert "Imported 2 words." in status
+
+
+@pytest.mark.asyncio
+async def test_download_default_imports_builtin_list():
+    app = App()
+    store = FakeWordListStore(by_url={DEFAULT_WORDLIST_URL: ["hello", "world"]})
+    screen, settings_repo, _store = _build_screen(wordlist_store=store)
+    async with app.run_test() as pilot:
+        await app.push_screen(screen)
+        await pilot.pause()
+
+        app.screen.query_one("#settings-wordlist-download-default", Button).press()
         await pilot.pause()
 
         assert settings_repo.settings.wordlist_url == DEFAULT_WORDLIST_URL
@@ -315,6 +332,6 @@ async def test_clear_removes_wordlist_and_uses_markov():
         await pilot.pause()
 
         assert settings_repo.settings.wordlist_url == ""
-        assert app.screen.query_one("#settings-wordlist-url", Input).value == ""
+        assert app.screen.query_one("#settings-wordlist-url", Input).value == DEFAULT_WORDLIST_URL
         status = str(app.screen.query_one("#settings-wordlist-status", Static).content)
         assert "Markov" in status
