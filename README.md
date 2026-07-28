@@ -1,8 +1,8 @@
-# keystrike
+# Keystrike
 
-Offline, cross-platform terminal typing tutor. Adaptive drills inspired by
-[keybr](https://www.keybr.com/), code-typing mode, free practice on your own
-text files, per-layout stats — all locally on disk, no network.
+Adaptive drills for your weakest keys. Inspired by
+[keybr](https://www.keybr.com/). Per-layout stats stored locally on disk — no
+network.
 
 ## Status
 

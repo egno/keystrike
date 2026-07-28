@@ -19,7 +19,8 @@ def _format_daily_learn_line(budget: DailyLearnBudget) -> str:
 
 def _hero_text(layout: str, learn_budget: DailyLearnBudget) -> str:
     lines = [
-        "[bold cyan]keystrike[/]  [dim]offline typing tutor[/]",
+        "[bold cyan]Keystrike[/]",
+        "[dim italic]Adaptive drills for your weakest keys[/]",
         f"Layout: [bold]{layout}[/]  [dim](l switch)[/]",
     ]
     daily = _format_daily_learn_line(learn_budget)

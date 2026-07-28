@@ -5,7 +5,7 @@ from keystrike.app import build
 
 app = typer.Typer(
     add_completion=False,
-    help="Offline typing tutor",
+    help="Adaptive drills for your weakest keys",
     no_args_is_help=False,
     invoke_without_command=True,
 )
