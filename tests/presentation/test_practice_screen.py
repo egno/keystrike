@@ -14,7 +14,11 @@ from keystrike.application.session_use_cases import (
 )
 from keystrike.application.settings_use_cases import CycleLayout, UpdateSettings
 from keystrike.application.stats_use_cases import GetHeatmap, GetHistory, RebuildAggregates
-from keystrike.application.wordlist_use_cases import ClearWordList, GetWordListCacheStatus, ImportWordList
+from keystrike.application.wordlist_use_cases import (
+    ClearWordList,
+    GetWordListCacheStatus,
+    ImportWordList,
+)
 from keystrike.domain.enums import Mode, SessionState
 from keystrike.domain.models import SessionResult, Settings
 from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS

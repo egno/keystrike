@@ -11,7 +11,11 @@ from keystrike.application.session_use_cases import (
 )
 from keystrike.application.settings_use_cases import CycleLayout, UpdateSettings
 from keystrike.application.stats_use_cases import GetHeatmap, GetHistory
-from keystrike.application.wordlist_use_cases import ClearWordList, GetWordListCacheStatus, ImportWordList
+from keystrike.application.wordlist_use_cases import (
+    ClearWordList,
+    GetWordListCacheStatus,
+    ImportWordList,
+)
 from keystrike.domain.null_adapters import NULL_DAILY_LEARN_BUDGET
 from keystrike.domain.protocols import (
     Clock,
