@@ -70,9 +70,9 @@ class PracticeScreen(Screen[None]):
     def compose(self) -> ComposeResult:
         with Vertical():
             yield self._hud
+            yield self._typing_area
             if self._layout_obj is not None and self._lesson_heatmap is not None:
                 yield KbHeatmap(self._layout_obj, self._lesson_heatmap, self._focus_key)
-            yield self._typing_area
         yield Footer()
 
     def on_mount(self) -> None:
