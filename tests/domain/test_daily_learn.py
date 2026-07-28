@@ -38,7 +38,6 @@ def test_daily_learn_duration_sums_adaptive_sessions_on_day_only():
     yesterday = dt.datetime(2026, 7, 27, 12, 0, tzinfo=_TZ).timestamp()
     headers = [
         _header(started_at=noon, duration_ns=60_000_000_000),
-        _header(mode=Mode.FREE, started_at=noon, duration_ns=999_000_000_000),
         _header(started_at=yesterday, duration_ns=120_000_000_000),
         _header(started_at=noon + 60, duration_ns=30_000_000_000),
     ]

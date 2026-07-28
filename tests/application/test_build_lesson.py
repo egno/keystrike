@@ -1,13 +1,12 @@
 from random import Random
 
-from keystrike.application.build_lesson import BuildCodeLesson, BuildLesson
+from keystrike.application.build_lesson import BuildLesson
 from keystrike.domain.aggregate import transition_key
 from keystrike.domain.learn_order import keyboard_order
 from keystrike.domain.models import LayoutAggregates, Settings, TransitionStats
 from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS
 from tests.fakes import (
     FakeAggregatesCache,
-    FakeCodeSnippetProvider,
     FakeLanguageProvider,
     FakeLayoutRepository,
     FakeSettingsRepository,
@@ -20,16 +19,6 @@ def _build_lesson(settings: Settings | None = None, rng_seed: int = 0) -> BuildL
         aggregates_cache=FakeAggregatesCache(),
         settings_repo=FakeSettingsRepository(settings or Settings()),
         language_provider=FakeLanguageProvider(),
-        rng=Random(rng_seed),
-    )
-
-
-def _build_code_lesson(settings: Settings | None = None, rng_seed: int = 0) -> BuildCodeLesson:
-    return BuildCodeLesson(
-        layout_repo=FakeLayoutRepository(dict(BUNDLED_LAYOUTS)),
-        aggregates_cache=FakeAggregatesCache(),
-        settings_repo=FakeSettingsRepository(settings or Settings()),
-        code_provider=FakeCodeSnippetProvider(),
         rng=Random(rng_seed),
     )
 
@@ -71,18 +60,6 @@ def test_alphabet_size_caps_at_learn_order_length():
     settings = Settings(alphabet_size=len(layout.learn_order) + 100)
     lesson = _build_lesson(settings)("qwerty")
     assert len(lesson.state.keys) == len(layout.learn_order)
-
-
-def test_code_lesson_text_is_one_of_the_snippets():
-    provider = FakeCodeSnippetProvider()
-    lesson = _build_code_lesson()("qwerty")
-    assert lesson.text in provider.snippets()
-
-
-def test_code_lesson_state_mirrors_build_lesson_progress():
-    lesson = _build_code_lesson()("qwerty")
-    assert len(lesson.state.keys) == Settings().alphabet_size
-    assert sum(k.is_focus for k in lesson.state.keys) == 1
 
 
 def test_lesson_heatmap_maps_unlocked_codepoints_to_confidence():

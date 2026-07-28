@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from itertools import count
-from pathlib import Path
 
 from keystrike.domain.markov import TransitionTable
 from keystrike.domain.models import (
@@ -111,14 +110,6 @@ class FakeLayoutRepository:
         return self.layouts[name]
 
 
-@dataclass(slots=True)
-class FakeFreeformTextProvider:
-    text_by_path: dict[str, str] = field(default_factory=dict)
-
-    def load(self, path: Path) -> str:
-        return self.text_by_path[str(path)]
-
-
 def _uniform_transition_table() -> TransitionTable:
     letters = "etaoinshrdlcumwfgypbvkjxqz"
     return TransitionTable(order=2, transitions={"": {ch: 1 for ch in letters}})
@@ -131,15 +122,3 @@ class FakeLanguageProvider:
     def transitions(self, lang: str) -> TransitionTable:
         _ = lang
         return self.table
-
-
-def _default_snippets() -> tuple[str, ...]:
-    return ("def add(a, b): return a + b", "for i in range(10): print(i)")
-
-
-@dataclass(slots=True)
-class FakeCodeSnippetProvider:
-    snippets_: tuple[str, ...] = field(default_factory=_default_snippets)
-
-    def snippets(self) -> tuple[str, ...]:
-        return self.snippets_

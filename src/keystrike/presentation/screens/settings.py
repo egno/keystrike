@@ -53,8 +53,6 @@ class SettingsScreen(Screen[None]):
                 id="settings-speed",
                 type="integer",
             )
-            yield Label("Freeform text file (leave blank to disable)")
-            yield Input(value=settings.freeform_path or "", id="settings-freeform-path")
             yield Label("Number of letters unlocked up front")
             yield Input(
                 value=str(settings.alphabet_size),
@@ -92,7 +90,6 @@ class SettingsScreen(Screen[None]):
             self._show_error("Daily learn minutes must be an integer.")
             return
 
-        freeform_raw = self.query_one("#settings-freeform-path", Input).value.strip()
         layout_select = cast("Select[str]", self.query_one("#settings-layout", Select))
         layout = layout_select.value
         if isinstance(layout, NoSelection):
@@ -103,7 +100,6 @@ class SettingsScreen(Screen[None]):
             self._update_settings(
                 layout=layout,
                 target_speed_cpm=target_speed_cpm,
-                freeform_path=freeform_raw or None,
                 alphabet_size=alphabet_size,
                 learn_daily_minutes=learn_daily_minutes,
             )

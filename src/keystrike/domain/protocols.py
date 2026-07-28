@@ -1,5 +1,4 @@
-from collections.abc import Iterator, Sequence
-from pathlib import Path
+from collections.abc import Iterator
 from typing import Protocol
 
 from .daily_learn import DailyLearnBudget
@@ -39,10 +38,6 @@ class AggregatesCache(Protocol):
     def put(self, layout: str, aggregates: LayoutAggregates) -> None: ...
 
 
-class FreeformTextProvider(Protocol):
-    def load(self, path: Path) -> str: ...
-
-
 class StatsRebuilder(Protocol):
     """Shape of `application.stats_use_cases.RebuildAggregates` — lets callers
     (e.g. PracticeScreen) depend on the behavior without importing application code."""
@@ -52,10 +47,6 @@ class StatsRebuilder(Protocol):
 
 class LanguageProvider(Protocol):
     def transitions(self, lang: str) -> TransitionTable: ...
-
-
-class CodeSnippetProvider(Protocol):
-    def snippets(self) -> Sequence[str]: ...
 
 
 class LearningRateEstimator(Protocol):

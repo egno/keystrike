@@ -42,11 +42,6 @@ class TomlSettingsRepository:
             target_speed_cpm=int(raw.get("target_speed_cpm", defaults.target_speed_cpm)),
             alphabet_size=int(raw.get("alphabet_size", defaults.alphabet_size)),
             lang=str(raw.get("lang", defaults.lang)),
-            code_language=str(raw.get("code_language", defaults.code_language)),
-            freeform_path=(
-                str(raw["freeform_path"])
-                if raw.get("freeform_path") is not None else None
-            ),
             learn_daily_minutes=int(
                 raw.get("learn_daily_minutes", defaults.learn_daily_minutes),
             ),
@@ -61,10 +56,7 @@ class TomlSettingsRepository:
             ("alphabet_size", settings.alphabet_size),
             ("learn_daily_minutes", settings.learn_daily_minutes),
             ("lang", settings.lang),
-            ("code_language", settings.code_language),
         ]
         for key, value in fields:
             lines.append(f"{key} = {_fmt_scalar(value)}\n")
-        if settings.freeform_path is not None:
-            lines.append(f"freeform_path = {_fmt_scalar(settings.freeform_path)}\n")
         atomic_write_text(self._paths.settings_file, "".join(lines))

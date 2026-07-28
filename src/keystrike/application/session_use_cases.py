@@ -17,7 +17,7 @@ class StartSession:
         target_text: str,
         *,
         layout: str = "qwerty",
-        mode: Mode = Mode.FREE,
+        mode: Mode = Mode.ADAPTIVE,
         lang: str = "en",
         focus_key: int | None = None,
     ) -> Session:
@@ -54,10 +54,6 @@ class RecordKeystroke:
             # engine needs an honest record of what actually happened (keybr
             # does the same) — errors are already captured on the original
             # wrong keystroke, so letting the user erase them would distort it.
-            if session.mode is not Mode.ADAPTIVE and session.position > 0:
-                session.position -= 1
-            # Backspaces are not recorded as Keystrokes in v1 — they just rewind
-            # the cursor. Error stats already captured on the original wrong keystroke.
             return session.finished
 
         # Ignore Enter, Tab, and other multi-char keys unless they are the target

@@ -10,7 +10,6 @@ from keystrike.application.session_use_cases import (
     format_session_stats_line,
 )
 from keystrike.domain.enums import Mode, SessionState
-from keystrike.domain.session import BACKSPACE
 from tests.fakes import FakeClock, FakeIdGenerator, FakeSessionRepository
 
 
@@ -20,7 +19,7 @@ def _drive(text: str, keys: str, clock: FakeClock, id_gen: FakeIdGenerator,
     repo = repo if repo is not None else FakeSessionRepository()
     record = RecordKeystroke(clock=clock, repo=repo)
     finish = FinishSession(clock=clock, repo=repo)
-    session = start(text, layout="qwerty", mode=Mode.FREE)
+    session = start(text, layout="qwerty", mode=Mode.ADAPTIVE)
     for i, ch in enumerate(keys, start=1):
         clock.advance(100_000_000)  # 100 ms per keystroke → 120 wpm on all-correct
         record(session, ch)
@@ -39,7 +38,7 @@ def test_perfect_run(clock, id_gen):
 
 
 def test_abort_session_marks_cancelled(clock, id_gen):
-    session = StartSession(clock=clock, id_gen=id_gen)("ab", layout="qwerty", mode=Mode.FREE)
+    session = StartSession(clock=clock, id_gen=id_gen)("ab", layout="qwerty", mode=Mode.ADAPTIVE)
     AbortSession()(session)
     assert session.state is SessionState.CANCELLED
 
@@ -52,42 +51,7 @@ def test_wrong_then_correct(clock, id_gen):
     assert compute_accuracy(result) == 0.75
 
 
-def test_backspace_rewinds_cursor_without_double_count(clock, id_gen):
-    start = StartSession(clock=clock, id_gen=id_gen)
-    record = RecordKeystroke(clock=clock)
-    finish = FinishSession(clock=clock)
-    session = start("ab", layout="qwerty", mode=Mode.FREE)
-
-    def step(char):
-        clock.advance(50_000_000)
-        record(session, char)
-
-    step("a")               # correct → pos=1
-    step("z")               # wrong   → pos still 1
-    assert session.position == 1
-    step(BACKSPACE)         # rewind  → pos=0
-    assert session.position == 0
-    step("a")               # correct → pos=1
-    step("b")               # correct → pos=2
-
-    result = finish(session)
-    assert result.total_keystrokes == 4        # backspace not recorded
-    assert result.correct_keystrokes == 3
-    assert session.finished
-    assert session.error_positions == {1}
-
-
-def test_record_keystroke_backspace_convenience_method(clock, id_gen):
-    start = StartSession(clock=clock, id_gen=id_gen)
-    record = RecordKeystroke(clock=clock)
-    session = start("ab", layout="qwerty", mode=Mode.FREE)
-    record(session, "a")
-    assert session.position == 1
-    record.backspace(session)
-    assert session.position == 0
-
-
-def test_backspace_is_a_noop_in_adaptive_mode(clock, id_gen):
+def test_backspace_is_a_noop(clock, id_gen):
     start = StartSession(clock=clock, id_gen=id_gen)
     record = RecordKeystroke(clock=clock)
     session = start("ab", layout="qwerty", mode=Mode.ADAPTIVE)
@@ -95,18 +59,17 @@ def test_backspace_is_a_noop_in_adaptive_mode(clock, id_gen):
     record(session, "a")
     assert session.position == 1
     record.backspace(session)
-    assert session.position == 1  # unchanged — no correcting mistakes in adaptive mode
+    assert session.position == 1
 
 
-def test_backspace_still_works_in_code_mode(clock, id_gen):
+def test_record_keystroke_backspace_convenience_method(clock, id_gen):
     start = StartSession(clock=clock, id_gen=id_gen)
     record = RecordKeystroke(clock=clock)
-    session = start("ab", layout="qwerty", mode=Mode.CODE)
-
+    session = start("ab", layout="qwerty", mode=Mode.ADAPTIVE)
     record(session, "a")
     assert session.position == 1
     record.backspace(session)
-    assert session.position == 0
+    assert session.position == 1
 
 
 def test_repo_receives_keystrokes(clock, id_gen, session_repo):
@@ -126,7 +89,7 @@ def test_timer_does_not_start_until_first_keystroke(clock, id_gen):
     start = StartSession(clock=clock, id_gen=id_gen)
     record = RecordKeystroke(clock=clock)
     finish = FinishSession(clock=clock)
-    session = start("ab", layout="qwerty", mode=Mode.FREE)
+    session = start("ab", layout="qwerty", mode=Mode.ADAPTIVE)
 
     clock.advance(10_000_000_000)  # 10s of "thinking time" before typing anything
     assert session.typing_started_at_ns is None

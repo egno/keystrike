@@ -18,7 +18,7 @@ def test_null_session_repository_is_inert():
         started_at=0.0,
         duration_ns=0,
         layout="qwerty",
-        mode=Mode.FREE,
+        mode=Mode.ADAPTIVE,
         lesson_alphabet=(),
         focus_key=None,
         total_keystrokes=0,

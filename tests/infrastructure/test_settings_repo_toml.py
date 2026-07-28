@@ -27,7 +27,6 @@ def test_round_trip(paths):
         layout="dvorak",
         target_speed_cpm=400,
         alphabet_size=20,
-        freeform_path="/tmp/lorem.txt",
     )
     repo.save(original)
     assert repo.load() == original
@@ -52,8 +51,13 @@ def test_ignores_unknown_keys_for_forward_compat(paths):
     assert s.layout == "qwerty"
 
 
-def test_quote_and_backslash_escaping(paths):
-    repo = TomlSettingsRepository(paths)
-    tricky = Settings(freeform_path='C:\\path\\with "quotes" in name.txt')
-    repo.save(tricky)
-    assert repo.load().freeform_path == tricky.freeform_path
+def test_ignores_removed_settings_keys(paths):
+    paths.settings_file.write_text(
+        'schema_version = 1\n'
+        'layout = "qwerty"\n'
+        'freeform_path = "/tmp/old.txt"\n'
+        'code_language = "python"\n',
+        encoding="utf-8",
+    )
+    s = TomlSettingsRepository(paths).load()
+    assert s == Settings()

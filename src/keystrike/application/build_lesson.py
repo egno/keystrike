@@ -1,11 +1,5 @@
-"""BuildLesson / BuildCodeLesson: the adaptive engine — figure out which keys
-are unlocked, pick a focus key, and generate practice text for them.
-
-Both share the same unlock/focus/state logic (`_lesson_progress`); they only
-differ in how they turn "unlocked keys + focus key" into practice text —
-Markov-generated words for English (M3), real code snippets biased toward
-the focus key for code mode (M4, since code syntax can't be filtered to a
-hard alphabet the way English words can).
+"""BuildLesson: the adaptive engine — figure out which keys are unlocked,
+pick a focus key, and generate practice text for them.
 """
 
 from __future__ import annotations
@@ -15,7 +9,6 @@ from dataclasses import dataclass
 from random import Random
 
 from keystrike.domain.aggregate import transition_key
-from keystrike.domain.code_lesson import select_snippet
 from keystrike.domain.confidence import (
     compute_unlocked,
     confidence_of,
@@ -40,7 +33,6 @@ from keystrike.domain.models import (
 )
 from keystrike.domain.protocols import (
     AggregatesCache,
-    CodeSnippetProvider,
     LanguageProvider,
     LayoutRepository,
     SettingsRepository,
@@ -192,45 +184,6 @@ class BuildLesson:
             transition_weights=transition_weights,
             focus_bigram=focus_bigram,
         )
-
-        urgency = {
-            cp: review_urgency(stats[cp].last_seen if cp in stats else 0.0, now)
-            for cp in unlocked
-        }
-        if focus_bigram is not None:
-            prev_cp, next_cp = focus_bigram
-            reason = _focus_reason_transition(prev_cp, next_cp, transitions, target, now)
-        else:
-            reason = _focus_reason(focus, stats, target, now)
-        return Lesson(
-            text=text,
-            state=state,
-            urgency=urgency,
-            focus_reason=reason,
-        )
-
-
-@dataclass(slots=True)
-class BuildCodeLesson:
-    layout_repo: LayoutRepository
-    aggregates_cache: AggregatesCache
-    settings_repo: SettingsRepository
-    code_provider: CodeSnippetProvider
-    rng: Random
-
-    def __call__(self, layout_name: str) -> Lesson:
-        settings = self.settings_repo.load()
-        layout = self.layout_repo.get(layout_name)
-        aggregates = self.aggregates_cache.get(layout_name)
-        stats = aggregates.keys if aggregates else {}
-        now = time.time()
-        transitions = aggregates.transitions if aggregates else {}
-        unlocked, focus, state, focus_bigram = _lesson_progress(
-            layout_name, layout, stats, settings, now, transitions=transitions,
-        )
-        target = target_ms_per_char(settings.target_speed_cpm)
-
-        text = select_snippet(self.code_provider.snippets(), chr(focus), self.rng)
 
         urgency = {
             cp: review_urgency(stats[cp].last_seen if cp in stats else 0.0, now)

@@ -17,14 +17,12 @@ def test_update_settings_persists_all_fields():
     result = update(
         layout="dvorak",
         target_speed_cpm=400,
-        freeform_path="/tmp/a.txt",
         alphabet_size=20,
         learn_daily_minutes=15,
     )
 
     assert result.layout == "dvorak"
     assert result.target_speed_cpm == 400
-    assert result.freeform_path == "/tmp/a.txt"
     assert result.alphabet_size == 20
     assert result.learn_daily_minutes == 15
     assert repo.settings == result
@@ -38,7 +36,6 @@ def test_update_settings_rejects_non_positive_speed():
         update(
             layout="qwerty",
             target_speed_cpm=0,
-            freeform_path=None,
             alphabet_size=16,
             learn_daily_minutes=10,
         )
@@ -54,7 +51,6 @@ def test_update_settings_rejects_negative_alphabet_size():
         update(
             layout="qwerty",
             target_speed_cpm=300,
-            freeform_path=None,
             alphabet_size=-1,
             learn_daily_minutes=10,
         )
@@ -70,7 +66,6 @@ def test_update_settings_rejects_negative_learn_daily_minutes():
         update(
             layout="qwerty",
             target_speed_cpm=300,
-            freeform_path=None,
             alphabet_size=16,
             learn_daily_minutes=-1,
         )

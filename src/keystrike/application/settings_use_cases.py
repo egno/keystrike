@@ -28,7 +28,6 @@ class UpdateSettings:
         *,
         layout: str,
         target_speed_cpm: int,
-        freeform_path: str | None,
         alphabet_size: int,
         learn_daily_minutes: int,
     ) -> Settings:
@@ -42,7 +41,6 @@ class UpdateSettings:
             self.repo.load(),
             layout=layout,
             target_speed_cpm=target_speed_cpm,
-            freeform_path=freeform_path,
             alphabet_size=alphabet_size,
             learn_daily_minutes=learn_daily_minutes,
         )

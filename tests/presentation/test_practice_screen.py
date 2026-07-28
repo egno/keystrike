@@ -4,7 +4,7 @@ from random import Random
 import pytest
 from textual.widgets import Static
 
-from keystrike.application.build_lesson import BuildCodeLesson, BuildLesson
+from keystrike.application.build_lesson import BuildLesson
 from keystrike.application.learn_budget_use_cases import GetDailyLearnBudget
 from keystrike.application.prepare_practice import PreparePracticeSession
 from keystrike.application.session_use_cases import (
@@ -31,8 +31,6 @@ from keystrike.presentation.widgets.kb_heatmap import KbHeatmap
 from tests.fakes import (
     FakeAggregatesCache,
     FakeClock,
-    FakeCodeSnippetProvider,
-    FakeFreeformTextProvider,
     FakeIdGenerator,
     FakeLanguageProvider,
     FakeLayoutRepository,
@@ -41,7 +39,6 @@ from tests.fakes import (
 )
 
 _TZ = dt.timezone(dt.timedelta(hours=3))
-_SAMPLE_TEXT = "hi"
 
 
 def _build_app(
@@ -58,19 +55,11 @@ def _build_app(
     settings_repo = FakeSettingsRepository(settings or Settings())
     layout_repo = FakeLayoutRepository(dict(BUNDLED_LAYOUTS))
     cache = FakeAggregatesCache()
-    freeform_provider = FakeFreeformTextProvider()
     build_lesson = BuildLesson(
         layout_repo=layout_repo,
         aggregates_cache=cache,
         settings_repo=settings_repo,
         language_provider=FakeLanguageProvider(),
-        rng=Random(0),
-    )
-    build_code_lesson = BuildCodeLesson(
-        layout_repo=layout_repo,
-        aggregates_cache=cache,
-        settings_repo=settings_repo,
-        code_provider=FakeCodeSnippetProvider(),
         rng=Random(0),
     )
     get_daily_learn_budget = GetDailyLearnBudget(
@@ -80,10 +69,7 @@ def _build_app(
         settings_repo=settings_repo,
         layout_repo=layout_repo,
         build_lesson=build_lesson,
-        build_code_lesson=build_code_lesson,
-        freeform_provider=freeform_provider,
         get_daily_learn_budget=get_daily_learn_budget,
-        sample_text=_SAMPLE_TEXT,
     )
 
     app = KeystrikeApp(
@@ -109,19 +95,17 @@ def _build_app(
 async def test_app_launches_types_and_persists_session():
     app, clock, session_repo, _ = _build_app()
     async with app.run_test() as pilot:
-        await pilot.press("p")
+        await pilot.press("enter")
         await pilot.pause()
+        practice = app.screen
+        assert isinstance(practice, PracticeScreen)
+        target = practice._session.target_text
         clock.advance(100_000_000)
-        await pilot.press("h")
-        clock.advance(100_000_000)
-        await pilot.press("i")
+        await pilot.press("space" if target[0] == " " else target[0])
         await pilot.pause()
-        assert len(session_repo.headers) == 1
-        assert session_repo.headers[0].layout == "qwerty"
+        assert len(session_repo.headers) == 0  # session not finished yet
         assert isinstance(app.screen, PracticeScreen)
-        assert app.screen._session.position == 0
-        last_stats = str(app.screen.query_one("#last-session-stats", Static).content)
-        assert "Last: WPM" in last_stats
+        assert app.screen._session.position >= 1
 
 
 @pytest.mark.asyncio
@@ -146,13 +130,15 @@ async def test_settings_screen_reachable_from_home():
 async def test_stats_are_isolated_per_layout():
     app, clock, session_repo, settings_repo = _build_app(settings=Settings(layout="qwerty"))
     async with app.run_test() as pilot:
-        await pilot.press("p")
+        await pilot.press("enter")
         await pilot.pause()
-        clock.advance(100_000_000)
-        await pilot.press("h")
-        clock.advance(100_000_000)
-        await pilot.press("i")
-        await pilot.pause()
+        practice = app.screen
+        assert isinstance(practice, PracticeScreen)
+        target = practice._session.target_text
+        for ch in target:
+            clock.advance(100_000_000)
+            await pilot.press("space" if ch == " " else ch)
+            await pilot.pause()
         assert any(h.layout == "qwerty" for h in session_repo.headers)
         app.pop_screen()
         await pilot.pause()
@@ -203,43 +189,12 @@ async def test_adaptive_practice_generates_lesson_text_for_focus_key():
 
 
 @pytest.mark.asyncio
-async def test_code_practice_generates_snippet_text_for_focus_key():
-    app, _clock, _repo, _settings = _build_app()
-    async with app.run_test() as pilot:
-        await pilot.press("c")
-        await pilot.pause()
-        practice = app.screen
-        assert isinstance(practice, PracticeScreen)
-        assert practice._session.mode is Mode.CODE
-        assert practice._session.focus_key is not None
-        assert practice._session.target_text in FakeCodeSnippetProvider().snippets()
-
-
-@pytest.mark.asyncio
 async def test_adaptive_practice_shows_active_keys_widget():
     app, _clock, _repo, _settings = _build_app()
     async with app.run_test() as pilot:
         await pilot.press("enter")
         await pilot.pause()
         assert app.screen.query(KbHeatmap)
-
-
-@pytest.mark.asyncio
-async def test_code_practice_shows_active_keys_widget():
-    app, _clock, _repo, _settings = _build_app()
-    async with app.run_test() as pilot:
-        await pilot.press("c")
-        await pilot.pause()
-        assert app.screen.query(KbHeatmap)
-
-
-@pytest.mark.asyncio
-async def test_sample_practice_has_no_active_keys_widget():
-    app, _clock, _repo, _settings = _build_app()
-    async with app.run_test() as pilot:
-        await pilot.press("p")
-        await pilot.pause()
-        assert not app.screen.query(KbHeatmap)
 
 
 @pytest.mark.asyncio
@@ -266,7 +221,7 @@ async def test_adaptive_shows_last_session_stats_after_completion():
 async def test_escape_returns_to_home_and_cancels_session():
     app, _clock, _repo, _settings = _build_app()
     async with app.run_test() as pilot:
-        await pilot.press("p")
+        await pilot.press("enter")
         await pilot.pause()
         practice = app.screen
         assert isinstance(practice, PracticeScreen)

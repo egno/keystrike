@@ -76,12 +76,11 @@ class KeystrikeApp(App[None]):
             get_daily_learn_budget=self._get_daily_learn_budget,
         )
 
-    def on_home_screen_start_practice(self, message: HomeScreen.StartPractice) -> None:
-        initial = self._prepare_practice(message.source)
+    def on_home_screen_start_practice(self, _: HomeScreen.StartPractice) -> None:
+        initial = self._prepare_practice()
         if initial is None:
             self.notify(
-                "Daily learn limit reached. Change learn_daily_minutes in Settings "
-                "or try sample/code/free practice.",
+                "Daily learn limit reached. Change learn_daily_minutes in Settings.",
                 severity="warning",
             )
             return
@@ -92,7 +91,7 @@ class KeystrikeApp(App[None]):
             finish=self._finish,
             clock=self._clock,
             initial=initial,
-            prepare_next=lambda: self._prepare_practice(message.source),
+            prepare_next=self._prepare_practice,
             rebuild_aggregates=self._rebuild_aggregates,
             get_daily_learn_budget=self._get_daily_learn_budget,
             get_learning_rate=self._get_learning_rate,

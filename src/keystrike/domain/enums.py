@@ -3,8 +3,6 @@ from enum import IntEnum, StrEnum
 
 class Mode(StrEnum):
     ADAPTIVE = "adaptive"
-    CODE = "code"
-    FREE = "free"
 
 
 class Finger(IntEnum):
@@ -24,12 +22,3 @@ class SessionState(StrEnum):
     RUNNING = "running"
     COMPLETE = "complete"
     CANCELLED = "cancelled"
-
-
-class PracticeSource(StrEnum):
-    """Where a practice session's target text comes from — chosen on Home."""
-
-    SAMPLE = "sample"
-    FREE = "free"
-    ADAPTIVE = "adaptive"
-    CODE = "code"

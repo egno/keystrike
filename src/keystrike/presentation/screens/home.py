@@ -2,13 +2,13 @@ from typing import ClassVar
 
 from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
+from textual.containers import VerticalScroll
 from textual.message import Message
 from textual.screen import Screen
 from textual.widgets import Footer, Static
 
 from keystrike.application.settings_use_cases import CycleLayout
 from keystrike.domain.daily_learn import DailyLearnBudget
-from keystrike.domain.enums import PracticeSource
 from keystrike.domain.null_adapters import NULL_DAILY_LEARN_BUDGET
 from keystrike.domain.protocols import DailyLearnBudgetProvider, SettingsRepository
 
@@ -18,63 +18,52 @@ def _format_daily_learn_line(budget: DailyLearnBudget) -> str:
         return ""
     limit_min = budget.limit_ns / 1e9 / 60
     if budget.limit_reached:
-        return (
-            f"[dim]Daily learn limit reached ({limit_min:g} min). "
-            "Sample, code, and free practice still available.[/]\n"
-        )
+        return f"[dim]Daily learn limit reached ({limit_min:g} min).[/]"
     used_min = budget.used_ns / 1e9 / 60
     remaining_min = budget.remaining_ns / 1e9 / 60
     return (
-        f"Learn today: [bold]{used_min:.1f}[/] / {limit_min:g} min "
-        f"([bold]{remaining_min:.1f}[/] left)\n"
+        f"Learn today: [bold]{used_min:.1f}[/]/{limit_min:g} min "
+        f"([bold]{remaining_min:.1f}[/] left)"
     )
 
 
-def _hero_text(layout: str, has_freeform: bool, learn_budget: DailyLearnBudget) -> str:
-    free_hint = "Press [bold]f[/] to practice your own text." if has_freeform else (
-        "[dim]Set a freeform_path in Settings to unlock free-text practice.[/]"
-    )
-    return (
-        "[bold cyan]keystrike[/]\n"
-        "[dim]offline typing tutor[/]\n\n"
-        f"Layout: [bold]{layout}[/]  (press [bold]l[/] to switch)\n\n"
-        f"{_format_daily_learn_line(learn_budget)}"
-        "Press [bold]Enter[/] for an adaptive lesson (keybr-style).\n"
-        "Press [bold]p[/] to practice a fixed sample text.\n"
-        "Press [bold]c[/] to practice Python code.\n"
-        f"{free_hint}\n"
-        "Press [bold]s[/] for Stats, [bold]o[/] for Settings.\n"
-        "Press [bold]Esc[/] or [bold]q[/] to go back from any screen, [bold]Ctrl+Q[/] to quit."
-    )
+def _hero_text(layout: str, learn_budget: DailyLearnBudget) -> str:
+    lines = [
+        "[bold cyan]keystrike[/]  [dim]offline typing tutor[/]",
+        f"Layout: [bold]{layout}[/]  [dim](l switch)[/]",
+    ]
+    daily = _format_daily_learn_line(learn_budget)
+    if daily:
+        lines.append(daily)
+    return "\n".join(lines)
 
 
 class HomeScreen(Screen[None]):
     DEFAULT_CSS = """
     HomeScreen {
-        align: center middle;
+        align: center top;
     }
-    HomeScreen > #home-hero {
-        width: auto;
+    HomeScreen > VerticalScroll {
+        height: 1fr;
+        width: 100%;
+    }
+    HomeScreen #home-hero {
+        width: 100%;
         height: auto;
-        padding: 2 4;
+        padding: 1 2;
         text-align: center;
     }
     """
 
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding("enter", "practice_adaptive", "Adaptive"),
-        Binding("p", "practice_sample", "Sample text"),
-        Binding("c", "practice_code", "Code"),
-        Binding("f", "practice_free", "Free text"),
         Binding("s", "open_stats", "Stats"),
         Binding("o", "open_settings", "Settings"),
         Binding("l", "cycle_layout", "Switch layout"),
     ]
 
     class StartPractice(Message):
-        def __init__(self, source: PracticeSource) -> None:
-            self.source = source
-            super().__init__()
+        pass
 
     class OpenStats(Message):
         pass
@@ -95,7 +84,7 @@ class HomeScreen(Screen[None]):
         self._get_daily_learn_budget = get_daily_learn_budget
 
     def compose(self) -> ComposeResult:
-        yield Static(self._render_hero(), id="home-hero")
+        yield VerticalScroll(Static(self._render_hero(), id="home-hero"))
         yield Footer()
 
     def on_screen_resume(self) -> None:
@@ -103,26 +92,13 @@ class HomeScreen(Screen[None]):
 
     def _render_hero(self) -> str:
         settings = self._settings_repo.load()
-        return _hero_text(
-            settings.layout,
-            bool(settings.freeform_path),
-            self._get_daily_learn_budget(),
-        )
+        return _hero_text(settings.layout, self._get_daily_learn_budget())
 
     def _refresh_hero(self) -> None:
         self.query_one("#home-hero", Static).update(self._render_hero())
 
     def action_practice_adaptive(self) -> None:
-        self.post_message(self.StartPractice(source=PracticeSource.ADAPTIVE))
-
-    def action_practice_sample(self) -> None:
-        self.post_message(self.StartPractice(source=PracticeSource.SAMPLE))
-
-    def action_practice_code(self) -> None:
-        self.post_message(self.StartPractice(source=PracticeSource.CODE))
-
-    def action_practice_free(self) -> None:
-        self.post_message(self.StartPractice(source=PracticeSource.FREE))
+        self.post_message(self.StartPractice())
 
     def action_open_stats(self) -> None:
         self.post_message(self.OpenStats())

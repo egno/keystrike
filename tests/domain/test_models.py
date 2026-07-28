@@ -17,7 +17,7 @@ def test_session_result_alphabet_is_tuple():
         started_at=0.0,
         duration_ns=1,
         layout="qwerty",
-        mode=Mode.FREE,
+        mode=Mode.ADAPTIVE,
         lesson_alphabet=(ord("a"), ord("b")),
         focus_key=None,
         total_keystrokes=0,

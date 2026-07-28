@@ -44,7 +44,7 @@ def test_hud_omits_daily_goal_when_limit_disabled():
         id="s1",
         target_text="abc",
         layout="qwerty",
-        mode=Mode.FREE,
+        mode=Mode.ADAPTIVE,
         lang="en",
         started_at_wall=0.0,
         started_at_ns=0,

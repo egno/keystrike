@@ -124,12 +124,12 @@ async def test_cycle_layout_persists_and_updates_display():
 
 
 @pytest.mark.asyncio
-async def test_enter_posts_start_practice_adaptive():
-    received: list[str] = []
+async def test_enter_posts_start_practice():
+    received: list[bool] = []
 
     class ProbeApp(App[None]):
-        def on_home_screen_start_practice(self, message: HomeScreen.StartPractice) -> None:
-            received.append(message.source)
+        def on_home_screen_start_practice(self, _: HomeScreen.StartPractice) -> None:
+            received.append(True)
 
     app = ProbeApp()
     async with app.run_test() as pilot:
@@ -138,43 +138,7 @@ async def test_enter_posts_start_practice_adaptive():
         await pilot.pause()
         await pilot.press("enter")
         await pilot.pause()
-        assert received == ["adaptive"]
-
-
-@pytest.mark.asyncio
-async def test_p_posts_start_practice_sample():
-    received: list[str] = []
-
-    class ProbeApp(App[None]):
-        def on_home_screen_start_practice(self, message: HomeScreen.StartPractice) -> None:
-            received.append(message.source)
-
-    app = ProbeApp()
-    async with app.run_test() as pilot:
-        screen, _ = _build_screen()
-        await app.push_screen(screen)
-        await pilot.pause()
-        await pilot.press("p")
-        await pilot.pause()
-        assert received == ["sample"]
-
-
-@pytest.mark.asyncio
-async def test_f_posts_start_practice_free():
-    received: list[str] = []
-
-    class ProbeApp(App[None]):
-        def on_home_screen_start_practice(self, message: HomeScreen.StartPractice) -> None:
-            received.append(message.source)
-
-    app = ProbeApp()
-    async with app.run_test() as pilot:
-        screen, _ = _build_screen()
-        await app.push_screen(screen)
-        await pilot.pause()
-        await pilot.press("f")
-        await pilot.pause()
-        assert received == ["free"]
+        assert received == [True]
 
 
 @pytest.mark.asyncio

@@ -16,7 +16,7 @@ def _session(
         id="s1",
         target_text=target_text,
         layout="qwerty",
-        mode=Mode.FREE,
+        mode=Mode.ADAPTIVE,
         lang="en",
         started_at_wall=0.0,
         started_at_ns=0,

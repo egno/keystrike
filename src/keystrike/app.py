@@ -2,7 +2,7 @@
 
 from random import Random
 
-from keystrike.application.build_lesson import BuildCodeLesson, BuildLesson
+from keystrike.application.build_lesson import BuildLesson
 from keystrike.application.learn_budget_use_cases import GetDailyLearnBudget
 from keystrike.application.prepare_practice import PreparePracticeSession
 from keystrike.application.session_use_cases import (
@@ -19,8 +19,6 @@ from keystrike.application.stats_use_cases import (
 )
 from keystrike.infrastructure.aggregates_cache import FileAggregatesCache
 from keystrike.infrastructure.clock import MonotonicClock
-from keystrike.infrastructure.code_generators.python import PythonCodeGenerator
-from keystrike.infrastructure.freeform import FileFreeformTextProvider
 from keystrike.infrastructure.id_gen import UlidGenerator
 from keystrike.infrastructure.languages import BundledLanguageProvider
 from keystrike.infrastructure.layout_repo import CompositeLayoutRepository
@@ -28,12 +26,6 @@ from keystrike.infrastructure.paths import default_paths, ensure_dirs
 from keystrike.infrastructure.session_repo_jsonl import JsonlSessionRepository
 from keystrike.infrastructure.settings_repo_toml import TomlSettingsRepository
 from keystrike.presentation.textual_app import KeystrikeApp
-
-_SAMPLE_TEXT = (
-    "the quick brown fox jumps over the lazy dog. "
-    "pack my box with five dozen liquor jugs. "
-    "how vexingly quick daft zebras jump."
-)
 
 
 def build() -> KeystrikeApp:
@@ -46,9 +38,7 @@ def build() -> KeystrikeApp:
     settings_repo = TomlSettingsRepository(paths)
     layout_repo = CompositeLayoutRepository(paths)
     aggregates_cache = FileAggregatesCache(paths)
-    freeform_provider = FileFreeformTextProvider()
     language_provider = BundledLanguageProvider()
-    code_provider = PythonCodeGenerator()
 
     start = StartSession(clock=clock, id_gen=id_gen)
     record = RecordKeystroke(clock=clock, repo=session_repo)
@@ -71,21 +61,11 @@ def build() -> KeystrikeApp:
         language_provider=language_provider,
         rng=Random(),
     )
-    build_code_lesson = BuildCodeLesson(
-        layout_repo=layout_repo,
-        aggregates_cache=aggregates_cache,
-        settings_repo=settings_repo,
-        code_provider=code_provider,
-        rng=Random(),
-    )
     prepare_practice = PreparePracticeSession(
         settings_repo=settings_repo,
         layout_repo=layout_repo,
         build_lesson=build_lesson,
-        build_code_lesson=build_code_lesson,
-        freeform_provider=freeform_provider,
         get_daily_learn_budget=get_daily_learn_budget,
-        sample_text=_SAMPLE_TEXT,
     )
 
     return KeystrikeApp(

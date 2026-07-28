@@ -25,7 +25,7 @@ def _header(sid: str = "S1", layout: str = "qwerty", started_at: float = 1_700_0
         started_at=started_at,
         duration_ns=1_000_000_000,
         layout=layout,
-        mode=Mode.FREE,
+        mode=Mode.ADAPTIVE,
         lesson_alphabet=(ord("a"), ord("b")),
         focus_key=None,
         total_keystrokes=2,

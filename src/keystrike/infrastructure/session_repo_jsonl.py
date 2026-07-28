@@ -117,6 +117,16 @@ def _as_float(v: object) -> float:
     return float(v)  # type: ignore[arg-type]
 
 
+_LEGACY_MODES = frozenset({"free", "code", "sample"})
+
+
+def _parse_mode(raw: object) -> Mode:
+    value = str(raw)
+    if value in _LEGACY_MODES:
+        return Mode.ADAPTIVE
+    return Mode(value)
+
+
 def _header_from_dict(d: dict[str, object]) -> SessionResult:
     return SessionResult(
         schema_version=_as_int(d["schema_version"]),
@@ -124,7 +134,7 @@ def _header_from_dict(d: dict[str, object]) -> SessionResult:
         started_at=_as_float(d["started_at"]),
         duration_ns=_as_int(d["duration_ns"]),
         layout=str(d["layout"]),
-        mode=Mode(str(d["mode"])),
+        mode=_parse_mode(d["mode"]),
         lesson_alphabet=tuple(d["lesson_alphabet"]),  # type: ignore[arg-type]
         focus_key=_as_int(d["focus_key"]) if d.get("focus_key") is not None else None,
         total_keystrokes=_as_int(d["total_keystrokes"]),

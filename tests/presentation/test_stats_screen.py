@@ -50,7 +50,7 @@ async def test_stats_screen_with_sessions_renders_history_and_heatmap():
             started_at=1_700_000_000.0,
             duration_ns=1_000_000_000,
             layout="qwerty",
-            mode=Mode.FREE,
+            mode=Mode.ADAPTIVE,
             lesson_alphabet=(ord("a"),),
             focus_key=None,
             total_keystrokes=1,

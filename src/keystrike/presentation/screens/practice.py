@@ -15,7 +15,6 @@ from keystrike.application.session_use_cases import (
     StartSession,
     format_session_stats_line,
 )
-from keystrike.domain.enums import Mode
 from keystrike.domain.models import Layout, SessionResult
 from keystrike.domain.null_adapters import (
     NULL_DAILY_LEARN_BUDGET,
@@ -80,11 +79,7 @@ class PracticeScreen(Screen[None]):
         self._clock = clock
         self._prepare_next = prepare_next
         self._rebuild_aggregates = rebuild_aggregates
-        self._get_daily_learn_budget = (
-            get_daily_learn_budget
-            if initial.mode is Mode.ADAPTIVE
-            else NULL_DAILY_LEARN_BUDGET
-        )
+        self._get_daily_learn_budget = get_daily_learn_budget
         self._get_learning_rate = get_learning_rate
         self._layout_obj: Layout | None = initial.layout_obj
         self._lesson_heatmap = initial.lesson_heatmap
@@ -141,7 +136,7 @@ class PracticeScreen(Screen[None]):
         event.stop()
         self._typing_area.refresh_display()
 
-        if self._session.mode is Mode.ADAPTIVE and self._daily_limit_reached():
+        if self._daily_limit_reached():
             self._finish_session(start_next=False)
             return
 
