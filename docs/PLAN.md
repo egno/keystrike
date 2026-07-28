@@ -340,10 +340,13 @@ above for where code mode deliberately diverges from a literal reading of
 
 - **Confidence**: `confidence = target_speed_ms_per_char / mean_time_ns_per_key`.
   Ratio > 1.0 = above target; < 1.0 = below.
-- **Unlock**: iterate `layout.learn_order`; force-include the first
-  `round(alphabet_size * len(order))` keys, then unlock next only when
-  `all(confidence[k] >= threshold for k in unlocked)`. `recover_keys=True`
-  uses historical peak; `False` uses live.
+- **Unlock**: iterate `keyboard_order(layout)` (row-weighted: home row, then
+  top row, then everything else — see docs/research/typing-pedagogy.md);
+  force-include the first `alphabet_size` keys (a literal count, capped at
+  `len(order)`), then unlock next only when
+  `all(confidence[k] >= threshold for k in unlocked)`. Confidence is always
+  live (recomputed from current speed+accuracy), never a stored historical
+  peak.
 - **Focus letter**: `min(unlocked, key=confidence)`. Injected into at least
   one generated word.
 - **Text generation**: Markov chain over order-2 transitions filtered to

@@ -54,9 +54,7 @@ def _build_app(
         finish=FinishSession(clock=clock, repo=session_repo),
         settings_repo=settings_repo,
         layout_repo=layout_repo,
-        rebuild_aggregates=RebuildAggregates(
-            repo=session_repo, cache=cache, settings_repo=settings_repo,
-        ),
+        rebuild_aggregates=RebuildAggregates(repo=session_repo, cache=cache),
         get_heatmap=GetHeatmap(cache=cache, settings_repo=settings_repo),
         get_history=GetHistory(repo=session_repo),
         get_learning_rate=GetLearningRate(repo=session_repo, settings_repo=settings_repo),

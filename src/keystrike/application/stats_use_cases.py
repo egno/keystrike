@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 
 from keystrike.domain.aggregate import aggregate_session, combine, per_key_deltas
 from keystrike.domain.confidence import accuracy_of, key_confidence, target_ms_per_char
@@ -15,36 +15,19 @@ _NS_PER_MS = 1e6
 
 @dataclass(slots=True)
 class RebuildAggregates:
-    """Replay every stored session for a layout into a fresh KeyStats cache entry.
-
-    Also (re)stamps `peak_confidence` on each per-session slice — evaluated
-    against today's target speed — before combining, so `combine()`'s max()
-    tracks the best single-session confidence ever recorded for that key.
-    This is what `recover_keys=True` reads in the M3 adaptive engine.
-    """
+    """Replay every stored session for a layout into a fresh KeyStats cache entry."""
 
     repo: SessionRepository
     cache: AggregatesCache
-    settings_repo: SettingsRepository
 
     def __call__(self, layout: str) -> dict[int, KeyStats]:
-        target = target_ms_per_char(self.settings_repo.load().target_speed_cpm)
         maps = [
-            _stamp_peak_confidence(
-                aggregate_session(header, self.repo.load_keystrokes(header.session_id)), target,
-            )
+            aggregate_session(header, self.repo.load_keystrokes(header.session_id))
             for header in self.repo.iter_headers(layout)
         ]
         combined = combine(*maps)
         self.cache.put(layout, combined)
         return combined
-
-
-def _stamp_peak_confidence(stats: dict[int, KeyStats], target: float) -> dict[int, KeyStats]:
-    return {
-        cp: replace(k, peak_confidence=key_confidence(target, k.mean_time_ns) * accuracy_of(k))
-        for cp, k in stats.items()
-    }
 
 
 @dataclass(slots=True)

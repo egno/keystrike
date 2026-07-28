@@ -26,10 +26,7 @@ def test_round_trip(paths):
     original = Settings(
         layout="dvorak",
         target_speed_cpm=400,
-        alphabet_size=0.75,
-        recover_keys=False,
-        keyboard_order=True,
-        theme="light",
+        alphabet_size=20,
         freeform_path="/tmp/lorem.txt",
     )
     repo.save(original)

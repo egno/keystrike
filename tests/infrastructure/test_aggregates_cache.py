@@ -23,8 +23,8 @@ def test_get_returns_none_when_missing(paths):
 def test_put_then_get(paths):
     cache = FileAggregatesCache(paths)
     stats = {
-        ord("a"): KeyStats(ord("a"), 10, 120_000_000.0, 1, 1_700_000_000.0, 0.85),
-        ord("b"): KeyStats(ord("b"), 5, 200_000_000.0, 3, 1_700_000_100.0, 0.60),
+        ord("a"): KeyStats(ord("a"), 10, 120_000_000.0, 1, 1_700_000_000.0),
+        ord("b"): KeyStats(ord("b"), 5, 200_000_000.0, 3, 1_700_000_100.0),
     }
     cache.put("qwerty", stats)
     loaded = cache.get("qwerty")
@@ -33,8 +33,8 @@ def test_put_then_get(paths):
 
 def test_layout_isolation(paths):
     cache = FileAggregatesCache(paths)
-    cache.put("qwerty", {ord("a"): KeyStats(ord("a"), 1, 100.0, 0, 1.0, 0.0)})
-    cache.put("dvorak", {ord("z"): KeyStats(ord("z"), 2, 50.0, 0, 2.0, 0.0)})
+    cache.put("qwerty", {ord("a"): KeyStats(ord("a"), 1, 100.0, 0, 1.0)})
+    cache.put("dvorak", {ord("z"): KeyStats(ord("z"), 2, 50.0, 0, 2.0)})
     qwerty = cache.get("qwerty")
     dvorak = cache.get("dvorak")
     assert qwerty is not None

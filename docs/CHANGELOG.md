@@ -5,6 +5,30 @@ rationale lives in commit history/diffs — these are pointers, not narratives.
 Milestone-level feature work (what shipped in M1–M4, the keybr algorithm
 design) stays in `PLAN.md` §5/§6.
 
+## Removed Theme/Recover keys/Keyboard order settings; Alphabet size is now a letter count
+
+These three Settings toggles were redundant — each only ever needs one
+answer, so the choice was made permanent instead of user-configurable.
+`theme` was dead code (never read to switch any rendering/styling) — removed
+outright. `keyboard_order` is now always on: `build_lesson.py` always calls
+`keyboard_order(layout)` (row-weighted unlock order), since it's the
+literature- and convention-backed choice (docs/research/typing-pedagogy.md,
+"Row-order vs. finger-order"); the frequency-order path and `Settings.theme`
+are gone. `recover_keys` is now always "live": `confidence_of`/
+`compute_unlocked`/`select_focus` dropped the `recover_keys` param and the
+historical-peak branch, matching Keybr's actual "clears thresholds on the
+*current* set" gate rather than trusting a stale best-ever score. Since
+nothing reads a historical peak anymore, `KeyStats.peak_confidence` and its
+plumbing (`_stamp_peak_confidence`, `aggregate.py`'s `max()` merge, the cache
+JSON field) were deleted; `RebuildAggregates` no longer needs a
+`settings_repo` dependency. `alphabet_size` changed from a `0.0-1.0` fraction
+of the learn order to a plain `int` count of letters force-unlocked from
+cold start (default `16`); `compute_unlocked` now does
+`min(alphabet_size, len(learn_order))` instead of
+`round(alphabet_size * len(learn_order))`. Existing `settings.toml` files
+with an old fractional `alphabet_size` (e.g. `0.5`) will read back as `0`
+under the new `int()` cast — re-save the Settings screen once to fix.
+
 ## Confidence now folds in accuracy
 
 `confidence_of`'s live branch, `_stamp_peak_confidence` (feeds

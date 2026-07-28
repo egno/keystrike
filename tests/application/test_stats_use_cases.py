@@ -47,30 +47,13 @@ def test_rebuild_aggregates_combines_all_sessions_for_layout():
         Keystroke(codepoint=ord("z"), typed=ord("z"), t_ns=0, correct=True),
     ]
 
-    rebuild = RebuildAggregates(repo=repo, cache=cache, settings_repo=FakeSettingsRepository())
+    rebuild = RebuildAggregates(repo=repo, cache=cache)
     result = rebuild("qwerty")
 
     assert set(result) == {ord("a")}
     assert result[ord("a")].samples == 2
     assert cache.get("qwerty") == result
     assert cache.get("dvorak") is None
-
-
-def test_rebuild_aggregates_stamps_peak_confidence():
-    repo = FakeSessionRepository()
-    cache = FakeAggregatesCache()
-    settings_repo = FakeSettingsRepository(Settings(target_speed_cpm=300))
-    header = _header("s1", 1_700_000_000.0)
-    repo.save_header(header)
-    repo.keystrokes["s1"] = [
-        Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
-        Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=200_000_000, correct=True),
-    ]
-
-    result = RebuildAggregates(repo=repo, cache=cache, settings_repo=settings_repo)("qwerty")
-
-    # target_ms_per_char = 200ms; mean_time = 200ms → peak_confidence == 1.0
-    assert result[ord("a")].peak_confidence == 1.0
 
 
 def test_get_heatmap_empty_cache_returns_empty_dict():
@@ -90,7 +73,7 @@ def test_get_heatmap_confidence_ratio():
         Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
         Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=200_000_000, correct=True),
     ]
-    RebuildAggregates(repo=repo, cache=cache, settings_repo=settings_repo)("qwerty")
+    RebuildAggregates(repo=repo, cache=cache)("qwerty")
 
     get_heatmap = GetHeatmap(cache=cache, settings_repo=settings_repo)
     heatmap = get_heatmap("qwerty")

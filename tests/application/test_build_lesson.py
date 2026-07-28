@@ -1,7 +1,7 @@
-from dataclasses import replace
 from random import Random
 
 from keystrike.application.build_lesson import BuildCodeLesson, BuildLesson
+from keystrike.domain.learn_order import keyboard_order
 from keystrike.domain.models import Settings
 from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS
 from tests.fakes import (
@@ -52,20 +52,24 @@ def test_lesson_focus_key_is_among_unlocked_keys():
 
 
 def test_lesson_state_reflects_settings():
-    settings = Settings(alphabet_size=0.3, target_speed_cpm=250, recover_keys=False)
+    settings = Settings(alphabet_size=5, target_speed_cpm=250)
     lesson = _build_lesson(settings)("qwerty")
     assert lesson.state.layout == "qwerty"
-    assert lesson.state.alphabet_size == 0.3
+    assert lesson.state.alphabet_size == 5
     assert lesson.state.target_speed_cpm == 250
-    assert lesson.state.recover_keys is False
 
 
-def test_cold_start_unlocks_forced_fraction_of_learn_order():
-    settings = Settings(alphabet_size=0.5)
+def test_cold_start_unlocks_forced_count_of_learn_order():
+    settings = Settings(alphabet_size=10)
     lesson = _build_lesson(settings)("qwerty")
+    assert len(lesson.state.keys) == 10
+
+
+def test_alphabet_size_caps_at_learn_order_length():
     layout = BUNDLED_LAYOUTS["qwerty"]
-    expected_count = round(0.5 * len(layout.learn_order))
-    assert len(lesson.state.keys) == expected_count
+    settings = Settings(alphabet_size=len(layout.learn_order) + 100)
+    lesson = _build_lesson(settings)("qwerty")
+    assert len(lesson.state.keys) == len(layout.learn_order)
 
 
 def test_code_lesson_text_is_one_of_the_snippets():
@@ -76,9 +80,7 @@ def test_code_lesson_text_is_one_of_the_snippets():
 
 def test_code_lesson_state_mirrors_build_lesson_progress():
     lesson = _build_code_lesson()("qwerty")
-    layout = BUNDLED_LAYOUTS["qwerty"]
-    expected_count = round(0.5 * len(layout.learn_order))
-    assert len(lesson.state.keys) == expected_count
+    assert len(lesson.state.keys) == Settings().alphabet_size
     assert sum(k.is_focus for k in lesson.state.keys) == 1
 
 
@@ -88,14 +90,16 @@ def test_lesson_heatmap_maps_unlocked_codepoints_to_confidence():
     assert set(lesson.heatmap) == {k.codepoint for k in lesson.state.keys}
 
 
-def test_keyboard_order_setting_changes_cold_start_unlocked_set_on_qwerty():
-    # Cold start (no stats), alphabet_size=0.3 forces a small enough prefix
-    # that frequency-order and row-order genuinely disagree on which keys
-    # are in it (QWERTY's home row isn't its most frequent letters).
-    settings = Settings(alphabet_size=0.3)
-    frequency = _build_lesson(settings)("qwerty")
-    row_ordered = _build_lesson(replace(settings, keyboard_order=True))("qwerty")
+def test_cold_start_unlocks_row_ordered_prefix_not_frequency_order():
+    # QWERTY's home row isn't its most frequent letters, so a small enough
+    # forced prefix genuinely disagrees between row-order and frequency-order.
+    layout = BUNDLED_LAYOUTS["qwerty"]
+    settings = Settings(alphabet_size=5)
+    lesson = _build_lesson(settings)("qwerty")
 
-    frequency_unlocked = {k.codepoint for k in frequency.state.keys}
-    row_unlocked = {k.codepoint for k in row_ordered.state.keys}
-    assert frequency_unlocked != row_unlocked
+    row_unlocked = {k.codepoint for k in lesson.state.keys}
+    expected = set(keyboard_order(layout)[:5])
+    frequency_prefix = set(layout.learn_order[:5])
+
+    assert row_unlocked == expected
+    assert row_unlocked != frequency_prefix

@@ -18,19 +18,13 @@ def test_update_settings_persists_all_fields():
         layout="dvorak",
         target_speed_cpm=400,
         freeform_path="/tmp/a.txt",
-        theme="light",
-        alphabet_size=0.75,
-        recover_keys=False,
-        keyboard_order=True,
+        alphabet_size=20,
     )
 
     assert result.layout == "dvorak"
     assert result.target_speed_cpm == 400
     assert result.freeform_path == "/tmp/a.txt"
-    assert result.theme == "light"
-    assert result.alphabet_size == 0.75
-    assert result.recover_keys is False
-    assert result.keyboard_order is True
+    assert result.alphabet_size == 20
     assert repo.settings == result
 
 
@@ -43,17 +37,13 @@ def test_update_settings_rejects_non_positive_speed():
             layout="qwerty",
             target_speed_cpm=0,
             freeform_path=None,
-            theme="dark",
-            alphabet_size=0.5,
-            recover_keys=True,
-            keyboard_order=False,
+            alphabet_size=16,
         )
 
     assert repo.settings == Settings()  # unchanged
 
 
-@pytest.mark.parametrize("alphabet_size", [-0.1, 1.5])
-def test_update_settings_rejects_out_of_range_alphabet_size(alphabet_size):
+def test_update_settings_rejects_negative_alphabet_size():
     repo = FakeSettingsRepository(Settings())
     update = UpdateSettings(repo=repo)
 
@@ -62,10 +52,7 @@ def test_update_settings_rejects_out_of_range_alphabet_size(alphabet_size):
             layout="qwerty",
             target_speed_cpm=300,
             freeform_path=None,
-            theme="dark",
-            alphabet_size=alphabet_size,
-            recover_keys=True,
-            keyboard_order=False,
+            alphabet_size=-1,
         )
 
     assert repo.settings == Settings()  # unchanged

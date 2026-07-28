@@ -45,9 +45,7 @@ def build() -> KeystrikeApp:
     start = StartSession(clock=clock, id_gen=id_gen)
     record = RecordKeystroke(clock=clock, repo=session_repo)
     finish = FinishSession(clock=clock, repo=session_repo)
-    rebuild_aggregates = RebuildAggregates(
-        repo=session_repo, cache=aggregates_cache, settings_repo=settings_repo,
-    )
+    rebuild_aggregates = RebuildAggregates(repo=session_repo, cache=aggregates_cache)
     get_heatmap = GetHeatmap(cache=aggregates_cache, settings_repo=settings_repo)
     get_history = GetHistory(repo=session_repo)
     get_learning_rate = GetLearningRate(repo=session_repo, settings_repo=settings_repo)

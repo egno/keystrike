@@ -34,7 +34,6 @@ class FileAggregatesCache:
                 mean_time_ns=float(entry["mean_time_ns"]),
                 error_count=int(entry["error_count"]),
                 last_seen=float(entry["last_seen"]),
-                peak_confidence=float(entry["peak_confidence"]),
             )
             for cp, entry in keys.items()
         }

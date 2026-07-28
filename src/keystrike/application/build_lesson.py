@@ -17,6 +17,7 @@ from keystrike.domain.code_lesson import select_snippet
 from keystrike.domain.confidence import (
     compute_unlocked,
     confidence_of,
+    practice_weight,
     select_focus,
     target_ms_per_char,
 )
@@ -52,21 +53,15 @@ def _lesson_progress(
     layout_name: str, layout: Layout, stats: dict[int, KeyStats], settings: Settings,
 ) -> tuple[tuple[int, ...], int, LessonState]:
     target = target_ms_per_char(settings.target_speed_cpm)
-    order = keyboard_order(layout) if settings.keyboard_order else layout.learn_order
-    unlocked = compute_unlocked(
-        order,
-        settings.alphabet_size,
-        stats,
-        target,
-        recover_keys=settings.recover_keys,
-    )
-    focus = select_focus(unlocked, stats, target, settings.recover_keys)
+    order = keyboard_order(layout)
+    unlocked = compute_unlocked(order, settings.alphabet_size, stats, target)
+    focus = select_focus(unlocked, stats, target)
 
     keys = tuple(
         LessonKey(
             codepoint=cp,
             unlocked=True,
-            confidence=confidence_of(cp, stats, target, settings.recover_keys),
+            confidence=confidence_of(cp, stats, target),
             is_focus=(cp == focus),
         )
         for cp in unlocked
@@ -76,7 +71,6 @@ def _lesson_progress(
         keys=keys,
         alphabet_size=settings.alphabet_size,
         target_speed_cpm=settings.target_speed_cpm,
-        recover_keys=settings.recover_keys,
     )
     return unlocked, focus, state
 
@@ -98,7 +92,10 @@ class BuildLesson:
         table = self.language_provider.transitions(settings.lang)
         generator = AdaptiveGenerator(table=table, rng=self.rng)
         alphabet_chars = frozenset(chr(cp) for cp in unlocked)
-        text = generator.generate_lesson(alphabet_chars, chr(focus), word_count=WORD_COUNT)
+        char_weights = {chr(k.codepoint): practice_weight(k.confidence) for k in state.keys}
+        text = generator.generate_lesson(
+            alphabet_chars, chr(focus), word_count=WORD_COUNT, char_weights=char_weights,
+        )
 
         return Lesson(text=text, state=state)
 

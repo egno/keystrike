@@ -33,7 +33,6 @@ class KeyStats:
     mean_time_ns: float
     error_count: int
     last_seen: float
-    peak_confidence: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,9 +47,8 @@ class LessonKey:
 class LessonState:
     layout: str
     keys: tuple[LessonKey, ...]
-    alphabet_size: float
+    alphabet_size: int
     target_speed_cpm: int
-    recover_keys: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,10 +74,7 @@ class Settings:
     schema_version: int = 1
     layout: str = "qwerty"
     target_speed_cpm: int = 300         # 60 wpm
-    alphabet_size: float = 0.5
-    recover_keys: bool = True
-    keyboard_order: bool = False
-    theme: str = "dark"
+    alphabet_size: int = 16             # letters force-unlocked from cold start
     lang: str = "en"
     code_language: str = "python"
     freeform_path: str | None = None

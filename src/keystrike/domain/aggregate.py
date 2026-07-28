@@ -67,7 +67,6 @@ def aggregate_session(
             if p.time_samples else 0.0,
             error_count=p.error_count,
             last_seen=session_end_wall,
-            peak_confidence=0.0,
         )
         for cp, p in partial.items()
     }
@@ -87,7 +86,6 @@ def merge_key_stats(a: KeyStats, b: KeyStats) -> KeyStats:
         mean_time_ns=mean,
         error_count=a.error_count + b.error_count,
         last_seen=max(a.last_seen, b.last_seen),
-        peak_confidence=max(a.peak_confidence, b.peak_confidence),
     )
 
 

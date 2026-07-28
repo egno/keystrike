@@ -29,24 +29,18 @@ class UpdateSettings:
         layout: str,
         target_speed_cpm: int,
         freeform_path: str | None,
-        theme: str,
-        alphabet_size: float,
-        recover_keys: bool,
-        keyboard_order: bool,
+        alphabet_size: int,
     ) -> Settings:
         if target_speed_cpm <= 0:
             raise SettingsValidationError("Target speed must be a positive integer.")
-        if not 0.0 <= alphabet_size <= 1.0:
-            raise SettingsValidationError("Alphabet size must be between 0.0 and 1.0.")
+        if alphabet_size < 0:
+            raise SettingsValidationError("Number of letters must be zero or more.")
         updated = replace(
             self.repo.load(),
             layout=layout,
             target_speed_cpm=target_speed_cpm,
             freeform_path=freeform_path,
-            theme=theme,
             alphabet_size=alphabet_size,
-            recover_keys=recover_keys,
-            keyboard_order=keyboard_order,
         )
         self.repo.save(updated)
         return updated

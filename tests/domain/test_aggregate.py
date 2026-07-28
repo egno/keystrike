@@ -93,22 +93,21 @@ def test_per_key_deltas_separates_by_codepoint():
 
 def test_merge_weighted_mean():
     a = KeyStats(codepoint=ord("x"), samples=2, mean_time_ns=100.0,
-                 error_count=1, last_seen=100.0, peak_confidence=0.5)
+                 error_count=1, last_seen=100.0)
     b = KeyStats(codepoint=ord("x"), samples=3, mean_time_ns=200.0,
-                 error_count=2, last_seen=200.0, peak_confidence=0.7)
+                 error_count=2, last_seen=200.0)
     m = merge_key_stats(a, b)
     assert m.samples == 5
     # (2*100 + 3*200) / 5 = 160
     assert abs(m.mean_time_ns - 160.0) < 1e-9
     assert m.error_count == 3
     assert m.last_seen == 200.0
-    assert m.peak_confidence == 0.7
 
 
 def test_combine_multiple_maps():
-    a = {ord("x"): KeyStats(ord("x"), 1, 100.0, 0, 1.0, 0.0)}
-    b = {ord("x"): KeyStats(ord("x"), 1, 300.0, 1, 2.0, 0.0),
-         ord("y"): KeyStats(ord("y"), 2, 50.0, 0, 3.0, 0.0)}
+    a = {ord("x"): KeyStats(ord("x"), 1, 100.0, 0, 1.0)}
+    b = {ord("x"): KeyStats(ord("x"), 1, 300.0, 1, 2.0),
+         ord("y"): KeyStats(ord("y"), 2, 50.0, 0, 3.0)}
     out = combine(a, b)
     assert out[ord("x")].samples == 2
     assert abs(out[ord("x")].mean_time_ns - 200.0) < 1e-9

@@ -40,10 +40,7 @@ class TomlSettingsRepository:
             schema_version=int(raw.get("schema_version", defaults.schema_version)),
             layout=str(raw.get("layout", defaults.layout)),
             target_speed_cpm=int(raw.get("target_speed_cpm", defaults.target_speed_cpm)),
-            alphabet_size=float(raw.get("alphabet_size", defaults.alphabet_size)),
-            recover_keys=bool(raw.get("recover_keys", defaults.recover_keys)),
-            keyboard_order=bool(raw.get("keyboard_order", defaults.keyboard_order)),
-            theme=str(raw.get("theme", defaults.theme)),
+            alphabet_size=int(raw.get("alphabet_size", defaults.alphabet_size)),
             lang=str(raw.get("lang", defaults.lang)),
             code_language=str(raw.get("code_language", defaults.code_language)),
             freeform_path=(
@@ -59,9 +56,6 @@ class TomlSettingsRepository:
             ("layout", settings.layout),
             ("target_speed_cpm", settings.target_speed_cpm),
             ("alphabet_size", settings.alphabet_size),
-            ("recover_keys", settings.recover_keys),
-            ("keyboard_order", settings.keyboard_order),
-            ("theme", settings.theme),
             ("lang", settings.lang),
             ("code_language", settings.code_language),
         ]

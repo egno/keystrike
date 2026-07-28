@@ -34,3 +34,18 @@ def test_sample_returns_none_when_nothing_matches():
     table = TransitionTable(order=2, transitions={"a": {"b": 1}})
     rng = Random(1)
     assert table.sample("a", frozenset("xyz"), rng) is None
+
+
+def test_sample_char_weights_bias_toward_weighted_char():
+    table = TransitionTable(order=2, transitions={"": {"b": 1, "c": 1}})
+    rng = Random(1)
+    # "b" would be a coin flip against "c" on raw weight alone; a large
+    # char_weights bias should make it win consistently.
+    results = {table.sample("", frozenset("bc"), rng, {"b": 100.0}) for _ in range(20)}
+    assert results == {"b"}
+
+
+def test_sample_char_weights_ignores_chars_outside_row():
+    table = TransitionTable(order=2, transitions={"a": {"b": 1}})
+    rng = Random(1)
+    assert table.sample("a", frozenset("ab"), rng, {"z": 100.0}) == "b"
