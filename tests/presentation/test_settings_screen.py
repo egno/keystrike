@@ -222,7 +222,7 @@ async def test_import_uses_default_url_when_field_empty():
         await pilot.pause()
 
         app.screen.query_one("#settings-wordlist-url", Input).value = ""
-        await pilot.press("i")
+        await pilot.press("ctrl+i")
         await pilot.pause()
 
         assert settings_repo.settings.wordlist_url == DEFAULT_WORDLIST_URL
@@ -240,7 +240,7 @@ async def test_import_prefilled_default_url():
         await app.push_screen(screen)
         await pilot.pause()
 
-        await pilot.press("i")
+        await pilot.press("ctrl+i")
         await pilot.pause()
 
         assert settings_repo.settings.wordlist_url == DEFAULT_WORDLIST_URL
@@ -258,7 +258,7 @@ async def test_import_shows_error_on_wordlist_error():
         await pilot.pause()
 
         app.screen.query_one("#settings-wordlist-url", Input).value = "https://example.com/w.txt"
-        await pilot.press("i")
+        await pilot.press("ctrl+i")
         await pilot.pause()
 
         error = str(app.screen.query_one("#settings-error", Static).content)
@@ -308,7 +308,7 @@ async def test_clear_removes_wordlist_and_uses_markov():
         await app.push_screen(screen)
         await pilot.pause()
 
-        await pilot.press("c")
+        await pilot.press("ctrl+x")
         await pilot.pause()
 
         assert settings_repo.settings.wordlist_url == ""

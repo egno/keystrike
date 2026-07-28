@@ -27,15 +27,16 @@ class SettingsScreen(Screen[None]):
         padding: 1 2;
         width: 60;
     }
-    SettingsScreen Label {
+    SettingsScreen Label,
+    SettingsScreen #settings-wordlist-label {
         margin-top: 1;
     }
     """
 
     BINDINGS: ClassVar[list[BindingType]] = [
         SAVE,
-        Binding("i", "import_wordlist", "Import"),
-        Binding("c", "clear_wordlist", "Clear"),
+        Binding("ctrl+i", "import_wordlist", "Import", priority=True),
+        Binding("ctrl+x", "clear_wordlist", "Clear", priority=True),
         *BACK_BINDINGS,
     ]
 
@@ -95,7 +96,10 @@ class SettingsScreen(Screen[None]):
                 id="settings-learn-daily-minutes",
                 type="integer",
             )
-            yield Label("Word list")
+            yield Static(
+                "Word list  [dim](Ctrl+I import, Ctrl+X clear)[/]",
+                id="settings-wordlist-label",
+            )
             yield Input(
                 value=self._display_wordlist_url(settings.wordlist_url),
                 id="settings-wordlist-url",
