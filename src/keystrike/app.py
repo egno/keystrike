@@ -3,6 +3,7 @@
 from random import Random
 
 from keystrike.application.build_lesson import BuildCodeLesson, BuildLesson
+from keystrike.application.learn_budget_use_cases import GetDailyLearnBudget
 from keystrike.application.session_use_cases import (
     FinishSession,
     RecordKeystroke,
@@ -49,6 +50,11 @@ def build() -> KeystrikeApp:
     get_heatmap = GetHeatmap(cache=aggregates_cache, settings_repo=settings_repo)
     get_history = GetHistory(repo=session_repo)
     get_learning_rate = GetLearningRate(repo=session_repo, settings_repo=settings_repo)
+    get_daily_learn_budget = GetDailyLearnBudget(
+        clock=clock,
+        repo=session_repo,
+        settings_repo=settings_repo,
+    )
     cycle_layout = CycleLayout(settings_repo=settings_repo, layout_repo=layout_repo)
     update_settings = UpdateSettings(repo=settings_repo)
     build_lesson = BuildLesson(
@@ -77,6 +83,7 @@ def build() -> KeystrikeApp:
         get_heatmap=get_heatmap,
         get_history=get_history,
         get_learning_rate=get_learning_rate,
+        get_daily_learn_budget=get_daily_learn_budget,
         freeform_provider=freeform_provider,
         cycle_layout=cycle_layout,
         update_settings=update_settings,

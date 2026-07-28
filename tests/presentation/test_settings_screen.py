@@ -33,6 +33,7 @@ async def test_save_persists_changes_and_pops_screen():
         app.screen.query_one("#settings-freeform-path", Input).value = "/tmp/practice.txt"
         app.screen.query_one("#settings-layout", Select).value = "dvorak"
         app.screen.query_one("#settings-alphabet-size", Input).value = "20"
+        app.screen.query_one("#settings-learn-daily-minutes", Input).value = "15"
         await pilot.pause()
 
         await pilot.press("ctrl+s")
@@ -42,6 +43,7 @@ async def test_save_persists_changes_and_pops_screen():
         assert settings_repo.settings.freeform_path == "/tmp/practice.txt"
         assert settings_repo.settings.layout == "dvorak"
         assert settings_repo.settings.alphabet_size == 20
+        assert settings_repo.settings.learn_daily_minutes == 15
         assert app.screen_stack[-1] is not screen
 
 

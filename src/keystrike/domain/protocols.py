@@ -2,6 +2,7 @@ from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import Protocol
 
+from .daily_learn import DailyLearnBudget
 from .markov import TransitionTable
 from .models import KeyStats, Keystroke, Layout, SessionResult, Settings
 
@@ -19,6 +20,7 @@ class SessionRepository(Protocol):
     def append_keystroke(self, session_id: str, started_at: float, k: Keystroke) -> None: ...
     def save_header(self, header: SessionResult) -> None: ...
     def iter_headers(self, layout: str) -> Iterator[SessionResult]: ...
+    def iter_all_headers(self) -> Iterator[SessionResult]: ...
     def load_keystrokes(self, session_id: str) -> Iterator[Keystroke]: ...
 
 
@@ -60,3 +62,9 @@ class LearningRateEstimator(Protocol):
     """Shape of `application.stats_use_cases.GetLearningRate`."""
 
     def __call__(self, layout: str, codepoint: int) -> int | None: ...
+
+
+class DailyLearnBudgetProvider(Protocol):
+    """Shape of `application.learn_budget_use_cases.GetDailyLearnBudget`."""
+
+    def __call__(self, *, extra_ns: int = 0) -> DailyLearnBudget: ...

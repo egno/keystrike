@@ -15,8 +15,17 @@ from keystrike.application.session_use_cases import (
 )
 from keystrike.domain.enums import Mode
 from keystrike.domain.models import Layout
-from keystrike.domain.null_adapters import NULL_LEARNING_RATE_ESTIMATOR, NULL_STATS_REBUILDER
-from keystrike.domain.protocols import Clock, LearningRateEstimator, StatsRebuilder
+from keystrike.domain.null_adapters import (
+    NULL_DAILY_LEARN_BUDGET,
+    NULL_LEARNING_RATE_ESTIMATOR,
+    NULL_STATS_REBUILDER,
+)
+from keystrike.domain.protocols import (
+    Clock,
+    DailyLearnBudgetProvider,
+    LearningRateEstimator,
+    StatsRebuilder,
+)
 from keystrike.presentation.screens.results import ResultsScreen
 from keystrike.presentation.widgets.hud import HUD
 from keystrike.presentation.widgets.kb_heatmap import KbHeatmap
@@ -48,6 +57,7 @@ class PracticeScreen(Screen[None]):
         focus_key: int | None = None,
         rebuild_aggregates: StatsRebuilder = NULL_STATS_REBUILDER,
         get_learning_rate: LearningRateEstimator = NULL_LEARNING_RATE_ESTIMATOR,
+        get_daily_learn_budget: DailyLearnBudgetProvider = NULL_DAILY_LEARN_BUDGET,
         layout_obj: Layout | None = None,
         lesson_heatmap: dict[int, float] | None = None,
     ) -> None:
@@ -60,12 +70,22 @@ class PracticeScreen(Screen[None]):
         self._layout_obj = layout_obj
         self._lesson_heatmap = lesson_heatmap
         self._focus_key = focus_key
+        self._get_daily_learn_budget = (
+            get_daily_learn_budget if mode is Mode.ADAPTIVE else NULL_DAILY_LEARN_BUDGET
+        )
         self._session = self._start(target_text, layout=layout, mode=mode, focus_key=focus_key)
         sessions_to_goal = (
             get_learning_rate(layout, focus_key) if focus_key is not None else None
         )
         self._typing_area = TypingArea(self._session)
-        self._hud = HUD(self._session, clock, sessions_to_goal)
+        self._hud = HUD(
+            self._session,
+            clock,
+            sessions_to_goal,
+            get_daily_learn_budget=(
+                self._get_daily_learn_budget if mode is Mode.ADAPTIVE else None
+            ),
+        )
 
     def compose(self) -> ComposeResult:
         with Vertical():
@@ -96,10 +116,26 @@ class PracticeScreen(Screen[None]):
         event.stop()
         self._typing_area.refresh_display()
 
+        if self._session.mode is Mode.ADAPTIVE and self._daily_limit_reached():
+            self._finish_session()
+            return
+
         if self._session.finished:
-            result = self._finish(self._session)
-            self._rebuild_aggregates(result.layout)
-            self.app.switch_screen(ResultsScreen(result))
+            self._finish_session()
+
+    def _current_elapsed_ns(self) -> int:
+        started = self._session.typing_started_at_ns
+        if started is None:
+            return 0
+        return self._clock.now_ns() - started
+
+    def _daily_limit_reached(self) -> bool:
+        return self._get_daily_learn_budget(extra_ns=self._current_elapsed_ns()).limit_reached
+
+    def _finish_session(self) -> None:
+        result = self._finish(self._session)
+        self._rebuild_aggregates(result.layout)
+        self.app.switch_screen(ResultsScreen(result))
 
     def action_quit_app(self) -> None:
         self.app.exit()

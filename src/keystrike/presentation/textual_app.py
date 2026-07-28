@@ -16,8 +16,10 @@ from keystrike.application.stats_use_cases import (
     RebuildAggregates,
 )
 from keystrike.domain.enums import Mode, PracticeSource
+from keystrike.domain.null_adapters import NULL_DAILY_LEARN_BUDGET
 from keystrike.domain.protocols import (
     Clock,
+    DailyLearnBudgetProvider,
     FreeformTextProvider,
     LayoutRepository,
     SettingsRepository,
@@ -56,6 +58,7 @@ class KeystrikeApp(App[None]):
         update_settings: UpdateSettings,
         build_lesson: BuildLesson,
         build_code_lesson: BuildCodeLesson,
+        get_daily_learn_budget: DailyLearnBudgetProvider = NULL_DAILY_LEARN_BUDGET,
         sample_text: str = _SAMPLE_TEXT,
     ) -> None:
         super().__init__()
@@ -74,6 +77,7 @@ class KeystrikeApp(App[None]):
         self._update_settings = update_settings
         self._build_lesson = build_lesson
         self._build_code_lesson = build_code_lesson
+        self._get_daily_learn_budget = get_daily_learn_budget
         self._sample_text = sample_text
 
     def on_mount(self) -> None:
@@ -81,7 +85,11 @@ class KeystrikeApp(App[None]):
         self.push_screen("home")
 
     def _build_home(self) -> HomeScreen:
-        return HomeScreen(settings_repo=self._settings_repo, cycle_layout=self._cycle_layout)
+        return HomeScreen(
+            settings_repo=self._settings_repo,
+            cycle_layout=self._cycle_layout,
+            get_daily_learn_budget=self._get_daily_learn_budget,
+        )
 
     def on_home_screen_start_practice(self, message: HomeScreen.StartPractice) -> None:
         settings = self._settings_repo.load()
@@ -91,6 +99,13 @@ class KeystrikeApp(App[None]):
         lesson_heatmap = None
 
         if message.source is PracticeSource.ADAPTIVE:
+            if self._get_daily_learn_budget().limit_reached:
+                self.notify(
+                    "Daily learn limit reached. Change learn_daily_minutes in Settings "
+                    "or try sample/code/free practice.",
+                    severity="warning",
+                )
+                return
             lesson = self._build_lesson(settings.layout)
             target_text = lesson.text
             mode = Mode.ADAPTIVE
@@ -120,6 +135,7 @@ class KeystrikeApp(App[None]):
             focus_key=focus_key,
             rebuild_aggregates=self._rebuild_aggregates,
             get_learning_rate=self._get_learning_rate,
+            get_daily_learn_budget=self._get_daily_learn_budget,
             layout_obj=layout_obj,
             lesson_heatmap=lesson_heatmap,
         )

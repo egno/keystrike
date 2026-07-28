@@ -1,9 +1,11 @@
+import datetime as dt
 from random import Random
 
 import pytest
 from textual.widgets import Static
 
 from keystrike.application.build_lesson import BuildCodeLesson, BuildLesson
+from keystrike.application.learn_budget_use_cases import GetDailyLearnBudget
 from keystrike.application.session_use_cases import (
     FinishSession,
     RecordKeystroke,
@@ -17,8 +19,9 @@ from keystrike.application.stats_use_cases import (
     RebuildAggregates,
 )
 from keystrike.domain.enums import Mode, SessionState
-from keystrike.domain.models import Settings
+from keystrike.domain.models import SessionResult, Settings
 from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS
+from keystrike.presentation.screens.home import HomeScreen
 from keystrike.presentation.screens.practice import PracticeScreen
 from keystrike.presentation.screens.settings import SettingsScreen
 from keystrike.presentation.screens.stats import StatsScreen
@@ -36,13 +39,20 @@ from tests.fakes import (
     FakeSettingsRepository,
 )
 
+_TZ = dt.timezone(dt.timedelta(hours=3))
+
 
 def _build_app(
-    *, clock: FakeClock | None = None, settings: Settings | None = None,
+    *,
+    clock: FakeClock | None = None,
+    settings: Settings | None = None,
+    headers: list[SessionResult] | None = None,
 ) -> tuple[KeystrikeApp, FakeClock, FakeSessionRepository, FakeSettingsRepository]:
-    clock = clock or FakeClock()
+    clock = clock or FakeClock(
+        wall=dt.datetime(2026, 7, 28, 12, 0, tzinfo=_TZ).timestamp(),
+    )
     id_gen = FakeIdGenerator()
-    session_repo = FakeSessionRepository()
+    session_repo = FakeSessionRepository(headers=headers or [])
     settings_repo = FakeSettingsRepository(settings or Settings())
     layout_repo = FakeLayoutRepository(dict(BUNDLED_LAYOUTS))
     cache = FakeAggregatesCache()
@@ -58,6 +68,9 @@ def _build_app(
         get_heatmap=GetHeatmap(cache=cache, settings_repo=settings_repo),
         get_history=GetHistory(repo=session_repo),
         get_learning_rate=GetLearningRate(repo=session_repo, settings_repo=settings_repo),
+        get_daily_learn_budget=GetDailyLearnBudget(
+            clock=clock, repo=session_repo, settings_repo=settings_repo, tz=_TZ,
+        ),
         freeform_provider=FakeFreeformTextProvider(),
         cycle_layout=CycleLayout(settings_repo=settings_repo, layout_repo=layout_repo),
         update_settings=UpdateSettings(repo=settings_repo),
@@ -141,6 +154,29 @@ async def test_stats_are_isolated_per_layout():
         await pilot.pause()
         history_text = str(app.screen.query_one("#stats-history", Static).content)
         assert "No sessions yet" in history_text
+
+
+@pytest.mark.asyncio
+async def test_adaptive_blocked_when_daily_learn_limit_reached():
+    noon = dt.datetime(2026, 7, 28, 12, 0, tzinfo=_TZ).timestamp()
+    header = SessionResult(
+        schema_version=1,
+        session_id="s1",
+        started_at=noon,
+        duration_ns=10 * 60 * 1_000_000_000,
+        layout="qwerty",
+        mode=Mode.ADAPTIVE,
+        lesson_alphabet=(),
+        focus_key=ord("e"),
+        total_keystrokes=1,
+        correct_keystrokes=1,
+    )
+    app, _clock, _repo, _settings = _build_app(headers=[header])
+    async with app.run_test() as pilot:
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert isinstance(app.screen, HomeScreen)
 
 
 @pytest.mark.asyncio

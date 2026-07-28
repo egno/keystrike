@@ -61,6 +61,9 @@ class FakeSessionRepository:
     def iter_headers(self, layout: str) -> Iterator[SessionResult]:
         return iter(h for h in self.headers if h.layout == layout)
 
+    def iter_all_headers(self) -> Iterator[SessionResult]:
+        return iter(self.headers)
+
     def load_keystrokes(self, session_id: str) -> Iterator[Keystroke]:
         return iter(self.keystrokes.get(session_id, []))
 

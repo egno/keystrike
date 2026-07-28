@@ -30,17 +30,21 @@ class UpdateSettings:
         target_speed_cpm: int,
         freeform_path: str | None,
         alphabet_size: int,
+        learn_daily_minutes: int,
     ) -> Settings:
         if target_speed_cpm <= 0:
             raise SettingsValidationError("Target speed must be a positive integer.")
         if alphabet_size < 0:
             raise SettingsValidationError("Number of letters must be zero or more.")
+        if learn_daily_minutes < 0:
+            raise SettingsValidationError("Daily learn minutes must be zero or more.")
         updated = replace(
             self.repo.load(),
             layout=layout,
             target_speed_cpm=target_speed_cpm,
             freeform_path=freeform_path,
             alphabet_size=alphabet_size,
+            learn_daily_minutes=learn_daily_minutes,
         )
         self.repo.save(updated)
         return updated

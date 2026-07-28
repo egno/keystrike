@@ -47,6 +47,9 @@ class TomlSettingsRepository:
                 str(raw["freeform_path"])
                 if raw.get("freeform_path") is not None else None
             ),
+            learn_daily_minutes=int(
+                raw.get("learn_daily_minutes", defaults.learn_daily_minutes),
+            ),
         )
 
     def save(self, settings: Settings) -> None:
@@ -56,6 +59,7 @@ class TomlSettingsRepository:
             ("layout", settings.layout),
             ("target_speed_cpm", settings.target_speed_cpm),
             ("alphabet_size", settings.alphabet_size),
+            ("learn_daily_minutes", settings.learn_daily_minutes),
             ("lang", settings.lang),
             ("code_language", settings.code_language),
         ]

@@ -51,6 +51,11 @@ class JsonlSessionRepository:
             fh.write("\n")
 
     def iter_headers(self, layout: str) -> Iterator[SessionResult]:
+        for header in self.iter_all_headers():
+            if header.layout == layout:
+                yield header
+
+    def iter_all_headers(self) -> Iterator[SessionResult]:
         if not self._paths.sessions_index.exists():
             return
         with self._paths.sessions_index.open("r", encoding="utf-8") as fh:
@@ -61,8 +66,7 @@ class JsonlSessionRepository:
                 data = json.loads(line)
                 header = _header_from_dict(data)
                 self._session_index[header.session_id] = header
-                if header.layout == layout:
-                    yield header
+                yield header
 
     def load_keystrokes(self, session_id: str) -> Iterator[Keystroke]:
         header = self._session_index.get(session_id)

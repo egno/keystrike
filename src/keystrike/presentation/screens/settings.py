@@ -60,6 +60,12 @@ class SettingsScreen(Screen[None]):
                 id="settings-alphabet-size",
                 type="integer",
             )
+            yield Label("Daily learn limit (minutes; 0 = unlimited)")
+            yield Input(
+                value=str(settings.learn_daily_minutes),
+                id="settings-learn-daily-minutes",
+                type="integer",
+            )
             yield Static("", id="settings-error")
         yield Footer()
 
@@ -78,6 +84,13 @@ class SettingsScreen(Screen[None]):
             self._show_error("Number of letters must be an integer.")
             return
 
+        learn_daily_minutes_raw = self.query_one("#settings-learn-daily-minutes", Input).value
+        try:
+            learn_daily_minutes = int(learn_daily_minutes_raw)
+        except ValueError:
+            self._show_error("Daily learn minutes must be an integer.")
+            return
+
         freeform_raw = self.query_one("#settings-freeform-path", Input).value.strip()
         layout_select = cast("Select[str]", self.query_one("#settings-layout", Select))
         layout = layout_select.value
@@ -91,6 +104,7 @@ class SettingsScreen(Screen[None]):
                 target_speed_cpm=target_speed_cpm,
                 freeform_path=freeform_raw or None,
                 alphabet_size=alphabet_size,
+                learn_daily_minutes=learn_daily_minutes,
             )
         except SettingsValidationError as exc:
             self._show_error(str(exc))

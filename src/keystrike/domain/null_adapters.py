@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 
+from .daily_learn import DailyLearnBudget, compute_daily_learn_budget
 from .models import KeyStats, Keystroke, SessionResult
 
 
@@ -21,6 +22,9 @@ class NullSessionRepository:
         pass
 
     def iter_headers(self, layout: str) -> Iterator[SessionResult]:
+        return iter(())
+
+    def iter_all_headers(self) -> Iterator[SessionResult]:
         return iter(())
 
     def load_keystrokes(self, session_id: str) -> Iterator[Keystroke]:
@@ -41,3 +45,11 @@ class NullLearningRateEstimator:
 
 
 NULL_LEARNING_RATE_ESTIMATOR = NullLearningRateEstimator()
+
+
+class NullDailyLearnBudgetProvider:
+    def __call__(self, *, extra_ns: int = 0) -> DailyLearnBudget:
+        return compute_daily_learn_budget(completed_ns=0, limit_minutes=0, extra_ns=extra_ns)
+
+
+NULL_DAILY_LEARN_BUDGET = NullDailyLearnBudgetProvider()

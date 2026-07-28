@@ -19,12 +19,14 @@ def test_update_settings_persists_all_fields():
         target_speed_cpm=400,
         freeform_path="/tmp/a.txt",
         alphabet_size=20,
+        learn_daily_minutes=15,
     )
 
     assert result.layout == "dvorak"
     assert result.target_speed_cpm == 400
     assert result.freeform_path == "/tmp/a.txt"
     assert result.alphabet_size == 20
+    assert result.learn_daily_minutes == 15
     assert repo.settings == result
 
 
@@ -38,6 +40,7 @@ def test_update_settings_rejects_non_positive_speed():
             target_speed_cpm=0,
             freeform_path=None,
             alphabet_size=16,
+            learn_daily_minutes=10,
         )
 
     assert repo.settings == Settings()  # unchanged
@@ -53,9 +56,26 @@ def test_update_settings_rejects_negative_alphabet_size():
             target_speed_cpm=300,
             freeform_path=None,
             alphabet_size=-1,
+            learn_daily_minutes=10,
         )
 
     assert repo.settings == Settings()  # unchanged
+
+
+def test_update_settings_rejects_negative_learn_daily_minutes():
+    repo = FakeSettingsRepository(Settings())
+    update = UpdateSettings(repo=repo)
+
+    with pytest.raises(SettingsValidationError):
+        update(
+            layout="qwerty",
+            target_speed_cpm=300,
+            freeform_path=None,
+            alphabet_size=16,
+            learn_daily_minutes=-1,
+        )
+
+    assert repo.settings == Settings()
 
 
 def test_cycle_layout_advances_and_wraps():

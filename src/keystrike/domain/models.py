@@ -78,3 +78,4 @@ class Settings:
     lang: str = "en"
     code_language: str = "python"
     freeform_path: str | None = None
+    learn_daily_minutes: int = 10        # adaptive mode cap per calendar day; 0 = unlimited
