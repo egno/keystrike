@@ -30,12 +30,12 @@ class SettingsScreen(Screen[None]):
     SettingsScreen Label {
         margin-top: 1;
     }
-    SettingsScreen Horizontal {
+    SettingsScreen #settings-wordlist-actions {
         height: auto;
+        width: 100%;
     }
-    SettingsScreen #settings-wordlist-import,
-    SettingsScreen #settings-wordlist-clear {
-        margin-left: 1;
+    SettingsScreen #settings-wordlist-actions Button {
+        width: 1fr;
     }
     """
 
@@ -105,8 +105,8 @@ class SettingsScreen(Screen[None]):
                 value=self._display_wordlist_url(settings.wordlist_url),
                 id="settings-wordlist-url",
             )
-            with Horizontal():
-                yield Button("Import", id="settings-wordlist-import", variant="primary")
+            with Horizontal(id="settings-wordlist-actions"):
+                yield Button("Import", id="settings-wordlist-import")
                 yield Button("Clear", id="settings-wordlist-clear")
             yield Static(
                 self._wordlist_status(settings.wordlist_url),
