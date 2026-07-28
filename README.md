@@ -13,13 +13,13 @@ Design follows [research-backed typing pedagogy](https://github.com/egno/keystri
 
 ![Keystrike demo](https://raw.githubusercontent.com/egno/keystrike/v1.1.0/docs/assets/demo.gif)
 
-
 ## What it does
 
 Keystrike tracks how fast and accurately you type each key, unlocks new letters as
 you hit your targets, and generates practice text that overweight your current weak
 spot. Switch keyboard layouts (QWERTY, Dvorak, Colemak, Colemak Mod-DH, or your own
 TOML) and each layout keeps its own history.
+
 ## Why it works
 
 The adaptive engine applies principles from typing research and tools like Keybr — see
@@ -36,7 +36,6 @@ for sources and how each maps to the code.
   controlled at the word and bigram level, not isolated letters.
 - **Spaced review** — keys you have not practiced recently resurface in lessons before
   they fade.
-
 
 ## Features
 
