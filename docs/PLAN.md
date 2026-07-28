@@ -316,8 +316,9 @@ each; not repeated here to keep this section from growing unbounded.
 
 ### Start here next: M5 — Release (referenced from `~/.claude/plans/quiet-snuggling-aurora.md`)
 
-- Snapshot test coverage (pytest-textual-snapshot is already a dev dep, unused
-  so far).
+- Snapshot test coverage (add `pytest-textual-snapshot` when implementing; it
+  pulls `jinja2` → `markupsafe`, which has no PyPI wheels for Android on
+  Python 3.12 — keep it out of default dev deps until snapshot tests land).
 - PyPI publish (`uv tool install keystrike`); double check `pyproject.toml`
   metadata (author, URLs) before publishing.
 - README with a demo GIF; Windows Terminal setup docs (raw-mode input hasn't

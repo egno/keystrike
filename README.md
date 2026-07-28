@@ -16,6 +16,11 @@ uv sync
 uv run keystrike run
 ```
 
+On Android (Termux, etc.), runtime deps are pure Python — no native wheels
+required. Avoid adding dev tools that pull `markupsafe` (e.g.
+`pytest-textual-snapshot`) until snapshot tests are implemented; MarkupSafe has
+no PyPI wheels for the Android platform tag on Python 3.12.
+
 ## Development
 
 ```bash
