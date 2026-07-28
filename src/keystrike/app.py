@@ -14,6 +14,7 @@ from keystrike.application.session_use_cases import (
 from keystrike.application.settings_use_cases import CycleLayout, UpdateSettings
 from keystrike.application.stats_use_cases import GetHeatmap, GetHistory, RebuildAggregates
 from keystrike.application.sync_use_cases import GetSyncStatus, InitSync, PullSync, PushSync
+from keystrike.application.wordlist_use_cases import ImportWordList
 from keystrike.infrastructure.aggregates_cache import FileAggregatesCache
 from keystrike.infrastructure.clock import MonotonicClock
 from keystrike.infrastructure.id_gen import UlidGenerator
@@ -23,6 +24,7 @@ from keystrike.infrastructure.paths import default_paths, ensure_dirs
 from keystrike.infrastructure.session_repo_jsonl import JsonlSessionRepository
 from keystrike.infrastructure.settings_repo_toml import TomlSettingsRepository
 from keystrike.infrastructure.sync_git import GitSyncGateway
+from keystrike.infrastructure.wordlist_store import FileWordListStore
 from keystrike.presentation.textual_app import KeystrikeApp
 
 
@@ -80,11 +82,14 @@ def build() -> KeystrikeApp:
     )
     cycle_layout = CycleLayout(settings_repo=settings_repo, layout_repo=layout_repo)
     update_settings = UpdateSettings(repo=settings_repo)
+    wordlist_store = FileWordListStore(paths)
+    import_wordlist = ImportWordList(store=wordlist_store, settings_repo=settings_repo)
     build_lesson = BuildLesson(
         layout_repo=layout_repo,
         aggregates_cache=aggregates_cache,
         settings_repo=settings_repo,
         language_provider=language_provider,
+        wordlist_store=wordlist_store,
         rng=Random(),
     )
     prepare_practice = PreparePracticeSession(
@@ -107,5 +112,7 @@ def build() -> KeystrikeApp:
         get_history=get_history,
         cycle_layout=cycle_layout,
         update_settings=update_settings,
+        import_wordlist=import_wordlist,
+        wordlist_store=wordlist_store,
         get_daily_learn_budget=get_daily_learn_budget,
     )

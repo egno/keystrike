@@ -3,31 +3,36 @@ from textual.app import App
 from textual.widgets import Input, Select
 
 from keystrike.application.settings_use_cases import UpdateSettings
+from keystrike.application.wordlist_use_cases import ImportWordList
 from keystrike.domain.enums import TargetSpeedUnit
 from keystrike.domain.generator import cpm_from_wpm, wpm_from_cpm
 from keystrike.domain.models import Settings
 from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS
 from keystrike.presentation.screens.settings import SettingsScreen
-from tests.fakes import FakeLayoutRepository, FakeSettingsRepository
+from tests.fakes import FakeLayoutRepository, FakeSettingsRepository, FakeWordListStore
 
 
-def _build_screen():
+def _build_screen(*, wordlist_store: FakeWordListStore | None = None):
     settings_repo = FakeSettingsRepository(Settings())
     layout_repo = FakeLayoutRepository(dict(BUNDLED_LAYOUTS))
+    store = wordlist_store or FakeWordListStore()
     update_settings = UpdateSettings(repo=settings_repo)
+    import_wordlist = ImportWordList(store=store, settings_repo=settings_repo)
     screen = SettingsScreen(
         settings_repo=settings_repo,
         layout_repo=layout_repo,
         update_settings=update_settings,
+        import_wordlist=import_wordlist,
+        wordlist_store=store,
     )
-    return screen, settings_repo
+    return screen, settings_repo, store
 
 
 @pytest.mark.asyncio
 async def test_save_persists_changes_and_pops_screen():
     app = App()
     async with app.run_test() as pilot:
-        screen, settings_repo = _build_screen()
+        screen, settings_repo, _store = _build_screen()
         await app.push_screen(screen)
         await pilot.pause()
 
@@ -53,7 +58,7 @@ async def test_save_persists_changes_and_pops_screen():
 async def test_save_rejects_non_integer_speed():
     app = App()
     async with app.run_test() as pilot:
-        screen, settings_repo = _build_screen()
+        screen, settings_repo, _store = _build_screen()
         await app.push_screen(screen)
         await pilot.pause()
 
@@ -70,7 +75,7 @@ async def test_save_rejects_non_integer_speed():
 async def test_save_rejects_non_positive_speed():
     app = App()
     async with app.run_test() as pilot:
-        screen, settings_repo = _build_screen()
+        screen, settings_repo, _store = _build_screen()
         await app.push_screen(screen)
         await pilot.pause()
 
@@ -87,7 +92,7 @@ async def test_save_rejects_non_positive_speed():
 async def test_save_rejects_negative_alphabet_size():
     app = App()
     async with app.run_test() as pilot:
-        screen, settings_repo = _build_screen()
+        screen, settings_repo, _store = _build_screen()
         await app.push_screen(screen)
         await pilot.pause()
 
@@ -104,7 +109,7 @@ async def test_save_rejects_negative_alphabet_size():
 async def test_cancel_discards_changes():
     app = App()
     async with app.run_test() as pilot:
-        screen, settings_repo = _build_screen()
+        screen, settings_repo, _store = _build_screen()
         await app.push_screen(screen)
         await pilot.pause()
 
@@ -121,7 +126,7 @@ async def test_cancel_discards_changes():
 async def test_save_converts_wpm_to_cpm():
     app = App()
     async with app.run_test() as pilot:
-        screen, settings_repo = _build_screen()
+        screen, settings_repo, _store = _build_screen()
         await app.push_screen(screen)
         await pilot.pause()
 
@@ -143,11 +148,15 @@ async def test_loads_wpm_display_value():
         Settings(target_speed_cpm=300, target_speed_unit=TargetSpeedUnit.WPM),
     )
     layout_repo = FakeLayoutRepository(dict(BUNDLED_LAYOUTS))
+    store = FakeWordListStore()
     update_settings = UpdateSettings(repo=settings_repo)
+    import_wordlist = ImportWordList(store=store, settings_repo=settings_repo)
     screen = SettingsScreen(
         settings_repo=settings_repo,
         layout_repo=layout_repo,
         update_settings=update_settings,
+        import_wordlist=import_wordlist,
+        wordlist_store=store,
     )
     async with app.run_test() as pilot:
         await app.push_screen(screen)

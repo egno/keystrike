@@ -2,15 +2,17 @@ from typing import ClassVar, cast
 
 from textual.app import ComposeResult
 from textual.binding import BindingType
-from textual.containers import Vertical
+from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
-from textual.widgets import Footer, Input, Label, Select, Static
+from textual.widgets import Button, Footer, Input, Label, Select, Static
 from textual.widgets.select import NoSelection
 
 from keystrike.application.settings_use_cases import SettingsValidationError, UpdateSettings
+from keystrike.application.wordlist_use_cases import ImportWordList, WordListError
 from keystrike.domain.enums import TargetSpeedUnit
 from keystrike.domain.generator import cpm_from_wpm, wpm_from_cpm
-from keystrike.domain.protocols import LayoutRepository, SettingsRepository
+from keystrike.domain.protocols import LayoutRepository, SettingsRepository, WordListStore
+from keystrike.domain.wordlist import DEFAULT_WORDLIST_URL
 from keystrike.presentation.bindings import BACK_BINDINGS, SAVE
 
 
@@ -22,6 +24,12 @@ class SettingsScreen(Screen[None]):
     }
     SettingsScreen Label {
         margin-top: 1;
+    }
+    SettingsScreen Horizontal {
+        height: auto;
+    }
+    SettingsScreen #settings-wordlist-import {
+        margin-left: 1;
     }
     """
 
@@ -36,11 +44,15 @@ class SettingsScreen(Screen[None]):
         settings_repo: SettingsRepository,
         layout_repo: LayoutRepository,
         update_settings: UpdateSettings,
+        import_wordlist: ImportWordList,
+        wordlist_store: WordListStore,
     ) -> None:
         super().__init__()
         self._settings_repo = settings_repo
         self._layout_repo = layout_repo
         self._update_settings = update_settings
+        self._import_wordlist = import_wordlist
+        self._wordlist_store = wordlist_store
 
     def compose(self) -> ComposeResult:
         settings = self._settings_repo.load()
@@ -80,8 +92,27 @@ class SettingsScreen(Screen[None]):
                 id="settings-learn-daily-minutes",
                 type="integer",
             )
+            yield Label("Word list URL (optional; import to cache)")
+            with Horizontal():
+                yield Input(
+                    value=settings.wordlist_url,
+                    placeholder=DEFAULT_WORDLIST_URL,
+                    id="settings-wordlist-url",
+                )
+                yield Button("Import", id="settings-wordlist-import", variant="primary")
+            yield Static(
+                self._wordlist_status(settings.wordlist_url),
+                id="settings-wordlist-status",
+            )
             yield Static("", id="settings-error")
         yield Footer()
+
+    def on_mount(self) -> None:
+        self._refresh_wordlist_status()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "settings-wordlist-import":
+            self._do_import()
 
     def action_save(self) -> None:
         speed_raw = self.query_one("#settings-speed", Input).value
@@ -124,6 +155,8 @@ class SettingsScreen(Screen[None]):
             # Unreachable with allow_blank=False + an initial value, but keeps typing sound.
             return
 
+        wordlist_url = self.query_one("#settings-wordlist-url", Input).value
+
         try:
             self._update_settings(
                 layout=layout,
@@ -131,6 +164,7 @@ class SettingsScreen(Screen[None]):
                 target_speed_unit=target_speed_unit,
                 alphabet_size=alphabet_size,
                 learn_daily_minutes=learn_daily_minutes,
+                wordlist_url=wordlist_url,
             )
         except SettingsValidationError as exc:
             self._show_error(str(exc))
@@ -140,6 +174,33 @@ class SettingsScreen(Screen[None]):
 
     def action_back(self) -> None:
         self.app.pop_screen()
+
+    def _do_import(self) -> None:
+        url = self.query_one("#settings-wordlist-url", Input).value.strip()
+        if not url:
+            self._show_error("Enter a word list URL to import.")
+            return
+        try:
+            count = self._import_wordlist(url)
+        except WordListError as exc:
+            self._show_error(str(exc))
+            return
+        self.query_one("#settings-error", Static).update("")
+        self._refresh_wordlist_status(f"Imported {count} words.")
+        self.query_one("#settings-wordlist-url", Input).value = url
+
+    def _wordlist_status(self, url: str) -> str:
+        if not url.strip():
+            return "[dim]No word list — Markov-generated words.[/]"
+        count = self._wordlist_store.cached_word_count(url.strip())
+        if count is None:
+            return "[dim]URL saved but not cached — import or Markov fallback.[/]"
+        return f"[dim]{count} words cached.[/]"
+
+    def _refresh_wordlist_status(self, message: str | None = None) -> None:
+        url = self.query_one("#settings-wordlist-url", Input).value
+        text = message or self._wordlist_status(url)
+        self.query_one("#settings-wordlist-status", Static).update(text)
 
     def _show_error(self, message: str) -> None:
         self.query_one("#settings-error", Static).update(f"[bold red]{message}[/]")

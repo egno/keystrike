@@ -36,7 +36,9 @@ from keystrike.domain.protocols import (
     LanguageProvider,
     LayoutRepository,
     SettingsRepository,
+    WordListStore,
 )
+from keystrike.domain.wordlist import words_for_alphabet
 
 WORD_COUNT = 12
 _CONFIDENCE_GOOD = 1.0
@@ -137,6 +139,7 @@ class BuildLesson:
     aggregates_cache: AggregatesCache
     settings_repo: SettingsRepository
     language_provider: LanguageProvider
+    wordlist_store: WordListStore
     rng: Random
 
     def __call__(self, layout_name: str) -> Lesson:
@@ -175,6 +178,13 @@ class BuildLesson:
             for prev in unlocked
             for nxt in unlocked
         }
+        dict_words: list[str] | None = None
+        if settings.wordlist_url:
+            cached = self.wordlist_store.load(settings.wordlist_url)
+            if cached:
+                filtered = words_for_alphabet(cached, alphabet_chars)
+                if filtered:
+                    dict_words = filtered
         text = generator.generate_lesson(
             alphabet_chars,
             chr(focus),
@@ -183,6 +193,7 @@ class BuildLesson:
             layout=layout,
             transition_weights=transition_weights,
             focus_bigram=focus_bigram,
+            words=dict_words,
         )
 
         urgency = {

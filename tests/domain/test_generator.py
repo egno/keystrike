@@ -52,6 +52,32 @@ def test_generate_lesson_char_weights_bias_toward_weak_key():
     assert lesson.count("a") > lesson.count("b")
 
 
+def test_generate_word_uses_wordlist_when_provided():
+    generator = AdaptiveGenerator(table=_uniform_table("xyz"), rng=Random(0))
+    words = ["cat", "dog", "bat"]
+    for _ in range(10):
+        word = generator.generate_word(frozenset("abcd"), words=words)
+        assert word in words
+
+
+def test_generate_word_falls_back_to_markov_without_wordlist():
+    generator = AdaptiveGenerator(table=_uniform_table("abc"), rng=Random(0))
+    word = generator.generate_word(frozenset("abc"))
+    assert set(word) <= {"a", "b", "c"}
+
+
+def test_generate_wordlist_char_weights_bias():
+    generator = AdaptiveGenerator(table=_uniform_table("ab"), rng=Random(0))
+    words = ["aaa", "bbb"]
+    counts = {"a": 0, "b": 0}
+    for _ in range(50):
+        word = generator.generate_word(
+            frozenset("ab"), char_weights={"a": 100.0, "b": 1.0}, words=words,
+        )
+        counts[word[0]] += 1
+    assert counts["a"] > counts["b"]
+
+
 def test_generate_lesson_injects_focus_bigram():
     generator = AdaptiveGenerator(table=_uniform_table("abc"), rng=Random(0))
     for seed in range(10):

@@ -105,6 +105,7 @@ class Settings:
     alphabet_size: int = 16             # letters force-unlocked from cold start
     lang: str = "en"
     learn_daily_minutes: int = 10        # adaptive mode daily goal (minutes); 0 = no goal
+    wordlist_url: str = ""               # non-empty + cached file → real words; else Markov
     updated_at: str | None = None          # ISO-8601 UTC; sync LWW
 
 

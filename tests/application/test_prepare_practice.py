@@ -13,6 +13,7 @@ from tests.fakes import (
     FakeLayoutRepository,
     FakeSessionRepository,
     FakeSettingsRepository,
+    FakeWordListStore,
 )
 
 
@@ -33,6 +34,7 @@ def _prepare(*, settings: Settings | None = None) -> PreparePracticeSession:
             aggregates_cache=cache,
             settings_repo=settings_repo,
             language_provider=FakeLanguageProvider(),
+            wordlist_store=FakeWordListStore(),
             rng=Random(0),
         ),
         get_daily_learn_budget=get_daily_learn_budget,
@@ -77,6 +79,7 @@ def test_prepare_adaptive_still_builds_lesson_when_daily_goal_reached():
             aggregates_cache=cache,
             settings_repo=settings_repo,
             language_provider=FakeLanguageProvider(),
+            wordlist_store=FakeWordListStore(),
             rng=Random(0),
         ),
         get_daily_learn_budget=GetDailyLearnBudget(

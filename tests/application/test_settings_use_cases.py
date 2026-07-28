@@ -21,6 +21,7 @@ def test_update_settings_persists_all_fields():
         target_speed_unit=TargetSpeedUnit.WPM,
         alphabet_size=20,
         learn_daily_minutes=15,
+        wordlist_url="https://example.com/w.txt",
     )
 
     assert result.layout == "dvorak"
@@ -28,6 +29,7 @@ def test_update_settings_persists_all_fields():
     assert result.target_speed_unit == TargetSpeedUnit.WPM
     assert result.alphabet_size == 20
     assert result.learn_daily_minutes == 15
+    assert result.wordlist_url == "https://example.com/w.txt"
     assert repo.settings == result
 
 

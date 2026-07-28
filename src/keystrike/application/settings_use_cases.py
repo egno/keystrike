@@ -32,6 +32,7 @@ class UpdateSettings:
         target_speed_unit: TargetSpeedUnit,
         alphabet_size: int,
         learn_daily_minutes: int,
+        wordlist_url: str = "",
     ) -> Settings:
         if target_speed_cpm <= 0:
             raise SettingsValidationError("Target speed must be a positive integer.")
@@ -48,6 +49,7 @@ class UpdateSettings:
             target_speed_unit=target_speed_unit,
             alphabet_size=alphabet_size,
             learn_daily_minutes=learn_daily_minutes,
+            wordlist_url=wordlist_url.strip(),
         )
         self.repo.save(updated)
         return updated
