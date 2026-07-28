@@ -9,7 +9,7 @@ from keystrike.presentation.screens.settings import SettingsScreen
 from tests.fakes import FakeLayoutRepository, FakeSettingsRepository
 
 
-def _build_screen(on_saved=None):
+def _build_screen():
     settings_repo = FakeSettingsRepository(Settings())
     layout_repo = FakeLayoutRepository(dict(BUNDLED_LAYOUTS))
     update_settings = UpdateSettings(repo=settings_repo)
@@ -17,7 +17,6 @@ def _build_screen(on_saved=None):
         settings_repo=settings_repo,
         layout_repo=layout_repo,
         update_settings=update_settings,
-        on_saved=on_saved,
     )
     return screen, settings_repo
 
@@ -93,16 +92,3 @@ async def test_cancel_discards_changes():
 
         assert settings_repo.settings.target_speed_cpm == Settings().target_speed_cpm
         assert app.screen_stack[-1] is not screen
-
-
-@pytest.mark.asyncio
-async def test_on_saved_callback_invoked():
-    calls = []
-    app = App()
-    async with app.run_test() as pilot:
-        screen, _ = _build_screen(on_saved=lambda: calls.append(1))
-        await app.push_screen(screen)
-        await pilot.pause()
-        await pilot.press("ctrl+s")
-        await pilot.pause()
-        assert calls == [1]

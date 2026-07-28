@@ -46,8 +46,3 @@ class FileAggregatesCache:
             "keys": {str(cp): asdict(k) for cp, k in stats.items()},
         }
         atomic_write_text(self._file(layout), json.dumps(payload, indent=2))
-
-    def invalidate(self, layout: str) -> None:
-        file = self._file(layout)
-        if file.exists():
-            file.unlink()

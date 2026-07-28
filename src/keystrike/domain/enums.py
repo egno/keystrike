@@ -21,9 +21,7 @@ class Hand(StrEnum):
 
 
 class SessionState(StrEnum):
-    IDLE = "idle"
     RUNNING = "running"
-    PAUSED = "paused"
     COMPLETE = "complete"
     CANCELLED = "cancelled"
 
