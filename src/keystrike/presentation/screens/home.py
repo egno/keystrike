@@ -47,7 +47,7 @@ class HomeScreen(Screen[None]):
     """
 
     BINDINGS: ClassVar[list[BindingType]] = [
-        Binding("enter", "practice_adaptive", "Adaptive", key_display="enter"),
+        Binding("enter", "practice_adaptive", "Adaptive"),
         Binding("s", "open_stats", "Stats"),
         Binding("o", "open_settings", "Settings"),
         Binding("l", "cycle_layout", "Switch layout"),
