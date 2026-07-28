@@ -13,10 +13,12 @@ from keystrike.application.session_use_cases import (
     StartSession,
 )
 from keystrike.domain.enums import Mode
+from keystrike.domain.models import Layout
 from keystrike.domain.null_adapters import NULL_LEARNING_RATE_ESTIMATOR, NULL_STATS_REBUILDER
 from keystrike.domain.protocols import Clock, LearningRateEstimator, StatsRebuilder
 from keystrike.presentation.screens.results import ResultsScreen
 from keystrike.presentation.widgets.hud import HUD
+from keystrike.presentation.widgets.kb_heatmap import KbHeatmap
 from keystrike.presentation.widgets.typing_area import TypingArea
 
 
@@ -45,6 +47,8 @@ class PracticeScreen(Screen[None]):
         focus_key: int | None = None,
         rebuild_aggregates: StatsRebuilder = NULL_STATS_REBUILDER,
         get_learning_rate: LearningRateEstimator = NULL_LEARNING_RATE_ESTIMATOR,
+        layout_obj: Layout | None = None,
+        lesson_heatmap: dict[int, float] | None = None,
     ) -> None:
         super().__init__()
         self._start = start
@@ -55,6 +59,9 @@ class PracticeScreen(Screen[None]):
         self._layout = layout
         self._mode = mode
         self._rebuild_aggregates = rebuild_aggregates
+        self._layout_obj = layout_obj
+        self._lesson_heatmap = lesson_heatmap
+        self._focus_key = focus_key
         self._session = self._start(target_text, layout=layout, mode=mode, focus_key=focus_key)
         sessions_to_goal = (
             get_learning_rate(layout, focus_key) if focus_key is not None else None
@@ -65,6 +72,8 @@ class PracticeScreen(Screen[None]):
     def compose(self) -> ComposeResult:
         with Vertical():
             yield self._hud
+            if self._layout_obj is not None and self._lesson_heatmap is not None:
+                yield KbHeatmap(self._layout_obj, self._lesson_heatmap, self._focus_key)
             yield self._typing_area
         yield Footer()
 

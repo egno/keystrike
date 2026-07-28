@@ -78,6 +78,7 @@ class Settings:
     target_speed_cpm: int = 300         # 60 wpm
     alphabet_size: float = 0.5
     recover_keys: bool = True
+    keyboard_order: bool = False
     theme: str = "dark"
     lang: str = "en"
     code_language: str = "python"

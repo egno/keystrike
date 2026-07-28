@@ -33,6 +33,9 @@ async def test_save_persists_changes_and_pops_screen():
         app.screen.query_one("#settings-speed", Input).value = "400"
         app.screen.query_one("#settings-freeform-path", Input).value = "/tmp/practice.txt"
         app.screen.query_one("#settings-layout", Select).value = "dvorak"
+        app.screen.query_one("#settings-alphabet-size", Input).value = "0.75"
+        app.screen.query_one("#settings-recover-keys", Select).value = "off"
+        app.screen.query_one("#settings-keyboard-order", Select).value = "on"
         await pilot.pause()
 
         await pilot.press("ctrl+s")
@@ -41,6 +44,9 @@ async def test_save_persists_changes_and_pops_screen():
         assert settings_repo.settings.target_speed_cpm == 400
         assert settings_repo.settings.freeform_path == "/tmp/practice.txt"
         assert settings_repo.settings.layout == "dvorak"
+        assert settings_repo.settings.alphabet_size == 0.75
+        assert settings_repo.settings.recover_keys is False
+        assert settings_repo.settings.keyboard_order is True
         assert app.screen_stack[-1] is not screen
 
 
@@ -75,6 +81,23 @@ async def test_save_rejects_non_positive_speed():
         await pilot.pause()
 
         assert settings_repo.settings.target_speed_cpm == Settings().target_speed_cpm
+        assert app.screen_stack[-1] is screen
+
+
+@pytest.mark.asyncio
+async def test_save_rejects_out_of_range_alphabet_size():
+    app = App()
+    async with app.run_test() as pilot:
+        screen, settings_repo = _build_screen()
+        await app.push_screen(screen)
+        await pilot.pause()
+
+        app.screen.query_one("#settings-alphabet-size", Input).value = "1.5"
+        await pilot.pause()
+        await pilot.press("ctrl+s")
+        await pilot.pause()
+
+        assert settings_repo.settings.alphabet_size == Settings().alphabet_size
         assert app.screen_stack[-1] is screen
 
 

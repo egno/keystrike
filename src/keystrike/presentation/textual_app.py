@@ -87,17 +87,23 @@ class KeystrikeApp(App[None]):
         settings = self._settings_repo.load()
         mode = Mode.FREE
         focus_key: int | None = None
+        layout_obj = None
+        lesson_heatmap = None
 
         if message.source is PracticeSource.ADAPTIVE:
             lesson = self._build_lesson(settings.layout)
             target_text = lesson.text
             mode = Mode.ADAPTIVE
             focus_key = lesson.focus_key
+            layout_obj = self._layout_repo.get(settings.layout)
+            lesson_heatmap = lesson.heatmap
         elif message.source is PracticeSource.CODE:
             lesson = self._build_code_lesson(settings.layout)
             target_text = lesson.text
             mode = Mode.CODE
             focus_key = lesson.focus_key
+            layout_obj = self._layout_repo.get(settings.layout)
+            lesson_heatmap = lesson.heatmap
         elif message.source is PracticeSource.FREE and settings.freeform_path:
             target_text = self._freeform_provider.load(Path(settings.freeform_path))
         else:
@@ -114,6 +120,8 @@ class KeystrikeApp(App[None]):
             focus_key=focus_key,
             rebuild_aggregates=self._rebuild_aggregates,
             get_learning_rate=self._get_learning_rate,
+            layout_obj=layout_obj,
+            lesson_heatmap=lesson_heatmap,
         )
         self.push_screen(practice)
 

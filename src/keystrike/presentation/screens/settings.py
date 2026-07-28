@@ -12,6 +12,7 @@ from keystrike.application.settings_use_cases import SettingsValidationError, Up
 from keystrike.domain.protocols import LayoutRepository, SettingsRepository
 
 _THEMES = ("dark", "light")
+_ON_OFF = ("on", "off")
 
 
 class SettingsScreen(Screen[None]):
@@ -59,6 +60,26 @@ class SettingsScreen(Screen[None]):
             )
             yield Label("Freeform text file (leave blank to disable)")
             yield Input(value=settings.freeform_path or "", id="settings-freeform-path")
+            yield Label("Alphabet size (0.0-1.0, how many letters unlock up front)")
+            yield Input(
+                value=str(settings.alphabet_size),
+                id="settings-alphabet-size",
+                type="number",
+            )
+            yield Label("Recover keys (require current speed, not just past best)")
+            yield Select(
+                [(o, o) for o in _ON_OFF],
+                value="on" if settings.recover_keys else "off",
+                id="settings-recover-keys",
+                allow_blank=False,
+            )
+            yield Label("Keyboard order (home row, then top row, then rest — instead of frequency)")
+            yield Select(
+                [(o, o) for o in _ON_OFF],
+                value="on" if settings.keyboard_order else "off",
+                id="settings-keyboard-order",
+                allow_blank=False,
+            )
             yield Label("Theme")
             yield Select(
                 [(t, t) for t in _THEMES],
@@ -77,12 +98,34 @@ class SettingsScreen(Screen[None]):
             self._show_error("Target speed must be an integer.")
             return
 
+        alphabet_size_raw = self.query_one("#settings-alphabet-size", Input).value
+        try:
+            alphabet_size = float(alphabet_size_raw)
+        except ValueError:
+            self._show_error("Alphabet size must be a number.")
+            return
+
         freeform_raw = self.query_one("#settings-freeform-path", Input).value.strip()
         layout_select = cast("Select[str]", self.query_one("#settings-layout", Select))
         theme_select = cast("Select[str]", self.query_one("#settings-theme", Select))
+        recover_keys_select = cast(
+            "Select[str]",
+            self.query_one("#settings-recover-keys", Select),
+        )
+        keyboard_order_select = cast(
+            "Select[str]",
+            self.query_one("#settings-keyboard-order", Select),
+        )
         layout = layout_select.value
         theme = theme_select.value
-        if isinstance(layout, NoSelection) or isinstance(theme, NoSelection):
+        recover_keys_raw = recover_keys_select.value
+        keyboard_order_raw = keyboard_order_select.value
+        if (
+            isinstance(layout, NoSelection)
+            or isinstance(theme, NoSelection)
+            or isinstance(recover_keys_raw, NoSelection)
+            or isinstance(keyboard_order_raw, NoSelection)
+        ):
             # Unreachable with allow_blank=False + an initial value, but keeps typing sound.
             return
 
@@ -92,6 +135,9 @@ class SettingsScreen(Screen[None]):
                 target_speed_cpm=target_speed_cpm,
                 freeform_path=freeform_raw or None,
                 theme=theme,
+                alphabet_size=alphabet_size,
+                recover_keys=recover_keys_raw == "on",
+                keyboard_order=keyboard_order_raw == "on",
             )
         except SettingsValidationError as exc:
             self._show_error(str(exc))

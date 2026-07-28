@@ -23,6 +23,7 @@ from keystrike.presentation.screens.practice import PracticeScreen
 from keystrike.presentation.screens.settings import SettingsScreen
 from keystrike.presentation.screens.stats import StatsScreen
 from keystrike.presentation.textual_app import KeystrikeApp
+from keystrike.presentation.widgets.kb_heatmap import KbHeatmap
 from tests.fakes import (
     FakeAggregatesCache,
     FakeClock,
@@ -168,3 +169,30 @@ async def test_code_practice_generates_snippet_text_for_focus_key():
         assert practice._mode is Mode.CODE
         assert practice._session.focus_key is not None
         assert practice._target_text in FakeCodeSnippetProvider().snippets()
+
+
+@pytest.mark.asyncio
+async def test_adaptive_practice_shows_active_keys_widget():
+    app, _clock, _repo, _settings = _build_app()
+    async with app.run_test() as pilot:
+        await pilot.press("enter")  # adaptive
+        await pilot.pause()
+        assert app.screen.query(KbHeatmap)
+
+
+@pytest.mark.asyncio
+async def test_code_practice_shows_active_keys_widget():
+    app, _clock, _repo, _settings = _build_app()
+    async with app.run_test() as pilot:
+        await pilot.press("c")  # code
+        await pilot.pause()
+        assert app.screen.query(KbHeatmap)
+
+
+@pytest.mark.asyncio
+async def test_sample_practice_has_no_active_keys_widget():
+    app, _clock, _repo, _settings = _build_app()
+    async with app.run_test() as pilot:
+        await pilot.press("p")  # sample text, not adaptive
+        await pilot.pause()
+        assert not app.screen.query(KbHeatmap)

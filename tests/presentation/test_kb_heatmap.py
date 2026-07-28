@@ -35,3 +35,16 @@ def test_ortholinear_layout_has_no_row_indent():
     lines = render_heatmap(COLEMAK_DH, {}).plain.splitlines()
     leading_spaces = [len(line) - len(line.lstrip(" ")) for line in lines]
     assert leading_spaces == [1, 1, 1]
+
+
+def test_focus_key_style_overrides_confidence():
+    text = render_heatmap(QWERTY, {ord("a"): 1.5}, focus=ord("a"))
+    span = next(s for s in text.spans if text.plain[s.start : s.end].strip() == "a")
+    assert span.style == "bold underline cyan"
+
+
+def test_focus_key_style_applies_even_without_heatmap_entry():
+    # A locked/never-practiced key can still be the focus (e.g. freshly unlocked).
+    text = render_heatmap(QWERTY, {}, focus=ord("a"))
+    span = next(s for s in text.spans if text.plain[s.start : s.end].strip() == "a")
+    assert span.style == "bold underline cyan"

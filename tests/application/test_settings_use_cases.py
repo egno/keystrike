@@ -15,13 +15,22 @@ def test_update_settings_persists_all_fields():
     update = UpdateSettings(repo=repo)
 
     result = update(
-        layout="dvorak", target_speed_cpm=400, freeform_path="/tmp/a.txt", theme="light",
+        layout="dvorak",
+        target_speed_cpm=400,
+        freeform_path="/tmp/a.txt",
+        theme="light",
+        alphabet_size=0.75,
+        recover_keys=False,
+        keyboard_order=True,
     )
 
     assert result.layout == "dvorak"
     assert result.target_speed_cpm == 400
     assert result.freeform_path == "/tmp/a.txt"
     assert result.theme == "light"
+    assert result.alphabet_size == 0.75
+    assert result.recover_keys is False
+    assert result.keyboard_order is True
     assert repo.settings == result
 
 
@@ -30,7 +39,34 @@ def test_update_settings_rejects_non_positive_speed():
     update = UpdateSettings(repo=repo)
 
     with pytest.raises(SettingsValidationError):
-        update(layout="qwerty", target_speed_cpm=0, freeform_path=None, theme="dark")
+        update(
+            layout="qwerty",
+            target_speed_cpm=0,
+            freeform_path=None,
+            theme="dark",
+            alphabet_size=0.5,
+            recover_keys=True,
+            keyboard_order=False,
+        )
+
+    assert repo.settings == Settings()  # unchanged
+
+
+@pytest.mark.parametrize("alphabet_size", [-0.1, 1.5])
+def test_update_settings_rejects_out_of_range_alphabet_size(alphabet_size):
+    repo = FakeSettingsRepository(Settings())
+    update = UpdateSettings(repo=repo)
+
+    with pytest.raises(SettingsValidationError):
+        update(
+            layout="qwerty",
+            target_speed_cpm=300,
+            freeform_path=None,
+            theme="dark",
+            alphabet_size=alphabet_size,
+            recover_keys=True,
+            keyboard_order=False,
+        )
 
     assert repo.settings == Settings()  # unchanged
 

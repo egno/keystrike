@@ -1,3 +1,4 @@
+from dataclasses import replace
 from random import Random
 
 from keystrike.application.build_lesson import BuildCodeLesson, BuildLesson
@@ -79,3 +80,22 @@ def test_code_lesson_state_mirrors_build_lesson_progress():
     expected_count = round(0.5 * len(layout.learn_order))
     assert len(lesson.state.keys) == expected_count
     assert sum(k.is_focus for k in lesson.state.keys) == 1
+
+
+def test_lesson_heatmap_maps_unlocked_codepoints_to_confidence():
+    lesson = _build_lesson()("qwerty")
+    assert lesson.heatmap == {k.codepoint: k.confidence for k in lesson.state.keys}
+    assert set(lesson.heatmap) == {k.codepoint for k in lesson.state.keys}
+
+
+def test_keyboard_order_setting_changes_cold_start_unlocked_set_on_qwerty():
+    # Cold start (no stats), alphabet_size=0.3 forces a small enough prefix
+    # that frequency-order and row-order genuinely disagree on which keys
+    # are in it (QWERTY's home row isn't its most frequent letters).
+    settings = Settings(alphabet_size=0.3)
+    frequency = _build_lesson(settings)("qwerty")
+    row_ordered = _build_lesson(replace(settings, keyboard_order=True))("qwerty")
+
+    frequency_unlocked = {k.codepoint for k in frequency.state.keys}
+    row_unlocked = {k.codepoint for k in row_ordered.state.keys}
+    assert frequency_unlocked != row_unlocked

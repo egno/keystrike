@@ -21,6 +21,7 @@ from keystrike.domain.confidence import (
     target_ms_per_char,
 )
 from keystrike.domain.generator import AdaptiveGenerator
+from keystrike.domain.learn_order import keyboard_order
 from keystrike.domain.models import KeyStats, Layout, LessonKey, LessonState, Settings
 from keystrike.domain.protocols import (
     AggregatesCache,
@@ -42,13 +43,18 @@ class Lesson:
     def focus_key(self) -> int:
         return next(k.codepoint for k in self.state.keys if k.is_focus)
 
+    @property
+    def heatmap(self) -> dict[int, float]:
+        return {k.codepoint: k.confidence for k in self.state.keys}
+
 
 def _lesson_progress(
     layout_name: str, layout: Layout, stats: dict[int, KeyStats], settings: Settings,
 ) -> tuple[tuple[int, ...], int, LessonState]:
     target = target_ms_per_char(settings.target_speed_cpm)
+    order = keyboard_order(layout) if settings.keyboard_order else layout.learn_order
     unlocked = compute_unlocked(
-        layout.learn_order,
+        order,
         settings.alphabet_size,
         stats,
         target,
