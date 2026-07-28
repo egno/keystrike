@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions & ideas
+    url: https://github.com/egno/keystrike/discussions
+    about: Ask questions, share layouts, or suggest features
+  - name: PyPI package
+    url: https://pypi.org/project/keystrike/
+    about: Install with pipx or uv tool install

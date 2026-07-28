@@ -1,7 +1,14 @@
 # Keystrike
 
+[![PyPI](https://img.shields.io/pypi/v/keystrike)](https://pypi.org/project/keystrike/)
+[![CI](https://github.com/egno/keystrike/actions/workflows/ci.yml/badge.svg)](https://github.com/egno/keystrike/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/pypi/pyversions/keystrike)](https://pypi.org/project/keystrike/)
+[![License: MIT](https://img.shields.io/github/license/egno/keystrike)](https://github.com/egno/keystrike/blob/main/LICENSE)
+
 Adaptive drills for your weakest keys — an offline terminal typing tutor inspired by
 [keybr.com](https://www.keybr.com/). Stats stay on your machine; nothing phones home.
+
+**Install:** `pipx install keystrike` · [PyPI](https://pypi.org/project/keystrike/) · [Discussions](https://github.com/egno/keystrike/discussions)
 
 ![Keystrike demo](https://raw.githubusercontent.com/egno/keystrike/v1.1.0/docs/assets/demo.gif)
 

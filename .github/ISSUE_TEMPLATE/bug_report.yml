@@ -1,0 +1,57 @@
+name: Bug report
+description: Something broke or behaves wrong
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Include your OS and terminal app — raw-mode behavior varies a lot on Windows.
+  - type: input
+    id: version
+    attributes:
+      label: Keystrike version
+      description: Output of `keystrike --version`
+      placeholder: "1.1.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: OS
+      options:
+        - macOS
+        - Linux
+        - Windows
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: terminal
+    attributes:
+      label: Terminal app
+      description: e.g. iTerm2, Windows Terminal, Alacritty
+      placeholder: "Windows Terminal"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Run `keystrike`
+        2. Press Enter to start practice
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
