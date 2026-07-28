@@ -47,8 +47,6 @@ def format_daily_learn_display(budget: DailyLearnBudget, *, label: str) -> str:
     if not budget.limited:
         return ""
     limit_min = budget.limit_ns / 1e9 / 60
-    if budget.limit_reached:
-        return f"[dim]Daily learn goal reached ({limit_min:g} min).[/]"
     used_min = budget.used_ns / 1e9 / 60
     return f"{label} [bold]{used_min:.1f}[/]/{limit_min:g} min"
 

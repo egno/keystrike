@@ -83,8 +83,9 @@ def test_hud_shows_daily_learn_goal_reached():
         limit_minutes=10,
     )
     text = _format_hud(_session(), budget)
-    assert "Daily learn goal reached" in text
-    assert "Learn:" not in text
+    assert "Learn:" in text
+    assert "10.0" in text
+    assert "/10 min" in text
 
 
 def test_hud_distinct_labels_for_daily_budget_and_focus():
