@@ -22,3 +22,8 @@ class SessionState(StrEnum):
     RUNNING = "running"
     COMPLETE = "complete"
     CANCELLED = "cancelled"
+
+
+class TargetSpeedUnit(StrEnum):
+    WPM = "wpm"
+    CPM = "cpm"

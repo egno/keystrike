@@ -64,6 +64,65 @@ def test_iter_headers_filters_by_layout(paths):
     assert qwerty == ["A", "C"]
 
 
+def test_round_trip_unlocked_keys(paths):
+    repo = JsonlSessionRepository(paths)
+    header = SessionResult(
+        schema_version=2,
+        session_id="S3",
+        started_at=1_700_000_000.0,
+        duration_ns=1_000_000_000,
+        layout="qwerty",
+        mode=Mode.ADAPTIVE,
+        lesson_alphabet=(ord("a"),),
+        focus_key=None,
+        total_keystrokes=1,
+        correct_keystrokes=1,
+        unlocked_keys=(ord("a"), ord("s"), ord("d")),
+    )
+    repo.save_header(header)
+
+    headers = list(JsonlSessionRepository(paths).iter_headers("qwerty"))
+    assert headers[0].unlocked_keys == (ord("a"), ord("s"), ord("d"))
+
+
+def test_round_trip_key_confidence(paths):
+    repo = JsonlSessionRepository(paths)
+    header = SessionResult(
+        schema_version=3,
+        session_id="S4",
+        started_at=1_700_000_000.0,
+        duration_ns=1_000_000_000,
+        layout="qwerty",
+        mode=Mode.ADAPTIVE,
+        lesson_alphabet=(ord("a"),),
+        focus_key=ord("a"),
+        total_keystrokes=1,
+        correct_keystrokes=1,
+        unlocked_keys=(ord("a"), ord("s")),
+        key_confidence={ord("a"): 0.85, ord("s"): 1.2},
+    )
+    repo.save_header(header)
+
+    headers = list(JsonlSessionRepository(paths).iter_headers("qwerty"))
+    assert headers[0].key_confidence == {ord("a"): 0.85, ord("s"): 1.2}
+
+
+def test_legacy_header_without_key_confidence_defaults_empty(paths):
+    repo = JsonlSessionRepository(paths)
+    repo.save_header(_header())
+
+    headers = list(JsonlSessionRepository(paths).iter_headers("qwerty"))
+    assert headers[0].key_confidence == {}
+
+
+def test_legacy_header_without_unlocked_keys_defaults_empty(paths):
+    repo = JsonlSessionRepository(paths)
+    repo.save_header(_header())
+
+    headers = list(JsonlSessionRepository(paths).iter_headers("qwerty"))
+    assert headers[0].unlocked_keys == ()
+
+
 def test_keystroke_before_header_still_recoverable(paths):
     # Real flow: append happens per keystroke (with started_at), save_header runs at end.
     repo = JsonlSessionRepository(paths)

@@ -1,10 +1,24 @@
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 
+from keystrike.domain.aggregate import aggregate_session, combine
+from keystrike.domain.confidence import compute_unlocked, confidence_of, target_ms_per_char
 from keystrike.domain.enums import Mode, SessionState
+from keystrike.domain.generator import typical_chars_per_word
+from keystrike.domain.learn_order import keyboard_order
 from keystrike.domain.models import Keystroke, SessionResult
 from keystrike.domain.null_adapters import NullSessionRepository
-from keystrike.domain.protocols import Clock, IdGenerator, SessionRepository
+from keystrike.domain.protocols import (
+    AggregatesCache,
+    Clock,
+    IdGenerator,
+    LayoutRepository,
+    SessionRepository,
+    SettingsRepository,
+)
 from keystrike.domain.session import BACKSPACE, Session
+
+_SPARK = "▁▂▃▄▅▆▇█"
 
 
 @dataclass(slots=True)
@@ -85,10 +99,49 @@ class RecordKeystroke:
         return session.finished
 
 
+def _snapshot_unlock_state(
+    session: Session,
+    duration_ns: int,
+    *,
+    aggregates_cache: AggregatesCache,
+    settings_repo: SettingsRepository,
+    layout_repo: LayoutRepository,
+) -> tuple[tuple[int, ...], dict[int, float]]:
+    settings = settings_repo.load()
+    layout = layout_repo.get(session.layout)
+    aggregates = aggregates_cache.get(session.layout)
+    prior = aggregates.keys if aggregates else {}
+    draft = SessionResult(
+        schema_version=3,
+        session_id=session.id,
+        started_at=session.started_at_wall,
+        duration_ns=duration_ns,
+        layout=session.layout,
+        mode=session.mode,
+        lesson_alphabet=(),
+        focus_key=session.focus_key,
+        total_keystrokes=session.total_count,
+        correct_keystrokes=session.correct_count,
+        lang=session.lang,
+    )
+    stats = combine(prior, aggregate_session(draft, session.keystrokes))
+    target = target_ms_per_char(settings.target_speed_cpm)
+    unlocked = compute_unlocked(
+        keyboard_order(layout),
+        settings.alphabet_size,
+        stats,
+        target,
+    )
+    return unlocked, {cp: confidence_of(cp, stats, target) for cp in unlocked}
+
+
 @dataclass(slots=True)
 class FinishSession:
     clock: Clock
     repo: SessionRepository = field(default_factory=NullSessionRepository)
+    aggregates_cache: AggregatesCache | None = None
+    settings_repo: SettingsRepository | None = None
+    layout_repo: LayoutRepository | None = None
 
     def __call__(self, session: Session) -> SessionResult:
         session.state = SessionState.COMPLETE
@@ -99,8 +152,23 @@ class FinishSession:
         )
         duration_ns = self.clock.now_ns() - started_ns
 
+        unlocked_keys: tuple[int, ...] = ()
+        key_confidence: dict[int, float] = {}
+        if (
+            self.aggregates_cache is not None
+            and self.settings_repo is not None
+            and self.layout_repo is not None
+        ):
+            unlocked_keys, key_confidence = _snapshot_unlock_state(
+                session,
+                duration_ns,
+                aggregates_cache=self.aggregates_cache,
+                settings_repo=self.settings_repo,
+                layout_repo=self.layout_repo,
+            )
+
         result = SessionResult(
-            schema_version=1,
+            schema_version=3,
             session_id=session.id,
             started_at=session.started_at_wall,
             duration_ns=duration_ns,
@@ -110,7 +178,10 @@ class FinishSession:
             focus_key=session.focus_key,
             total_keystrokes=session.total_count,
             correct_keystrokes=session.correct_count,
+            words_completed=count_words_completed(session.target_text, session.position),
             lang=session.lang,
+            unlocked_keys=unlocked_keys,
+            key_confidence=key_confidence,
         )
         self.repo.save_header(result)
         return result
@@ -122,18 +193,171 @@ class AbortSession:
         session.state = SessionState.CANCELLED
 
 
-def compute_wpm(result: SessionResult) -> float:
-    """Standard WPM: (correct_chars / 5) / minutes."""
+def count_words_completed(text: str, position: int) -> int:
+    """Words fully typed in text[:position] (trailing space or EOF counts the last word)."""
+    if position <= 0:
+        return 0
+    if position >= len(text):
+        return len(text.split())
+    if text[position] == " ":
+        return len(text[:position].split())
+    if " " not in text[:position]:
+        return 0
+    return text[:position].count(" ")
+
+
+def compute_cpm(result: SessionResult) -> float:
+    """Correct characters per minute."""
     minutes = result.duration_ns / 1e9 / 60.0
     if minutes <= 0:
         return 0.0
-    return (result.correct_keystrokes / 5.0) / minutes
+    return result.correct_keystrokes / minutes
+
+
+def _words_for_wpm(result: SessionResult) -> float:
+    if result.words_completed > 0:
+        return float(result.words_completed)
+    if result.correct_keystrokes <= 0:
+        return 0.0
+    # Legacy sessions without words_completed: estimate from char count.
+    return result.correct_keystrokes / typical_chars_per_word()
+
+
+def compute_wpm(result: SessionResult) -> float:
+    """Words per minute from completed lesson words, not chars/5."""
+    minutes = result.duration_ns / 1e9 / 60.0
+    if minutes <= 0:
+        return 0.0
+    return _words_for_wpm(result) / minutes
 
 
 def compute_accuracy(result: SessionResult) -> float:
     if result.total_keystrokes == 0:
         return 0.0
     return result.correct_keystrokes / result.total_keystrokes
+
+
+def value_sparkline(values: Sequence[float]) -> str:
+    """Unicode sparkline for numeric values, oldest→newest."""
+    if not values:
+        return ""
+    lo, hi = min(values), max(values)
+    if hi == lo:
+        level = len(_SPARK) - 1 if hi > 0 else 0
+        return _SPARK[level] * len(values)
+    span = hi - lo
+    return "".join(
+        _SPARK[min(len(_SPARK) - 1, int((v - lo) / span * (len(_SPARK) - 1)))]
+        for v in values
+    )
+
+
+def wpm_sparkline(headers: Sequence[SessionResult], *, limit: int = 20) -> str:
+    """Unicode sparkline of WPM per session, oldest→newest."""
+    ordered = sorted(headers, key=lambda h: h.started_at)[-limit:]
+    if not ordered:
+        return ""
+    return value_sparkline([compute_wpm(h) for h in ordered])
+
+
+def focus_confidence_values(
+    headers: Sequence[SessionResult], *, limit: int = 20,
+) -> list[float]:
+    ordered = sorted(headers, key=lambda h: h.started_at)[-limit:]
+    return [
+        h.key_confidence.get(h.focus_key, 0.0) if h.focus_key is not None else 0.0
+        for h in ordered
+    ]
+
+
+def focus_confidence_sparkline(headers: Sequence[SessionResult], *, limit: int = 20) -> str:
+    """Unicode sparkline of focus-key confidence per session, oldest→newest."""
+    values = focus_confidence_values(headers, limit=limit)
+    if not values:
+        return ""
+    return value_sparkline(values)
+
+
+def key_confidence_values(
+    headers: Sequence[SessionResult],
+    codepoint: int,
+    *,
+    limit: int = 20,
+) -> list[float]:
+    ordered = sorted(headers, key=lambda h: h.started_at)[-limit:]
+    return [h.key_confidence.get(codepoint, 0.0) for h in ordered]
+
+
+def key_confidence_sparkline(
+    headers: Sequence[SessionResult],
+    codepoint: int,
+    *,
+    limit: int = 20,
+) -> str:
+    values = key_confidence_values(headers, codepoint, limit=limit)
+    if not values:
+        return ""
+    return value_sparkline(values)
+
+
+def _char_label(codepoint: int) -> str:
+    ch = chr(codepoint)
+    return ch if ch.isprintable() and not ch.isspace() else f"U+{codepoint:04X}"
+
+
+def _focus_char_label(focus_key: int | None) -> str:
+    if focus_key is None:
+        return "?"
+    return _char_label(focus_key)
+
+
+def format_wpm_trend_line(headers: Sequence[SessionResult], *, limit: int = 20) -> str:
+    ordered = sorted(headers, key=lambda h: h.started_at)[-limit:]
+    if not ordered:
+        return ""
+    wpms = [compute_wpm(h) for h in ordered]
+    spark = wpm_sparkline(headers, limit=limit)
+    return (
+        f"[bold]WPM trend[/] ({len(wpms)} sessions)  {spark}  "
+        f"[dim]latest {wpms[-1]:.0f}  peak {max(wpms):.0f}[/]"
+    )
+
+
+def format_focus_confidence_trend_line(
+    headers: Sequence[SessionResult], *, limit: int = 20,
+) -> str:
+    ordered = sorted(headers, key=lambda h: h.started_at)[-limit:]
+    if not ordered:
+        return ""
+    values = focus_confidence_values(headers, limit=limit)
+    spark = focus_confidence_sparkline(headers, limit=limit)
+    label = _focus_char_label(ordered[-1].focus_key)
+    return (
+        f"[bold]Focus '{label}' confidence[/] ({len(values)} sessions)  {spark}  "
+        f"[dim]latest {values[-1]:.2f}  peak {max(values):.2f}[/]"
+    )
+
+
+def format_key_confidence_trend_line(
+    headers: Sequence[SessionResult],
+    codepoint: int,
+    *,
+    limit: int = 20,
+    cumulative: float | None = None,
+) -> str:
+    ordered = sorted(headers, key=lambda h: h.started_at)[-limit:]
+    if not ordered:
+        return ""
+    values = key_confidence_values(headers, codepoint, limit=limit)
+    spark = key_confidence_sparkline(headers, codepoint, limit=limit)
+    label = _char_label(codepoint)
+    line = (
+        f"[bold]'{label}' confidence[/] ({len(values)} sessions)  {spark}  "
+        f"[dim]latest {values[-1]:.2f}  peak {max(values):.2f}[/]"
+    )
+    if cumulative is not None:
+        line += f"  [dim]cumulative {cumulative:.2f}[/]"
+    return line
 
 
 def format_session_stats_line(result: SessionResult) -> str:

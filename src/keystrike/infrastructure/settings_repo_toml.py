@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import tomllib
 
+from keystrike.domain.enums import TargetSpeedUnit
 from keystrike.domain.models import Settings
 
 from .atomic_write import atomic_write_text
@@ -36,10 +37,16 @@ class TomlSettingsRepository:
 
         # Map raw TOML → Settings. Unknown keys are ignored (forward-compat).
         defaults = Settings()
+        unit_raw = str(raw.get("target_speed_unit", defaults.target_speed_unit))
+        try:
+            target_speed_unit = TargetSpeedUnit(unit_raw)
+        except ValueError:
+            target_speed_unit = defaults.target_speed_unit
         return Settings(
             schema_version=int(raw.get("schema_version", defaults.schema_version)),
             layout=str(raw.get("layout", defaults.layout)),
             target_speed_cpm=int(raw.get("target_speed_cpm", defaults.target_speed_cpm)),
+            target_speed_unit=target_speed_unit,
             alphabet_size=int(raw.get("alphabet_size", defaults.alphabet_size)),
             lang=str(raw.get("lang", defaults.lang)),
             learn_daily_minutes=int(
@@ -53,6 +60,7 @@ class TomlSettingsRepository:
             ("schema_version", settings.schema_version),
             ("layout", settings.layout),
             ("target_speed_cpm", settings.target_speed_cpm),
+            ("target_speed_unit", settings.target_speed_unit),
             ("alphabet_size", settings.alphabet_size),
             ("learn_daily_minutes", settings.learn_daily_minutes),
             ("lang", settings.lang),

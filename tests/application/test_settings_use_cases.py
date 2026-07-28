@@ -5,6 +5,7 @@ from keystrike.application.settings_use_cases import (
     SettingsValidationError,
     UpdateSettings,
 )
+from keystrike.domain.enums import TargetSpeedUnit
 from keystrike.domain.models import Settings
 from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS
 from tests.fakes import FakeLayoutRepository, FakeSettingsRepository
@@ -17,12 +18,14 @@ def test_update_settings_persists_all_fields():
     result = update(
         layout="dvorak",
         target_speed_cpm=400,
+        target_speed_unit=TargetSpeedUnit.WPM,
         alphabet_size=20,
         learn_daily_minutes=15,
     )
 
     assert result.layout == "dvorak"
     assert result.target_speed_cpm == 400
+    assert result.target_speed_unit == TargetSpeedUnit.WPM
     assert result.alphabet_size == 20
     assert result.learn_daily_minutes == 15
     assert repo.settings == result
@@ -36,6 +39,7 @@ def test_update_settings_rejects_non_positive_speed():
         update(
             layout="qwerty",
             target_speed_cpm=0,
+            target_speed_unit=TargetSpeedUnit.CPM,
             alphabet_size=16,
             learn_daily_minutes=10,
         )
@@ -51,6 +55,7 @@ def test_update_settings_rejects_negative_alphabet_size():
         update(
             layout="qwerty",
             target_speed_cpm=300,
+            target_speed_unit=TargetSpeedUnit.CPM,
             alphabet_size=-1,
             learn_daily_minutes=10,
         )
@@ -66,6 +71,7 @@ def test_update_settings_rejects_negative_learn_daily_minutes():
         update(
             layout="qwerty",
             target_speed_cpm=300,
+            target_speed_unit=TargetSpeedUnit.CPM,
             alphabet_size=16,
             learn_daily_minutes=-1,
         )

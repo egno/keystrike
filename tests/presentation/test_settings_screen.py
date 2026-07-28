@@ -3,6 +3,8 @@ from textual.app import App
 from textual.widgets import Input, Select
 
 from keystrike.application.settings_use_cases import UpdateSettings
+from keystrike.domain.generator import cpm_from_wpm, wpm_from_cpm
+from keystrike.domain.enums import TargetSpeedUnit
 from keystrike.domain.models import Settings
 from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS
 from keystrike.presentation.screens.settings import SettingsScreen
@@ -30,6 +32,7 @@ async def test_save_persists_changes_and_pops_screen():
         await pilot.pause()
 
         app.screen.query_one("#settings-speed", Input).value = "400"
+        app.screen.query_one("#settings-speed-unit", Select).value = TargetSpeedUnit.CPM
         app.screen.query_one("#settings-layout", Select).value = "dvorak"
         app.screen.query_one("#settings-alphabet-size", Input).value = "20"
         app.screen.query_one("#settings-learn-daily-minutes", Input).value = "15"
@@ -39,6 +42,7 @@ async def test_save_persists_changes_and_pops_screen():
         await pilot.pause()
 
         assert settings_repo.settings.target_speed_cpm == 400
+        assert settings_repo.settings.target_speed_unit == TargetSpeedUnit.CPM
         assert settings_repo.settings.layout == "dvorak"
         assert settings_repo.settings.alphabet_size == 20
         assert settings_repo.settings.learn_daily_minutes == 15
@@ -111,3 +115,45 @@ async def test_cancel_discards_changes():
 
         assert settings_repo.settings.target_speed_cpm == Settings().target_speed_cpm
         assert app.screen_stack[-1] is not screen
+
+
+@pytest.mark.asyncio
+async def test_save_converts_wpm_to_cpm():
+    app = App()
+    async with app.run_test() as pilot:
+        screen, settings_repo = _build_screen()
+        await app.push_screen(screen)
+        await pilot.pause()
+
+        app.screen.query_one("#settings-speed", Input).value = "80"
+        app.screen.query_one("#settings-speed-unit", Select).value = TargetSpeedUnit.WPM
+        await pilot.pause()
+        await pilot.press("ctrl+s")
+        await pilot.pause()
+
+        assert settings_repo.settings.target_speed_cpm == cpm_from_wpm(80)
+        assert settings_repo.settings.target_speed_unit == TargetSpeedUnit.WPM
+        assert app.screen_stack[-1] is not screen
+
+
+@pytest.mark.asyncio
+async def test_loads_wpm_display_value():
+    app = App()
+    settings_repo = FakeSettingsRepository(
+        Settings(target_speed_cpm=300, target_speed_unit=TargetSpeedUnit.WPM),
+    )
+    layout_repo = FakeLayoutRepository(dict(BUNDLED_LAYOUTS))
+    update_settings = UpdateSettings(repo=settings_repo)
+    screen = SettingsScreen(
+        settings_repo=settings_repo,
+        layout_repo=layout_repo,
+        update_settings=update_settings,
+    )
+    async with app.run_test() as pilot:
+        await app.push_screen(screen)
+        await pilot.pause()
+
+        assert app.screen.query_one("#settings-speed", Input).value == str(
+            wpm_from_cpm(300),
+        )
+        assert app.screen.query_one("#settings-speed-unit", Select).value == TargetSpeedUnit.WPM

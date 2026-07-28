@@ -4,6 +4,9 @@ from keystrike.domain.generator import (
     MAX_WORD_LEN,
     MIN_WORD_LEN,
     AdaptiveGenerator,
+    cpm_from_wpm,
+    typical_chars_per_word,
+    wpm_from_cpm,
 )
 from keystrike.domain.markov import TransitionTable
 
@@ -60,3 +63,9 @@ def test_generate_lesson_injects_focus_bigram():
             focus_bigram=(ord("a"), ord("z")),
         )
         assert "az" in lesson.replace(" ", "")
+
+
+def test_wpm_cpm_conversion_uses_typical_word_length():
+    avg = typical_chars_per_word()
+    assert cpm_from_wpm(80) == round(80 * avg)
+    assert wpm_from_cpm(round(80 * avg)) == 80

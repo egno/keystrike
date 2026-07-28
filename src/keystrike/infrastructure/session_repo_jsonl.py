@@ -106,6 +106,8 @@ def _header_to_dict(h: SessionResult) -> dict[str, object]:
     # Mode is a StrEnum → str; tuple → list for JSON.
     d["mode"] = str(h.mode)
     d["lesson_alphabet"] = list(h.lesson_alphabet)
+    d["unlocked_keys"] = list(h.unlocked_keys)
+    d["key_confidence"] = {str(k): v for k, v in h.key_confidence.items()}
     return d
 
 
@@ -139,7 +141,13 @@ def _header_from_dict(d: dict[str, object]) -> SessionResult:
         focus_key=_as_int(d["focus_key"]) if d.get("focus_key") is not None else None,
         total_keystrokes=_as_int(d["total_keystrokes"]),
         correct_keystrokes=_as_int(d["correct_keystrokes"]),
+        words_completed=_as_int(d.get("words_completed", 0)),
         lang=str(d.get("lang", "en")),
+        unlocked_keys=tuple(d.get("unlocked_keys", ())),  # type: ignore[arg-type]
+        key_confidence={
+            int(k): float(v)
+            for k, v in d.get("key_confidence", {}).items()  # type: ignore[union-attr]
+        },
     )
 
 

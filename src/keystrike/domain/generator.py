@@ -16,6 +16,22 @@ MAX_RETRIES = 5
 DEFAULT_WORD_COUNT = 12
 
 
+def typical_chars_per_word() -> float:
+    """Mean chars per generated word (spaces excluded).
+
+    ponytail: midpoint of accepted word lengths; upgrade to measured corpus avg.
+    """
+    return (MIN_WORD_LEN + MAX_WORD_LEN) / 2.0
+
+
+def cpm_from_wpm(wpm: int) -> int:
+    return round(wpm * typical_chars_per_word())
+
+
+def wpm_from_cpm(cpm: int) -> int:
+    return int(cpm / typical_chars_per_word())
+
+
 @dataclass(slots=True)
 class AdaptiveGenerator:
     table: TransitionTable

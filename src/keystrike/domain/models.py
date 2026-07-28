@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 
-from .enums import Finger, Hand, Mode
+from .enums import Finger, Hand, Mode, TargetSpeedUnit
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,7 +23,10 @@ class SessionResult:
     focus_key: int | None
     total_keystrokes: int
     correct_keystrokes: int
+    words_completed: int = 0
     lang: str = "en"
+    unlocked_keys: tuple[int, ...] = ()
+    key_confidence: dict[int, float] = field(default_factory=dict)  # unlocked keys only
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,7 +96,8 @@ class Layout:
 class Settings:
     schema_version: int = 1
     layout: str = "qwerty"
-    target_speed_cpm: int = 300         # 60 wpm
+    target_speed_cpm: int = 300         # ~46 wpm at typical generated word length
+    target_speed_unit: TargetSpeedUnit = TargetSpeedUnit.WPM
     alphabet_size: int = 16             # letters force-unlocked from cold start
     lang: str = "en"
     learn_daily_minutes: int = 10        # adaptive mode cap per calendar day; 0 = unlimited

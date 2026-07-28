@@ -1,5 +1,6 @@
 import pytest
 
+from keystrike.domain.enums import TargetSpeedUnit
 from keystrike.domain.models import Settings
 from keystrike.infrastructure.paths import Paths
 from keystrike.infrastructure.settings_repo_toml import TomlSettingsRepository
@@ -26,6 +27,7 @@ def test_round_trip(paths):
     original = Settings(
         layout="dvorak",
         target_speed_cpm=400,
+        target_speed_unit=TargetSpeedUnit.WPM,
         alphabet_size=20,
     )
     repo.save(original)

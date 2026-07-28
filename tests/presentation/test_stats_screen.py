@@ -70,6 +70,61 @@ async def test_stats_screen_with_sessions_renders_history_and_heatmap():
 
 
 @pytest.mark.asyncio
+async def test_stats_screen_renders_wpm_trend():
+    app = App()
+    async with app.run_test() as pilot:
+        repo = FakeSessionRepository()
+        header = SessionResult(
+            schema_version=2,
+            session_id="s1",
+            started_at=1_700_000_000.0,
+            duration_ns=60_000_000_000,
+            layout="qwerty",
+            mode=Mode.ADAPTIVE,
+            lesson_alphabet=(ord("a"),),
+            focus_key=None,
+            total_keystrokes=50,
+            correct_keystrokes=50,
+        )
+        repo.save_header(header)
+
+        await app.push_screen(_build_screen(repo))
+        await pilot.pause()
+
+        wpm_text = str(app.screen.query_one("#stats-wpm-trend", Static).content)
+        assert "WPM trend" in wpm_text
+        assert "latest" in wpm_text
+
+
+@pytest.mark.asyncio
+async def test_stats_screen_renders_focus_confidence_trend():
+    app = App()
+    async with app.run_test() as pilot:
+        repo = FakeSessionRepository()
+        header = SessionResult(
+            schema_version=3,
+            session_id="s1",
+            started_at=1_700_000_000.0,
+            duration_ns=60_000_000_000,
+            layout="qwerty",
+            mode=Mode.ADAPTIVE,
+            lesson_alphabet=(ord("e"),),
+            focus_key=ord("e"),
+            total_keystrokes=50,
+            correct_keystrokes=50,
+            key_confidence={ord("e"): 0.82},
+        )
+        repo.save_header(header)
+
+        await app.push_screen(_build_screen(repo))
+        await pilot.pause()
+
+        focus_text = str(app.screen.query_one("#stats-focus-confidence", Static).content)
+        assert "Focus 'e' confidence" in focus_text
+        assert "latest" in focus_text
+
+
+@pytest.mark.asyncio
 async def test_stats_title_flags_ortholinear_layout():
     app = App()
     async with app.run_test() as pilot:
@@ -89,3 +144,134 @@ async def test_stats_title_omits_ortholinear_for_staggered_layout():
         await pilot.pause()
         title = str(app.screen.query_one("#stats-title", Static).content)
         assert "ortholinear" not in title
+
+
+def _session_with_key_confidence(
+    *,
+    session_id: str,
+    started_at: float,
+    key_confidence: dict[int, float],
+) -> SessionResult:
+    return SessionResult(
+        schema_version=3,
+        session_id=session_id,
+        started_at=started_at,
+        duration_ns=60_000_000_000,
+        layout="qwerty",
+        mode=Mode.ADAPTIVE,
+        lesson_alphabet=tuple(key_confidence),
+        focus_key=next(iter(key_confidence), None),
+        total_keystrokes=50,
+        correct_keystrokes=50,
+        key_confidence=key_confidence,
+    )
+
+
+@pytest.mark.asyncio
+async def test_stats_key_press_shows_key_detail():
+    app = App()
+    async with app.run_test() as pilot:
+        repo = FakeSessionRepository()
+        repo.save_header(_session_with_key_confidence(
+            session_id="s1",
+            started_at=1.0,
+            key_confidence={ord("e"): 0.55},
+        ))
+        await app.push_screen(_build_screen(repo))
+        await pilot.pause()
+
+        await pilot.press("e")
+        await pilot.pause()
+
+        screen = app.screen
+        assert screen._view == "key_detail"
+        assert screen._selected_cp == ord("e")
+        detail = str(screen.query_one("#stats-key-detail", Static).content)
+        assert "'e' confidence" in detail
+        assert screen.query_one("#stats-wpm-trend", Static).display is False
+        assert screen.query_one("#stats-history", Static).display is False
+
+
+@pytest.mark.asyncio
+async def test_stats_key_detail_switches_key_without_overview():
+    app = App()
+    async with app.run_test() as pilot:
+        repo = FakeSessionRepository()
+        repo.save_header(_session_with_key_confidence(
+            session_id="s1",
+            started_at=1.0,
+            key_confidence={ord("a"): 0.40, ord("b"): 0.70},
+        ))
+        await app.push_screen(_build_screen(repo))
+        await pilot.pause()
+
+        await pilot.press("a")
+        await pilot.pause()
+        screen = app.screen
+        assert screen._view == "key_detail"
+        assert screen._selected_cp == ord("a")
+        assert "'a' confidence" in str(screen.query_one("#stats-key-detail", Static).content)
+
+        await pilot.press("b")
+        await pilot.pause()
+
+        assert screen._view == "key_detail"
+        assert screen._selected_cp == ord("b")
+        detail = str(screen.query_one("#stats-key-detail", Static).content)
+        assert "'b' confidence" in detail
+        assert "'a' confidence" not in detail
+        assert screen.query_one("#stats-wpm-trend", Static).display is False
+
+
+@pytest.mark.asyncio
+async def test_stats_escape_from_key_detail_returns_to_overview():
+    app = App()
+    async with app.run_test() as pilot:
+        repo = FakeSessionRepository()
+        repo.save_header(_session_with_key_confidence(
+            session_id="s1",
+            started_at=1.0,
+            key_confidence={ord("e"): 0.55},
+        ))
+        await app.push_screen(_build_screen(repo))
+        await pilot.pause()
+
+        await pilot.press("e")
+        await pilot.pause()
+        await pilot.press("escape")
+        await pilot.pause()
+
+        screen = app.screen
+        assert screen._view == "overview"
+        assert screen.query_one("#stats-key-detail", Static).display is False
+        assert screen.query_one("#stats-wpm-trend", Static).display is True
+        assert "WPM trend" in str(screen.query_one("#stats-wpm-trend", Static).content)
+
+
+@pytest.mark.asyncio
+async def test_stats_escape_in_overview_pops_screen():
+    app = App()
+    async with app.run_test() as pilot:
+        repo = FakeSessionRepository()
+        await app.push_screen(_build_screen(repo))
+        await pilot.pause()
+
+        await pilot.press("escape")
+        await pilot.pause()
+
+        assert not isinstance(app.screen, StatsScreen)
+
+
+@pytest.mark.asyncio
+async def test_stats_ignores_key_not_in_layout():
+    app = App()
+    async with app.run_test() as pilot:
+        repo = FakeSessionRepository()
+        await app.push_screen(_build_screen(repo))
+        await pilot.pause()
+
+        await pilot.press("!")
+        await pilot.pause()
+
+        assert app.screen._view == "overview"
+        assert app.screen.query_one("#stats-key-detail", Static).display is False
