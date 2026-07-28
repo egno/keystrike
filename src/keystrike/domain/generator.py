@@ -43,12 +43,19 @@ class AdaptiveGenerator:
         char_weights: Mapping[str, float] | None = None,
         layout: Layout | None = None,
         transition_weights: Mapping[str, float] | None = None,
+        focus_bigram: tuple[int, int] | None = None,
     ) -> str:
         words = [
             self.generate_word(alphabet, char_weights, layout, transition_weights)
             for _ in range(word_count)
         ]
-        if not any(focus_char in w for w in words):
+        if focus_bigram is not None:
+            prev_char, next_char = chr(focus_bigram[0]), chr(focus_bigram[1])
+            bigram = prev_char + next_char
+            if not any(bigram in w for w in words):
+                idx = self.rng.randrange(len(words))
+                words[idx] = self._inject_focus_bigram(words[idx], prev_char, next_char)
+        elif not any(focus_char in w for w in words):
             idx = self.rng.randrange(len(words))
             words[idx] = self._inject_focus(words[idx], focus_char)
         return " ".join(words)
@@ -78,3 +85,14 @@ class AdaptiveGenerator:
             return focus_char
         pos = self.rng.randrange(len(word))
         return word[:pos] + focus_char + word[pos + 1 :]
+
+    def _inject_focus_bigram(self, word: str, prev_char: str, next_char: str) -> str:
+        bigram = prev_char + next_char
+        if bigram in word:
+            return word
+        if not word:
+            return bigram
+        if len(word) == 1:
+            return prev_char + next_char if word != prev_char else word + next_char
+        pos = self.rng.randrange(len(word) - 1)
+        return word[:pos] + prev_char + next_char + word[pos + 2 :]

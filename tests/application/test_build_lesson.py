@@ -1,8 +1,9 @@
 from random import Random
 
 from keystrike.application.build_lesson import BuildCodeLesson, BuildLesson
+from keystrike.domain.aggregate import transition_key
 from keystrike.domain.learn_order import keyboard_order
-from keystrike.domain.models import Settings
+from keystrike.domain.models import LayoutAggregates, Settings, TransitionStats
 from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS
 from tests.fakes import (
     FakeAggregatesCache,
@@ -103,3 +104,33 @@ def test_cold_start_unlocks_row_ordered_prefix_not_frequency_order():
 
     assert row_unlocked == expected
     assert row_unlocked != frequency_prefix
+
+
+def test_lesson_uses_transition_focus_when_transitions_weak():
+    layout = BUNDLED_LAYOUTS["qwerty"]
+    order = keyboard_order(layout)
+    a, s = order[0], order[1]
+    now = 1_700_000_000.0
+    five_days = 5 * 86_400.0
+    fast = 100_000_000.0
+    transitions = {
+        transition_key(a, a): TransitionStats(a, a, 10, fast, 0, now),
+        transition_key(a, s): TransitionStats(a, s, 10, 400_000_000.0, 0, now - five_days),
+        transition_key(s, a): TransitionStats(s, a, 10, fast, 0, now),
+        transition_key(s, s): TransitionStats(s, s, 10, fast, 0, now),
+    }
+    cache = FakeAggregatesCache(
+        by_layout={"qwerty": LayoutAggregates(keys={}, transitions=transitions)},
+    )
+    builder = BuildLesson(
+        layout_repo=FakeLayoutRepository(dict(BUNDLED_LAYOUTS)),
+        aggregates_cache=cache,
+        settings_repo=FakeSettingsRepository(Settings(alphabet_size=2)),
+        language_provider=FakeLanguageProvider(),
+        rng=Random(0),
+    )
+    lesson = builder("qwerty")
+    pair = chr(a) + chr(s)
+    assert lesson.focus_key == s
+    assert lesson.focus_reason == f"{pair} weak transition"
+    assert pair in lesson.text.replace(" ", "")

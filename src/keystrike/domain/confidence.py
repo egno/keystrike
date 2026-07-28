@@ -175,3 +175,46 @@ def select_focus(
         unlocked,
         key=lambda cp: _focus_score(cp, stats, target, now, review_penalty=review_penalty),
     )
+
+
+def _transition_focus_score(
+    prev_cp: int,
+    next_cp: int,
+    stats: Mapping[str, TransitionStats],
+    target: float,
+    now: float,
+    *,
+    review_penalty: float,
+) -> float:
+    key = chr(prev_cp) + chr(next_cp)
+    t_stats = stats.get(key)
+    urgency = review_urgency(t_stats.last_seen if t_stats else 0.0, now)
+    confidence = transition_confidence_of(prev_cp, next_cp, stats, target)
+    return confidence * (1.0 - review_penalty * urgency)
+
+
+def select_focus_transition(
+    unlocked: Sequence[int],
+    transitions: Mapping[str, TransitionStats],
+    target: float,
+    now: float,
+    *,
+    review_penalty: float = 0.5,
+) -> tuple[int, int] | None:
+    """Weakest unlocked bigram by transition confidence; None when no transition data."""
+    if not transitions:
+        return None
+    pairs = [(prev, nxt) for prev in unlocked for nxt in unlocked]
+    if not pairs:
+        return None
+    return min(
+        pairs,
+        key=lambda p: _transition_focus_score(
+            p[0], p[1], transitions, target, now, review_penalty=review_penalty,
+        ),
+    )
+
+
+def focus_key_from_transition(_prev_cp: int, next_cp: int) -> int:
+    """Endpoint key to mark as lesson focus for a transition-driven bigram."""
+    return next_cp

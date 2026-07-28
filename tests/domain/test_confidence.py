@@ -2,13 +2,15 @@ from keystrike.domain.confidence import (
     accuracy_of,
     compute_unlocked,
     confidence_of,
+    focus_key_from_transition,
     key_confidence,
     practice_weight,
     review_urgency,
     select_focus,
+    select_focus_transition,
     target_ms_per_char,
 )
-from keystrike.domain.models import KeyStats
+from keystrike.domain.models import KeyStats, TransitionStats
 
 
 def test_target_ms_per_char():
@@ -169,3 +171,43 @@ def test_practice_weight_caps_above_mastery_threshold():
 
 def test_practice_weight_scales_linearly_between_zero_and_one():
     assert practice_weight(0.5, max_bias=3.0) == 2.5
+
+
+def _transition(
+    prev_cp: int,
+    next_cp: int,
+    mean_time_ns: float,
+    *,
+    last_seen: float = 0.0,
+    error_count: int = 0,
+) -> TransitionStats:
+    return TransitionStats(
+        prev_cp=prev_cp,
+        next_cp=next_cp,
+        samples=10,
+        mean_time_ns=mean_time_ns,
+        error_count=error_count,
+        last_seen=last_seen,
+    )
+
+
+def test_select_focus_transition_picks_stale_over_slightly_weaker_recent():
+    now = 1_000_000.0
+    five_days = 5 * 86_400.0
+    unlocked = (ord("a"), ord("b"))
+    fast = 100_000_000.0
+    transitions = {
+        "aa": _transition(ord("a"), ord("a"), fast, last_seen=now),
+        "ab": _transition(ord("a"), ord("b"), 210_000_000.0, last_seen=now - five_days),
+        "ba": _transition(ord("b"), ord("a"), 235_000_000.0, last_seen=now),
+        "bb": _transition(ord("b"), ord("b"), fast, last_seen=now),
+    }
+    assert select_focus_transition(unlocked, transitions, 200.0, now) == (ord("a"), ord("b"))
+
+
+def test_select_focus_transition_returns_none_without_data():
+    assert select_focus_transition((1, 2), {}, target=200.0, now=1000.0) is None
+
+
+def test_focus_key_from_transition_uses_next_endpoint():
+    assert focus_key_from_transition(ord("t"), ord("h")) == ord("h")

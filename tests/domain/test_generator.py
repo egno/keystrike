@@ -47,3 +47,16 @@ def test_generate_lesson_char_weights_bias_toward_weak_key():
         frozenset("ab"), focus_char="a", word_count=20, char_weights={"a": 50.0},
     )
     assert lesson.count("a") > lesson.count("b")
+
+
+def test_generate_lesson_injects_focus_bigram():
+    generator = AdaptiveGenerator(table=_uniform_table("abc"), rng=Random(0))
+    for seed in range(10):
+        generator.rng = Random(seed)
+        lesson = generator.generate_lesson(
+            frozenset("abc"),
+            focus_char="c",
+            word_count=4,
+            focus_bigram=(ord("a"), ord("z")),
+        )
+        assert "az" in lesson.replace(" ", "")

@@ -19,13 +19,16 @@ from keystrike.domain.aggregate import transition_key
 from keystrike.domain.confidence import (
     compute_unlocked,
     confidence_of,
+    focus_key_from_transition,
     practice_weight,
     review_urgency,
     select_focus,
+    select_focus_transition,
     target_ms_per_char,
     transition_confidence_of,
     transition_practice_weight,
 )
+from keystrike.domain.models import TransitionStats
 from keystrike.domain.generator import AdaptiveGenerator
 from keystrike.domain.learn_order import keyboard_order
 from keystrike.domain.models import KeyStats, Layout, LessonKey, LessonState, Settings
@@ -57,6 +60,24 @@ def _focus_reason(
     return None
 
 
+def _focus_reason_transition(
+    prev_cp: int,
+    next_cp: int,
+    transitions: dict[str, TransitionStats],
+    target: float,
+    now: float,
+) -> str | None:
+    pair = chr(prev_cp) + chr(next_cp)
+    t_stats = transitions.get(transition_key(prev_cp, next_cp))
+    urgency = review_urgency(t_stats.last_seen if t_stats else 0.0, now)
+    confidence = transition_confidence_of(prev_cp, next_cp, transitions, target)
+    if urgency > 0 and confidence >= _CONFIDENCE_GOOD:
+        return f"{pair} review transition"
+    if confidence < _CONFIDENCE_GOOD:
+        return f"{pair} weak transition"
+    return None
+
+
 @dataclass(slots=True)
 class Lesson:
     text: str
@@ -79,11 +100,19 @@ def _lesson_progress(
     stats: dict[int, KeyStats],
     settings: Settings,
     now: float,
-) -> tuple[tuple[int, ...], int, LessonState]:
+    transitions: dict[str, TransitionStats] | None = None,
+) -> tuple[tuple[int, ...], int, LessonState, tuple[int, int] | None]:
     target = target_ms_per_char(settings.target_speed_cpm)
     order = keyboard_order(layout)
     unlocked = compute_unlocked(order, settings.alphabet_size, stats, target)
-    focus = select_focus(unlocked, stats, target, now)
+    focus_bigram = (
+        select_focus_transition(unlocked, transitions, target, now)
+        if transitions else None
+    )
+    if focus_bigram is not None:
+        focus = focus_key_from_transition(*focus_bigram)
+    else:
+        focus = select_focus(unlocked, stats, target, now)
 
     keys = tuple(
         LessonKey(
@@ -100,7 +129,7 @@ def _lesson_progress(
         alphabet_size=settings.alphabet_size,
         target_speed_cpm=settings.target_speed_cpm,
     )
-    return unlocked, focus, state
+    return unlocked, focus, state, focus_bigram
 
 
 @dataclass(slots=True)
@@ -118,7 +147,9 @@ class BuildLesson:
         stats = aggregates.keys if aggregates else {}
         transitions = aggregates.transitions if aggregates else {}
         now = time.time()
-        unlocked, focus, state = _lesson_progress(layout_name, layout, stats, settings, now)
+        unlocked, focus, state, focus_bigram = _lesson_progress(
+            layout_name, layout, stats, settings, now, transitions,
+        )
         target = target_ms_per_char(settings.target_speed_cpm)
 
         table = self.language_provider.transitions(settings.lang)
@@ -152,17 +183,23 @@ class BuildLesson:
             char_weights=char_weights,
             layout=layout,
             transition_weights=transition_weights,
+            focus_bigram=focus_bigram,
         )
 
         urgency = {
             cp: review_urgency(stats[cp].last_seen if cp in stats else 0.0, now)
             for cp in unlocked
         }
+        if focus_bigram is not None:
+            prev_cp, next_cp = focus_bigram
+            reason = _focus_reason_transition(prev_cp, next_cp, transitions, target, now)
+        else:
+            reason = _focus_reason(focus, stats, target, now)
         return Lesson(
             text=text,
             state=state,
             urgency=urgency,
-            focus_reason=_focus_reason(focus, stats, target, now),
+            focus_reason=reason,
         )
 
 
@@ -180,8 +217,9 @@ class BuildCodeLesson:
         aggregates = self.aggregates_cache.get(layout_name)
         stats = aggregates.keys if aggregates else {}
         now = time.time()
-        unlocked, focus, state = _lesson_progress(
-            layout_name, layout, stats, settings, now,
+        transitions = aggregates.transitions if aggregates else {}
+        unlocked, focus, state, focus_bigram = _lesson_progress(
+            layout_name, layout, stats, settings, now, transitions,
         )
         target = target_ms_per_char(settings.target_speed_cpm)
 
@@ -191,9 +229,14 @@ class BuildCodeLesson:
             cp: review_urgency(stats[cp].last_seen if cp in stats else 0.0, now)
             for cp in unlocked
         }
+        if focus_bigram is not None:
+            prev_cp, next_cp = focus_bigram
+            reason = _focus_reason_transition(prev_cp, next_cp, transitions, target, now)
+        else:
+            reason = _focus_reason(focus, stats, target, now)
         return Lesson(
             text=text,
             state=state,
             urgency=urgency,
-            focus_reason=_focus_reason(focus, stats, target, now),
+            focus_reason=reason,
         )
