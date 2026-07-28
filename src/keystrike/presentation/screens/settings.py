@@ -114,6 +114,10 @@ class SettingsScreen(Screen[None]):
     def on_mount(self) -> None:
         self._refresh_wordlist_status()
 
+    def on_screen_resume(self) -> None:
+        settings = self._settings_repo.load()
+        self.query_one("#settings-alphabet-size", Input).value = str(settings.alphabet_size)
+
     def action_import_wordlist(self) -> None:
         self._do_import()
 

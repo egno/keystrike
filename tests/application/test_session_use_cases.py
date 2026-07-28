@@ -21,7 +21,7 @@ from keystrike.domain.aggregate import aggregate_session, combine
 from keystrike.domain.confidence import compute_unlocked, confidence_of, target_ms_per_char
 from keystrike.domain.enums import Mode, SessionState
 from keystrike.domain.learn_order import keyboard_order
-from keystrike.domain.models import SessionResult
+from keystrike.domain.models import KeyStats, LayoutAggregates, SessionResult, Settings
 from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS
 from tests.fakes import (
     FakeAggregatesCache,
@@ -176,6 +176,36 @@ def test_finish_session_persists_unlocked_keys(clock, id_gen):
     assert result.unlocked_keys == expected
     assert len(repo.headers) == 1
     assert repo.headers[0].unlocked_keys == expected
+
+
+def test_finish_session_bumps_alphabet_size_when_unlocked_set_grows(clock, id_gen):
+    layout = BUNDLED_LAYOUTS["qwerty"]
+    order = keyboard_order(layout)
+    fast = 50_000_000.0
+    stats = {cp: KeyStats(cp, 50, fast, 0, 1_700_000_000.0) for cp in order[:5]}
+    cache = FakeAggregatesCache(
+        by_layout={"qwerty": LayoutAggregates(keys=stats, transitions={})},
+    )
+    settings_repo = FakeSettingsRepository(Settings(alphabet_size=5))
+    layout_repo = FakeLayoutRepository(dict(BUNDLED_LAYOUTS))
+    repo = FakeSessionRepository()
+    finish = FinishSession(
+        clock=clock,
+        repo=repo,
+        aggregates_cache=cache,
+        settings_repo=settings_repo,
+        layout_repo=layout_repo,
+    )
+    start = StartSession(clock=clock, id_gen=id_gen)
+    record = RecordKeystroke(clock=clock, repo=repo)
+    session = start("as", layout="qwerty", mode=Mode.ADAPTIVE, focus_key=order[0])
+    for ch in "as":
+        clock.advance(100_000_000)
+        record(session, ch)
+    result = finish(session)
+
+    assert len(result.unlocked_keys) > 5
+    assert settings_repo.settings.alphabet_size == len(result.unlocked_keys)
 
 
 def test_finish_session_persists_key_confidence(clock, id_gen):

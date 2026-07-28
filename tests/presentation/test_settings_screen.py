@@ -37,6 +37,21 @@ def _build_screen(*, wordlist_store: FakeWordListStore | None = None):
 
 
 @pytest.mark.asyncio
+async def test_settings_screen_refreshes_alphabet_size_on_resume():
+    app = App()
+    async with app.run_test() as pilot:
+        screen, settings_repo, _store = _build_screen()
+        await app.push_screen(screen)
+        await pilot.pause()
+
+        settings_repo.save(Settings(alphabet_size=22))
+        screen.on_screen_resume()
+        await pilot.pause()
+
+        assert app.screen.query_one("#settings-alphabet-size", Input).value == "22"
+
+
+@pytest.mark.asyncio
 async def test_save_persists_changes_and_pops_screen():
     app = App()
     async with app.run_test() as pilot:
