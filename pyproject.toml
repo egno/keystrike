@@ -1,12 +1,26 @@
 [project]
 name = "keystrike"
 version = "1.1.0"
-description = "Adaptive drills for your weakest keys"
+description = "Offline terminal typing tutor with keybr-style adaptive drills and per-layout stats"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
 authors = [{ name = "Aleksandr Shelemetev" }]
-keywords = ["typing", "tutor", "keybr", "textual", "tui"]
+keywords = [
+  "typing",
+  "typing-tutor",
+  "tutor",
+  "keybr",
+  "textual",
+  "tui",
+  "terminal",
+  "cli",
+  "offline",
+  "adaptive",
+  "keyboard-layout",
+  "colemak",
+  "dvorak",
+]
 classifiers = [
   "Development Status :: 5 - Production/Stable",
   "Environment :: Console",
@@ -29,8 +43,10 @@ keystrike = "keystrike.cli:app"
 
 [project.urls]
 Homepage = "https://github.com/egno/keystrike"
+Documentation = "https://github.com/egno/keystrike#readme"
 Repository = "https://github.com/egno/keystrike"
 Issues = "https://github.com/egno/keystrike/issues"
+Changelog = "https://github.com/egno/keystrike/blob/main/docs/CHANGELOG.md"
 
 # Runtime deps are in [project].dependencies above.
 # uv sync --no-dev  → runtime only
