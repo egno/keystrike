@@ -21,12 +21,14 @@ _ROOT = Path(__file__).resolve().parent.parent
 _SNAPSHOTS = _ROOT / "tests/presentation/__snapshots__/test_snapshots"
 _OUT = _ROOT / "docs/assets/demo.gif"
 
+_FRAME_MS = 10_000  # ~10 s per frame in the README demo GIF
+
 _FRAMES = (
-    ("test_home_screen_snapshot.svg", 1200),
-    ("test_practice_screen_snapshot.svg", 800),
-    ("test_stats_screen_snapshot.svg", 800),
-    ("test_settings_screen_snapshot.svg", 800),
-    ("test_home_screen_snapshot.svg", 1200),
+    "test_home_screen_snapshot.svg",
+    "test_practice_screen_snapshot.svg",
+    "test_stats_screen_snapshot.svg",
+    "test_settings_screen_snapshot.svg",
+    "test_home_screen_snapshot.svg",
 )
 
 
@@ -42,20 +44,18 @@ def main() -> None:
             os.environ["DYLD_LIBRARY_PATH"] = str(brew_lib)
 
     frames: list[Image.Image] = []
-    durations: list[int] = []
-    for name, ms in _FRAMES:
+    for name in _FRAMES:
         svg = _SNAPSHOTS / name
         if not svg.is_file():
             raise SystemExit(f"missing snapshot: {svg}")
         frames.append(_svg_to_image(svg))
-        durations.append(ms)
 
     _OUT.parent.mkdir(parents=True, exist_ok=True)
     frames[0].save(
         _OUT,
         save_all=True,
         append_images=frames[1:],
-        duration=durations,
+        duration=_FRAME_MS,
         loop=0,
         optimize=True,
     )

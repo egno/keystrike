@@ -1,6 +1,10 @@
 """Visual regression tests (desktop only — sync with `uv sync --group snapshot`)."""
 
+import pytest
+
 from tests.presentation.test_practice_screen import _build_app
+
+pytestmark = pytest.mark.snapshot
 
 
 def test_home_screen_snapshot(snap_compare):

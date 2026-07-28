@@ -13,3 +13,4 @@ htmlcov/
 .coverage.*
 *.log
 .DS_Store
+.claude/

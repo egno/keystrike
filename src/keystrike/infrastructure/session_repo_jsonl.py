@@ -8,6 +8,7 @@ import json
 from collections.abc import Iterator
 from dataclasses import asdict
 from pathlib import Path
+from typing import cast
 
 from keystrike.domain.enums import Mode
 from keystrike.domain.models import Keystroke, SessionResult
@@ -129,6 +130,16 @@ def _parse_mode(raw: object) -> Mode:
     return Mode(value)
 
 
+def _parse_key_confidence(raw: object) -> dict[int, float]:
+    if not isinstance(raw, dict):
+        return {}
+    out: dict[int, float] = {}
+    mapping = cast("dict[object, object]", raw)
+    for k, v in mapping.items():
+        out[_as_int(k)] = _as_float(v)
+    return out
+
+
 def _header_from_dict(d: dict[str, object]) -> SessionResult:
     return SessionResult(
         schema_version=_as_int(d["schema_version"]),
@@ -144,10 +155,7 @@ def _header_from_dict(d: dict[str, object]) -> SessionResult:
         words_completed=_as_int(d.get("words_completed", 0)),
         lang=str(d.get("lang", "en")),
         unlocked_keys=tuple(d.get("unlocked_keys", ())),  # type: ignore[arg-type]
-        key_confidence={
-            int(k): float(v)
-            for k, v in d.get("key_confidence", {}).items()  # type: ignore[union-attr]
-        },
+        key_confidence=_parse_key_confidence(d.get("key_confidence", {})),
     )
 
 

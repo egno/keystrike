@@ -3,7 +3,15 @@ from typing import Protocol
 
 from .daily_learn import DailyLearnBudget
 from .markov import TransitionTable
-from .models import KeyStats, Keystroke, Layout, LayoutAggregates, SessionResult, Settings, SyncStatusReport
+from .models import (
+    KeyStats,
+    Keystroke,
+    Layout,
+    LayoutAggregates,
+    SessionResult,
+    Settings,
+    SyncStatusReport,
+)
 
 
 class Clock(Protocol):

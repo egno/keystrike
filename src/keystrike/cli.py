@@ -1,4 +1,5 @@
 import subprocess
+from typing import NoReturn
 
 import typer
 
@@ -34,7 +35,7 @@ def run() -> None:
     build().run()
 
 
-def _sync_err(exc: BaseException) -> None:
+def _sync_err(exc: BaseException) -> NoReturn:
     typer.echo(str(exc), err=True)
     raise typer.Exit(code=1) from exc
 

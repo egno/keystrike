@@ -1,3 +1,5 @@
+from typing import cast
+
 import pytest
 from textual.app import App
 from textual.widgets import Static
@@ -183,7 +185,7 @@ async def test_stats_key_press_shows_key_detail():
         await pilot.press("e")
         await pilot.pause()
 
-        screen = app.screen
+        screen = cast(StatsScreen, app.screen)
         assert screen._view == "key_detail"
         assert screen._selected_cp == ord("e")
         detail = str(screen.query_one("#stats-key-detail", Static).content)
@@ -207,7 +209,7 @@ async def test_stats_key_detail_switches_key_without_overview():
 
         await pilot.press("a")
         await pilot.pause()
-        screen = app.screen
+        screen = cast(StatsScreen, app.screen)
         assert screen._view == "key_detail"
         assert screen._selected_cp == ord("a")
         assert "'a' confidence" in str(screen.query_one("#stats-key-detail", Static).content)
@@ -241,7 +243,7 @@ async def test_stats_escape_from_key_detail_returns_to_overview():
         await pilot.press("escape")
         await pilot.pause()
 
-        screen = app.screen
+        screen = cast(StatsScreen, app.screen)
         assert screen._view == "overview"
         assert screen.query_one("#stats-key-detail", Static).display is False
         assert screen.query_one("#stats-wpm-trend", Static).display is True
@@ -273,5 +275,6 @@ async def test_stats_ignores_key_not_in_layout():
         await pilot.press("!")
         await pilot.pause()
 
-        assert app.screen._view == "overview"
-        assert app.screen.query_one("#stats-key-detail", Static).display is False
+        screen = cast(StatsScreen, app.screen)
+        assert screen._view == "overview"
+        assert screen.query_one("#stats-key-detail", Static).display is False

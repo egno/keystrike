@@ -11,6 +11,10 @@ class Keystroke:
     correct: bool
 
 
+def _empty_key_confidence() -> dict[int, float]:
+    return {}
+
+
 @dataclass(frozen=True, slots=True)
 class SessionResult:
     schema_version: int
@@ -26,7 +30,7 @@ class SessionResult:
     words_completed: int = 0
     lang: str = "en"
     unlocked_keys: tuple[int, ...] = ()
-    key_confidence: dict[int, float] = field(default_factory=dict)  # unlocked keys only
+    key_confidence: dict[int, float] = field(default_factory=_empty_key_confidence)
 
 
 @dataclass(frozen=True, slots=True)
