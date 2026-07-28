@@ -76,10 +76,6 @@ class KeystrikeApp(App[None]):
     def on_home_screen_start_practice(self, _: HomeScreen.StartPractice) -> None:
         initial = self._prepare_practice()
         if initial is None:
-            self.notify(
-                "Daily learn limit reached. Change learn_daily_minutes in Settings.",
-                severity="warning",
-            )
             return
 
         practice = PracticeScreen(

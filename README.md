@@ -90,7 +90,7 @@ On other screens, `Esc` / `q` goes back. Settings saves with `Ctrl+S`.
 Adaptive mode disables backspace — mistakes stay in the record so confidence scores
 stay honest. The HUD shows live accuracy, remaining daily learn time, and the current
 focus key. When a session ends, the next lesson starts automatically unless you go
-back or hit your daily limit.
+back. Hitting your daily goal is shown in the HUD only — practice continues.
 
 ### Stats
 
@@ -104,7 +104,7 @@ drill into that key's confidence trend; `Esc` / `q` returns to the overview.
 | Layout | `qwerty` | Any bundled or custom layout |
 | Target speed | 46 WPM | Or CPM — your unlock threshold |
 | Letters unlocked up front | 16 | Force-unlocked before confidence gating |
-| Daily learn limit | 10 min | `0` = unlimited |
+| Daily learn goal | 10 min | `0` = no goal |
 
 ## Backup sync
 
