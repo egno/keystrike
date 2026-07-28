@@ -1,0 +1,63 @@
+from collections.abc import Iterator, Sequence
+from pathlib import Path
+from typing import Protocol
+
+from .markov import TransitionTable
+from .models import KeyStats, Keystroke, Layout, SessionResult, Settings
+
+
+class Clock(Protocol):
+    def now_ns(self) -> int: ...
+    def wall_epoch(self) -> float: ...
+
+
+class IdGenerator(Protocol):
+    def new_id(self) -> str: ...
+
+
+class SessionRepository(Protocol):
+    def append_keystroke(self, session_id: str, started_at: float, k: Keystroke) -> None: ...
+    def save_header(self, header: SessionResult) -> None: ...
+    def iter_headers(self, layout: str) -> Iterator[SessionResult]: ...
+    def load_keystrokes(self, session_id: str) -> Iterator[Keystroke]: ...
+
+
+class SettingsRepository(Protocol):
+    def load(self) -> Settings: ...
+    def save(self, settings: Settings) -> None: ...
+
+
+class LayoutRepository(Protocol):
+    def list_available(self) -> list[str]: ...
+    def get(self, name: str) -> Layout: ...
+
+
+class AggregatesCache(Protocol):
+    def get(self, layout: str) -> dict[int, KeyStats] | None: ...
+    def put(self, layout: str, stats: dict[int, KeyStats]) -> None: ...
+    def invalidate(self, layout: str) -> None: ...
+
+
+class FreeformTextProvider(Protocol):
+    def load(self, path: Path) -> str: ...
+
+
+class StatsRebuilder(Protocol):
+    """Shape of `application.stats_use_cases.RebuildAggregates` — lets callers
+    (e.g. PracticeScreen) depend on the behavior without importing application code."""
+
+    def __call__(self, layout: str) -> dict[int, KeyStats]: ...
+
+
+class LanguageProvider(Protocol):
+    def transitions(self, lang: str) -> TransitionTable: ...
+
+
+class CodeSnippetProvider(Protocol):
+    def snippets(self) -> Sequence[str]: ...
+
+
+class LearningRateEstimator(Protocol):
+    """Shape of `application.stats_use_cases.GetLearningRate`."""
+
+    def __call__(self, layout: str, codepoint: int) -> int | None: ...

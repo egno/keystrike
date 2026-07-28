@@ -1,0 +1,9 @@
+name = "custom_test"
+learn_order = "a"
+
+[[keys]]
+char = "a"
+row = 1
+col = 0
+finger = "SIXTH"
+hand = "L"

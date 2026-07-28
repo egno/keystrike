@@ -1,0 +1,89 @@
+[project]
+name = "keystrike"
+version = "0.1.0"
+description = "Offline cross-platform terminal typing tutor"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+authors = [{ name = "Aleksandr Shelemetev" }]
+keywords = ["typing", "tutor", "keybr", "textual", "tui"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: End Users/Desktop",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Education",
+]
+
+dependencies = [
+  "textual>=0.85",
+  "platformdirs>=4.2",
+  "typer>=0.12",
+]
+
+[project.scripts]
+keystrike = "keystrike.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/anthropic/keystrike"
+
+[dependency-groups]
+dev = [
+  "pytest>=8",
+  "pytest-asyncio>=0.24",
+  "hypothesis>=6.100",
+  "pytest-textual-snapshot>=1.0",
+  "ruff>=0.6",
+  "pyright>=1.1.380",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/keystrike"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/keystrike/infrastructure/languages/data" = "keystrike/infrastructure/languages/data"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+  "E", "F", "I", "B", "UP", "SIM", "RUF", "PL", "PT", "ANN",
+]
+ignore = [
+  "ANN401",   # allow Any where genuinely needed
+  "PLR0913",  # constructor with many injected deps is fine
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["ANN", "PLR2004", "S101"]
+
+[tool.pyright]
+include = ["src", "tests"]
+extraPaths = ["."]
+pythonVersion = "3.12"
+typeCheckingMode = "strict"
+reportMissingTypeStubs = false
+reportUnknownMemberType = false
+
+[[tool.pyright.executionEnvironments]]
+root = "tests"
+reportMissingParameterType = false
+reportUnknownParameterType = false
+reportUnknownArgumentType = false
+reportUnknownVariableType = false
+reportUnknownMemberType = false
+reportPrivateUsage = false
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"

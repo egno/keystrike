@@ -1,0 +1,17 @@
+name = "custom_test"
+learn_order = "ab"
+
+[[keys]]
+char = "a"
+row = 1
+col = 0
+finger = "PINKY"
+hand = "L"
+
+[[keys]]
+char = "b"
+row = 1
+col = 1
+finger = "RING"
+hand = "L"
+shifted = false

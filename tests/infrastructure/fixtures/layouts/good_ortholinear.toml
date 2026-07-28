@@ -1,0 +1,17 @@
+name = "custom_ortho"
+learn_order = "ab"
+ortholinear = true
+
+[[keys]]
+char = "a"
+row = 1
+col = 0
+finger = "PINKY"
+hand = "L"
+
+[[keys]]
+char = "b"
+row = 1
+col = 1
+finger = "RING"
+hand = "L"
