@@ -4,6 +4,7 @@ from random import Random
 
 from keystrike.application.build_lesson import BuildCodeLesson, BuildLesson
 from keystrike.application.learn_budget_use_cases import GetDailyLearnBudget
+from keystrike.application.prepare_practice import PreparePracticeSession
 from keystrike.application.session_use_cases import (
     FinishSession,
     RecordKeystroke,
@@ -27,6 +28,12 @@ from keystrike.infrastructure.paths import default_paths, ensure_dirs
 from keystrike.infrastructure.session_repo_jsonl import JsonlSessionRepository
 from keystrike.infrastructure.settings_repo_toml import TomlSettingsRepository
 from keystrike.presentation.textual_app import KeystrikeApp
+
+_SAMPLE_TEXT = (
+    "the quick brown fox jumps over the lazy dog. "
+    "pack my box with five dozen liquor jugs. "
+    "how vexingly quick daft zebras jump."
+)
 
 
 def build() -> KeystrikeApp:
@@ -71,6 +78,15 @@ def build() -> KeystrikeApp:
         code_provider=code_provider,
         rng=Random(),
     )
+    prepare_practice = PreparePracticeSession(
+        settings_repo=settings_repo,
+        layout_repo=layout_repo,
+        build_lesson=build_lesson,
+        build_code_lesson=build_code_lesson,
+        freeform_provider=freeform_provider,
+        get_daily_learn_budget=get_daily_learn_budget,
+        sample_text=_SAMPLE_TEXT,
+    )
 
     return KeystrikeApp(
         clock=clock,
@@ -79,14 +95,12 @@ def build() -> KeystrikeApp:
         finish=finish,
         settings_repo=settings_repo,
         layout_repo=layout_repo,
+        prepare_practice=prepare_practice,
         rebuild_aggregates=rebuild_aggregates,
         get_heatmap=get_heatmap,
         get_history=get_history,
         get_learning_rate=get_learning_rate,
-        get_daily_learn_budget=get_daily_learn_budget,
-        freeform_provider=freeform_provider,
         cycle_layout=cycle_layout,
         update_settings=update_settings,
-        build_lesson=build_lesson,
-        build_code_lesson=build_code_lesson,
+        get_daily_learn_budget=get_daily_learn_budget,
     )

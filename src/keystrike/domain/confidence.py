@@ -11,6 +11,7 @@ from collections.abc import Mapping, Sequence
 from .models import KeyStats, TransitionStats
 
 _SECONDS_PER_DAY = 86_400.0
+_REVIEW_URGENCY_FULL_DAYS = 3.0
 
 
 def target_ms_per_char(target_speed_cpm: int) -> float:
@@ -68,7 +69,7 @@ def compute_unlocked(
 
 
 def review_urgency(last_seen: float, now: float) -> float:
-    """How urgently a key needs re-testing before forgetting (0.0–1.0).
+    """How urgently a key needs re-testing before forgetting (0.0-1.0).
 
     ponytail: fixed day-scale ramp, not per-key ACT-R decay; upgrade to
     SlimStampen-style individual half-life once we have enough per-key history.
@@ -78,7 +79,7 @@ def review_urgency(last_seen: float, now: float) -> float:
     elapsed_days = (now - last_seen) / _SECONDS_PER_DAY
     if elapsed_days < 1.0:
         return 0.0
-    if elapsed_days >= 3.0:
+    if elapsed_days >= _REVIEW_URGENCY_FULL_DAYS:
         return 1.0
     return (elapsed_days - 1.0) / 2.0
 

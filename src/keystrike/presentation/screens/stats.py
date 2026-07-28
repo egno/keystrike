@@ -7,8 +7,8 @@ from textual.screen import Screen
 from textual.widgets import Footer, Static
 
 from keystrike.application.session_use_cases import compute_accuracy, compute_wpm
-from keystrike.application.stats_use_cases import GetHeatmap, GetHistory, RebuildAggregates
-from keystrike.domain.protocols import LayoutRepository
+from keystrike.application.stats_use_cases import GetHeatmap, GetHistory
+from keystrike.domain.protocols import LayoutRepository, StatsRebuilder
 from keystrike.presentation.bindings import BACK_BINDINGS
 from keystrike.presentation.widgets.kb_heatmap import KbHeatmap
 
@@ -29,7 +29,7 @@ class StatsScreen(Screen[None]):
         *,
         layout: str,
         layout_repo: LayoutRepository,
-        rebuild_aggregates: RebuildAggregates,
+        rebuild_aggregates: StatsRebuilder,
         get_heatmap: GetHeatmap,
         get_history: GetHistory,
     ) -> None:

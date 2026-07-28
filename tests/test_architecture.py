@@ -70,3 +70,14 @@ def test_domain_has_no_third_party_imports():
                 violations.append(f"{rel} imports non-stdlib module {module!r}")
 
     assert not violations, "Domain purity violations:\n" + "\n".join(violations)
+
+
+def test_presentation_has_no_path_reads():
+    violations: list[str] = []
+    for path in _layer_files("presentation"):
+        for module in _imported_modules(path):
+            if module == "pathlib" or module.startswith("pathlib."):
+                rel = path.relative_to(_SRC)
+                violations.append(f"{rel} imports {module!r}")
+
+    assert not violations, "Presentation Path violations:\n" + "\n".join(violations)

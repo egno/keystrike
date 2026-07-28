@@ -1,6 +1,10 @@
 from keystrike.domain.enums import Mode
 from keystrike.domain.models import Keystroke, SessionResult
-from keystrike.domain.null_adapters import NULL_STATS_REBUILDER, NullSessionRepository
+from keystrike.domain.null_adapters import (
+    NULL_DAILY_LEARN_BUDGET,
+    NULL_STATS_REBUILDER,
+    NullSessionRepository,
+)
 
 
 def test_null_session_repository_is_inert():
@@ -28,3 +32,9 @@ def test_null_session_repository_is_inert():
 
 def test_null_stats_rebuilder_returns_empty_dict():
     assert NULL_STATS_REBUILDER("qwerty") == {}
+
+
+def test_null_daily_learn_budget_is_unlimited():
+    budget = NULL_DAILY_LEARN_BUDGET()
+    assert not budget.limited
+    assert not budget.limit_reached

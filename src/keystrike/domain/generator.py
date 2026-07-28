@@ -39,6 +39,7 @@ class AdaptiveGenerator:
         self,
         alphabet: frozenset[str],
         focus_char: str,
+        *,
         word_count: int = DEFAULT_WORD_COUNT,
         char_weights: Mapping[str, float] | None = None,
         layout: Layout | None = None,
@@ -73,7 +74,12 @@ class AdaptiveGenerator:
             if chars and self.rng.random() < p_stop:
                 break
             ch = self.table.sample(
-                "".join(chars), alphabet, self.rng, char_weights, layout, transition_weights,
+                "".join(chars),
+                alphabet,
+                self.rng,
+                char_weights=char_weights,
+                layout=layout,
+                transition_weights=transition_weights,
             )
             if ch is None:
                 ch = self.rng.choice(sorted(alphabet))

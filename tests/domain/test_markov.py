@@ -43,14 +43,16 @@ def test_sample_char_weights_bias_toward_weighted_char():
     rng = Random(1)
     # "b" would be a coin flip against "c" on raw weight alone; a large
     # char_weights bias should make it win consistently.
-    results = {table.sample("", frozenset("bc"), rng, {"b": 100.0}) for _ in range(20)}
+    results = {
+        table.sample("", frozenset("bc"), rng, char_weights={"b": 100.0}) for _ in range(20)
+    }
     assert results == {"b"}
 
 
 def test_sample_char_weights_ignores_chars_outside_row():
     table = TransitionTable(order=2, transitions={"a": {"b": 1}})
     rng = Random(1)
-    assert table.sample("a", frozenset("ab"), rng, {"z": 100.0}) == "b"
+    assert table.sample("a", frozenset("ab"), rng, char_weights={"z": 100.0}) == "b"
 
 
 def test_transition_practice_weight_prefers_different_hand():
@@ -81,6 +83,7 @@ def test_sample_prefers_different_hand_with_equal_language_weights():
     counts = {"f": 0, "j": 0}
     for _ in range(200):
         ch = table.sample("a", frozenset("afj"), rng, layout=layout)
+        assert ch is not None
         counts[ch] += 1
     assert counts["j"] > counts["f"]
 
@@ -91,5 +94,6 @@ def test_sample_transition_weights_bias_weak_pair():
     counts = {"b": 0, "c": 0}
     for _ in range(200):
         ch = table.sample("a", frozenset("abc"), rng, transition_weights={"ab": 100.0})
+        assert ch is not None
         counts[ch] += 1
     assert counts["b"] > counts["c"]

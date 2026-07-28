@@ -5,7 +5,7 @@ from keystrike.application.stats_use_cases import (
     RebuildAggregates,
 )
 from keystrike.domain.enums import Mode
-from keystrike.domain.models import Keystroke, KeyStats, LayoutAggregates, SessionResult, Settings
+from keystrike.domain.models import KeyStats, Keystroke, LayoutAggregates, SessionResult, Settings
 from tests.fakes import FakeAggregatesCache, FakeSessionRepository, FakeSettingsRepository
 
 

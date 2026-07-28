@@ -8,8 +8,15 @@ from keystrike.domain.session import Session
 from keystrike.presentation.widgets.hud import HUD, _format_hud
 from tests.fakes import FakeClock
 
+_UNLIMITED = compute_daily_learn_budget(completed_ns=0, limit_minutes=0)
 
-def _session(*, correct: int = 0, total: int = 0, typing_started_at_ns: int | None = None) -> Session:
+
+def _session(
+    *,
+    correct: int = 0,
+    total: int = 0,
+    typing_started_at_ns: int | None = None,
+) -> Session:
     session = Session(
         id="s1",
         target_text="abc",
@@ -27,32 +34,52 @@ def _session(*, correct: int = 0, total: int = 0, typing_started_at_ns: int | No
 
 
 def test_hud_shows_accuracy_without_wpm():
-    text = _format_hud(_session(correct=8, total=10))
+    text = _format_hud(_session(correct=8, total=10), _UNLIMITED)
     assert text.startswith("Acc: [bold] 80.0%[/]")
     assert "WPM" not in text
 
 
-def test_hud_omits_goal_when_daily_limit_disabled():
-    text = _format_hud(_session(), daily_budget=None)
-    assert "Goal" not in text
-    assert "Time" not in text
-    assert "Keys" not in text
+def test_hud_omits_daily_goal_when_limit_disabled():
+    session = Session(
+        id="s1",
+        target_text="abc",
+        layout="qwerty",
+        mode=Mode.FREE,
+        lang="en",
+        started_at_wall=0.0,
+        started_at_ns=0,
+    )
+    text = _format_hud(session, _UNLIMITED)
+    assert "Goal:" not in text
+
+
+def test_hud_shows_sessions_to_goal_for_focus_key():
+    text = _format_hud(_session(), _UNLIMITED, sessions_to_goal=3)
+    assert "Goal[e]: ~3 sessions" in text
+
+
+def test_hud_shows_learning_when_sessions_to_goal_unknown():
+    text = _format_hud(_session(), _UNLIMITED, sessions_to_goal=None)
+    assert "Goal[e]: learning…" in text
 
 
 def test_hud_shows_focus_reason_when_given():
-    text = _format_hud(_session(), focus_reason="review")
+    text = _format_hud(_session(), _UNLIMITED, focus_reason="review")
     assert "Focus:" in text
     assert "review" in text
 
 
 def test_hud_omits_focus_when_reason_missing():
-    text = _format_hud(_session(), focus_reason=None)
+    text = _format_hud(_session(), _UNLIMITED, focus_reason=None)
     assert "Focus:" not in text
+
+
+def test_hud_shows_daily_learn_goal_when_limited():
     budget = compute_daily_learn_budget(
         completed_ns=6 * 60 * 1_000_000_000,
         limit_minutes=10,
     )
-    text = _format_hud(_session(), daily_budget=budget)
+    text = _format_hud(_session(), budget)
     assert "Goal:" in text
     assert "4.0" in text
     assert "/10 min" in text

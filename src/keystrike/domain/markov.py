@@ -36,6 +36,7 @@ class TransitionTable:
         context: str,
         alphabet: frozenset[str],
         rng: Random,
+        *,
         char_weights: Mapping[str, float] | None = None,
         layout: Layout | None = None,
         transition_weights: Mapping[str, float] | None = None,

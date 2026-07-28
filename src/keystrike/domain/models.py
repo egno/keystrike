@@ -45,10 +45,14 @@ class TransitionStats:
     last_seen: float
 
 
+def _empty_transitions() -> dict[str, TransitionStats]:
+    return {}
+
+
 @dataclass(frozen=True, slots=True)
 class LayoutAggregates:
     keys: dict[int, KeyStats]
-    transitions: dict[str, TransitionStats] = field(default_factory=dict)
+    transitions: dict[str, TransitionStats] = field(default_factory=_empty_transitions)
 
 
 @dataclass(frozen=True, slots=True)

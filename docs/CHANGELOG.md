@@ -5,6 +5,21 @@ rationale lives in commit history/diffs — these are pointers, not narratives.
 Milestone-level feature work (what shipped in M1–M4, the keybr algorithm
 design) stays in `PLAN.md` §5/§6.
 
+## ArjanCodes-lens architecture review — 6 findings fixed
+
+Full-codebase review after M4 (adaptive, code, daily learn budget, HUD): session
+prep orchestration moved from `presentation/textual_app.py` into
+`application/prepare_practice.py` (`PreparePracticeSession`, `SessionPrep`) so
+Path reads and lesson-building logic leave presentation; new
+`test_presentation_has_no_path_reads` fitness function enforces it. HUD and
+PracticeScreen now use `NULL_DAILY_LEARN_BUDGET` instead of
+`DailyLearnBudgetProvider | None` plus scattered `is not None` checks.
+`GetLearningRate` was wired in `app.py` but never passed to the HUD — restored
+`Goal[<focus>]: ~N sessions` / `learning…` via `LearningRateEstimator` injection
+into PracticeScreen. StatsScreen and KeystrikeApp now depend on
+`StatsRebuilder` protocol (matching PracticeScreen) instead of concrete
+`RebuildAggregates`. Sample text constant moved to composition root (`app.py`).
+
 ## Removed Theme/Recover keys/Keyboard order settings; Alphabet size is now a letter count
 
 These three Settings toggles were redundant — each only ever needs one

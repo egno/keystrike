@@ -6,7 +6,13 @@ from itertools import count
 from pathlib import Path
 
 from keystrike.domain.markov import TransitionTable
-from keystrike.domain.models import KeyStats, Keystroke, Layout, LayoutAggregates, SessionResult, Settings
+from keystrike.domain.models import (
+    Keystroke,
+    Layout,
+    LayoutAggregates,
+    SessionResult,
+    Settings,
+)
 
 
 @dataclass(slots=True)

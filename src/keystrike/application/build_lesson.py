@@ -14,8 +14,8 @@ import time
 from dataclasses import dataclass
 from random import Random
 
-from keystrike.domain.code_lesson import select_snippet
 from keystrike.domain.aggregate import transition_key
+from keystrike.domain.code_lesson import select_snippet
 from keystrike.domain.confidence import (
     compute_unlocked,
     confidence_of,
@@ -28,10 +28,16 @@ from keystrike.domain.confidence import (
     transition_confidence_of,
     transition_practice_weight,
 )
-from keystrike.domain.models import TransitionStats
 from keystrike.domain.generator import AdaptiveGenerator
 from keystrike.domain.learn_order import keyboard_order
-from keystrike.domain.models import KeyStats, Layout, LessonKey, LessonState, Settings
+from keystrike.domain.models import (
+    KeyStats,
+    Layout,
+    LessonKey,
+    LessonState,
+    Settings,
+    TransitionStats,
+)
 from keystrike.domain.protocols import (
     AggregatesCache,
     CodeSnippetProvider,
@@ -100,6 +106,7 @@ def _lesson_progress(
     stats: dict[int, KeyStats],
     settings: Settings,
     now: float,
+    *,
     transitions: dict[str, TransitionStats] | None = None,
 ) -> tuple[tuple[int, ...], int, LessonState, tuple[int, int] | None]:
     target = target_ms_per_char(settings.target_speed_cpm)
@@ -148,7 +155,7 @@ class BuildLesson:
         transitions = aggregates.transitions if aggregates else {}
         now = time.time()
         unlocked, focus, state, focus_bigram = _lesson_progress(
-            layout_name, layout, stats, settings, now, transitions,
+            layout_name, layout, stats, settings, now, transitions=transitions,
         )
         target = target_ms_per_char(settings.target_speed_cpm)
 
@@ -219,7 +226,7 @@ class BuildCodeLesson:
         now = time.time()
         transitions = aggregates.transitions if aggregates else {}
         unlocked, focus, state, focus_bigram = _lesson_progress(
-            layout_name, layout, stats, settings, now, transitions,
+            layout_name, layout, stats, settings, now, transitions=transitions,
         )
         target = target_ms_per_char(settings.target_speed_cpm)
 
