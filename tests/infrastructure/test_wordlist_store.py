@@ -6,6 +6,13 @@ from keystrike.infrastructure.paths import Paths
 from keystrike.infrastructure.wordlist_store import MAX_DOWNLOAD_BYTES, FileWordListStore
 
 
+def _stub_urlopen(response: object):
+    def _open(*args: object, **kwargs: object) -> object:
+        return response
+
+    return _open
+
+
 @pytest.fixture
 def paths(tmp_path):
     p = Paths(
@@ -42,7 +49,7 @@ def test_download_and_cache_then_load(paths, monkeypatch):
 
     monkeypatch.setattr(
         "keystrike.infrastructure.wordlist_store.urllib.request.urlopen",
-        lambda *args, **kwargs: FakeResponse(),
+        _stub_urlopen(FakeResponse()),
     )
 
     store = FileWordListStore(paths)
@@ -71,7 +78,7 @@ def test_download_rejects_oversized(paths, monkeypatch):
 
     monkeypatch.setattr(
         "keystrike.infrastructure.wordlist_store.urllib.request.urlopen",
-        lambda *args, **kwargs: FakeResponse(),
+        _stub_urlopen(FakeResponse()),
     )
 
     with pytest.raises(ValueError, match="exceeds"):
@@ -98,7 +105,7 @@ def test_download_rejects_empty_usable_words(paths, monkeypatch):
 
     monkeypatch.setattr(
         "keystrike.infrastructure.wordlist_store.urllib.request.urlopen",
-        lambda *args, **kwargs: FakeResponse(),
+        _stub_urlopen(FakeResponse()),
     )
 
     with pytest.raises(ValueError, match="no usable words"):
