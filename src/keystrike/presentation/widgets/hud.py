@@ -13,7 +13,7 @@ def _format_daily_learn_segment(budget: DailyLearnBudget) -> str:
         return ""
     remaining_min = budget.remaining_ns / 1e9 / 60
     limit_min = budget.limit_ns / 1e9 / 60
-    return f"   Goal: [bold]{remaining_min:.1f}[/]/{limit_min:g} min"
+    return f"   Learn: [bold]{remaining_min:.1f}[/]/{limit_min:g} min"
 
 
 def _format_sessions_goal_segment(focus_key: int | None, sessions_to_goal: int | None) -> str:
@@ -21,10 +21,10 @@ def _format_sessions_goal_segment(focus_key: int | None, sessions_to_goal: int |
         return ""
     char = chr(focus_key)
     if sessions_to_goal is None:
-        return f"   Goal[{char}]: learning…"
+        return f"   Sessions[{char}]: learning…"
     if sessions_to_goal == 0:
-        return f"   Goal[{char}]: done"
-    return f"   Goal[{char}]: ~{sessions_to_goal} sessions"
+        return f"   Sessions[{char}]: done"
+    return f"   Sessions[{char}]: ~{sessions_to_goal} sessions"
 
 
 def _format_focus_segment(focus_key: int | None, focus_reason: str | None) -> str:

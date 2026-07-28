@@ -50,17 +50,17 @@ def test_hud_omits_daily_goal_when_limit_disabled():
         started_at_ns=0,
     )
     text = _format_hud(session, _UNLIMITED)
-    assert "Goal:" not in text
+    assert "Learn:" not in text
 
 
 def test_hud_shows_sessions_to_goal_for_focus_key():
     text = _format_hud(_session(), _UNLIMITED, sessions_to_goal=3)
-    assert "Goal[e]: ~3 sessions" in text
+    assert "Sessions[e]: ~3 sessions" in text
 
 
 def test_hud_shows_learning_when_sessions_to_goal_unknown():
     text = _format_hud(_session(), _UNLIMITED, sessions_to_goal=None)
-    assert "Goal[e]: learning…" in text
+    assert "Sessions[e]: learning…" in text
 
 
 def test_hud_shows_focus_reason_when_given():
@@ -80,10 +80,32 @@ def test_hud_shows_daily_learn_goal_when_limited():
         limit_minutes=10,
     )
     text = _format_hud(_session(), budget)
-    assert "Goal:" in text
+    assert "Learn:" in text
     assert "4.0" in text
     assert "/10 min" in text
     assert "WPM" not in text
+
+
+def test_hud_distinct_labels_for_daily_budget_sessions_and_focus():
+    budget = compute_daily_learn_budget(
+        completed_ns=9 * 60 * 1_000_000_000,
+        limit_minutes=10,
+    )
+    session = _session()
+    session.focus_key = ord("s")
+    text = _format_hud(
+        session,
+        budget,
+        focus_reason="weak",
+        sessions_to_goal=0,
+    )
+    assert "Learn:" in text
+    assert "1.0" in text
+    assert "/10 min" in text
+    assert "Sessions[s]: done" in text
+    assert "Focus:" in text
+    assert "weak" in text
+    assert text.count("Goal:") == 0
 
 
 @pytest.mark.asyncio
