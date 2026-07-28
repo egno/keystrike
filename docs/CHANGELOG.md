@@ -5,7 +5,7 @@ rationale lives in commit history/diffs — these are pointers, not narratives.
 Milestone-level feature work (what shipped in M1–M4, the keybr algorithm
 design) stays in `PLAN.md` §5/§6.
 
-## 1.2.0 — Unreleased
+## 1.2.0
 
 - Optional word-list import: Settings URL field + Import button; cached lists drive
   lesson words when alphabet-compatible, Markov fallback otherwise
