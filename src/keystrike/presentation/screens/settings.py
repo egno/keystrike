@@ -34,7 +34,6 @@ class SettingsScreen(Screen[None]):
         height: auto;
     }
     SettingsScreen #settings-wordlist-import,
-    SettingsScreen #settings-wordlist-download-default,
     SettingsScreen #settings-wordlist-clear {
         margin-left: 1;
     }
@@ -102,28 +101,15 @@ class SettingsScreen(Screen[None]):
                 type="integer",
             )
             yield Label("Word list")
-            yield Static(
-                "[dim]Download default list or Import a custom URL; Clear uses Markov words. "
-                "Ctrl+S does not change this.[/]",
-                id="settings-wordlist-help",
-            )
             yield Input(
                 value=self._display_wordlist_url(settings.wordlist_url),
                 id="settings-wordlist-url",
             )
             with Horizontal():
-                yield Button(
-                    "Download default list",
-                    id="settings-wordlist-download-default",
-                    variant="primary",
-                )
-                yield Button("Import", id="settings-wordlist-import")
+                yield Button("Import", id="settings-wordlist-import", variant="primary")
                 yield Button("Clear", id="settings-wordlist-clear")
             yield Static(
-                self._wordlist_status(
-                    settings.wordlist_url,
-                    display_url=self._display_wordlist_url(settings.wordlist_url),
-                ),
+                self._wordlist_status(settings.wordlist_url),
                 id="settings-wordlist-status",
             )
             yield Static("", id="settings-error")
@@ -133,9 +119,7 @@ class SettingsScreen(Screen[None]):
         self._refresh_wordlist_status()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "settings-wordlist-download-default":
-            self._do_download_default()
-        elif event.button.id == "settings-wordlist-import":
+        if event.button.id == "settings-wordlist-import":
             self._do_import()
         elif event.button.id == "settings-wordlist-clear":
             self._do_clear()
@@ -208,13 +192,8 @@ class SettingsScreen(Screen[None]):
         self.query_one("#settings-wordlist-url", Input).value = DEFAULT_WORDLIST_URL
         self._refresh_wordlist_status()
 
-    def _do_download_default(self) -> None:
-        self.query_one("#settings-wordlist-url", Input).value = DEFAULT_WORDLIST_URL
-        self._do_import(DEFAULT_WORDLIST_URL)
-
-    def _do_import(self, url: str | None = None) -> None:
-        if url is None:
-            url = self.query_one("#settings-wordlist-url", Input).value
+    def _do_import(self) -> None:
+        url = self.query_one("#settings-wordlist-url", Input).value
         try:
             count = self._import_wordlist(url)
         except WordListError as exc:
@@ -227,22 +206,18 @@ class SettingsScreen(Screen[None]):
             persisted,
         )
 
-    def _wordlist_status(self, persisted_url: str, *, display_url: str = "") -> str:
+    def _wordlist_status(self, persisted_url: str) -> str:
         persisted = persisted_url.strip()
         if not persisted:
-            display = display_url.strip()
-            if display and display != DEFAULT_WORDLIST_URL:
-                return "[dim]Not imported — click Import to download.[/]"
-            return "[dim]No word list — Markov-generated words.[/]"
+            return "[dim]Markov words.[/]"
         count = self._get_wordlist_cache_status(persisted)
         if count is not None:
             return f"[dim]{count} words cached.[/]"
-        return "[dim]URL saved but not cached — click Import or Markov fallback.[/]"
+        return "[dim]Not cached.[/]"
 
     def _refresh_wordlist_status(self, message: str | None = None) -> None:
-        display_url = self.query_one("#settings-wordlist-url", Input).value
         persisted = self._settings_repo.load().wordlist_url
-        text = message or self._wordlist_status(persisted, display_url=display_url)
+        text = message or self._wordlist_status(persisted)
         self.query_one("#settings-wordlist-status", Static).update(text)
 
     def _show_error(self, message: str) -> None:
