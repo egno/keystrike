@@ -1,6 +1,6 @@
 from keystrike.infrastructure.bundled_layouts.colemak_dh import LAYOUT as COLEMAK_DH
 from keystrike.infrastructure.bundled_layouts.qwerty import LAYOUT as QWERTY
-from keystrike.presentation.widgets.kb_heatmap import render_heatmap
+from keystrike.presentation.widgets.kb_heatmap import format_focus_note, render_heatmap
 
 
 def test_render_heatmap_includes_every_alpha_key_once():
@@ -37,17 +37,31 @@ def test_ortholinear_layout_has_no_row_indent():
     assert leading_spaces == [1, 1, 1]
 
 
-def test_focus_key_style_overrides_confidence():
+def test_focus_mastered_key_keeps_green_with_cyan_underline():
     text = render_heatmap(QWERTY, {ord("a"): 1.5}, focus=ord("a"))
     span = next(s for s in text.spans if text.plain[s.start : s.end].strip() == "a")
-    assert span.style == "bold underline cyan"
+    style = str(span.style)
+    assert "green" in style
+    assert "cyan" in style
+
+
+def test_focus_weak_key_keeps_confidence_color():
+    text = render_heatmap(QWERTY, {ord("a"): 0.89}, focus=ord("a"))
+    span = next(s for s in text.spans if text.plain[s.start : s.end].strip() == "a")
+    style = str(span.style)
+    assert "yellow" in style
+    assert "underline" in style
+    assert "cyan" not in style
 
 
 def test_focus_key_style_applies_even_without_heatmap_entry():
     # A locked/never-practiced key can still be the focus (e.g. freshly unlocked).
     text = render_heatmap(QWERTY, {}, focus=ord("a"))
     span = next(s for s in text.spans if text.plain[s.start : s.end].strip() == "a")
-    assert span.style == "bold underline cyan"
+    style = str(span.style)
+    assert "grey37" in style
+    assert "underline" in style
+    assert "cyan" not in style
 
 
 def test_render_heatmap_marks_due_for_review_with_magenta_underline():
@@ -66,10 +80,38 @@ def test_render_heatmap_weak_key_without_urgency_stays_red_only():
     assert "red" in style
 
 
-def test_render_heatmap_focus_style_overrides_urgency_underline():
+def test_render_heatmap_focus_style_layers_on_review_underline():
     text = render_heatmap(
         QWERTY, {ord("a"): 1.5}, focus=ord("a"), urgency={ord("a"): 1.0},
     )
     span = next(s for s in text.spans if text.plain[s.start : s.end].strip() == "a")
-    assert span.style == "bold underline cyan"
-    assert "magenta" not in str(span.style)
+    style = str(span.style)
+    assert "green" in style
+    assert "magenta" in style
+    assert "cyan" in style
+
+
+def test_format_focus_note_weak_includes_confidence_numbers():
+    note = format_focus_note(ord("a"), "weak", confidence=0.89)
+    assert note is not None
+    assert "0.89" in note
+    assert "1.00" in note
+    assert "weak" in note
+
+
+def test_format_focus_note_review_includes_confidence_numbers():
+    note = format_focus_note(ord("e"), "review", confidence=1.12)
+    assert note is not None
+    assert "1.12" in note
+    assert "1.00" in note
+
+
+def test_format_focus_note_weak_transition():
+    note = format_focus_note(ord("t"), "at weak transition", confidence=0.45)
+    assert note is not None
+    assert "at" in note
+    assert "0.45" in note
+
+
+def test_format_focus_note_none_without_reason():
+    assert format_focus_note(ord("a"), None, confidence=0.5) is None

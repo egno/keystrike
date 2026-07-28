@@ -20,7 +20,7 @@ from keystrike.domain.null_adapters import NULL_DAILY_LEARN_BUDGET, NULL_STATS_R
 from keystrike.domain.protocols import Clock, DailyLearnBudgetProvider, StatsRebuilder
 from keystrike.presentation.bindings import BACK_BINDINGS
 from keystrike.presentation.widgets.hud import HUD
-from keystrike.presentation.widgets.kb_heatmap import KbHeatmap
+from keystrike.presentation.widgets.kb_heatmap import KbHeatmap, format_focus_note
 from keystrike.presentation.widgets.typing_area import TypingArea
 
 
@@ -33,6 +33,11 @@ class PracticeScreen(Screen[None]):
         color: $text-muted;
         padding: 0 2;
         height: 1;
+    }
+    PracticeScreen #focus-note {
+        color: $text-muted;
+        padding: 0 2;
+        height: auto;
     }
     """
 
@@ -63,6 +68,8 @@ class PracticeScreen(Screen[None]):
         self._layout_obj: Layout | None = initial.layout_obj
         self._lesson_heatmap = initial.lesson_heatmap
         self._focus_key = initial.focus_key
+        self._focus_reason = initial.focus_reason
+        self._focus_confidence = initial.focus_confidence
         self._kb_heatmap: KbHeatmap | None = None
         self._session = self._start(
             initial.target_text,
@@ -90,10 +97,22 @@ class PracticeScreen(Screen[None]):
                     urgency=None,
                 )
                 yield self._kb_heatmap
+            yield Static(
+                self._focus_note_text(),
+                id="focus-note",
+            )
             yield Static("", id="last-session-stats")
         yield Footer()
 
+    def _focus_note_text(self) -> str:
+        return format_focus_note(
+            self._focus_key,
+            self._focus_reason,
+            confidence=self._focus_confidence,
+        ) or ""
+
     def on_mount(self) -> None:
+        self._refresh_focus_note()
         self.focus()
 
     def on_key(self, event: events.Key) -> None:
@@ -129,10 +148,18 @@ class PracticeScreen(Screen[None]):
     def _show_last_session_stats(self, result: SessionResult) -> None:
         self.query_one("#last-session-stats", Static).update(format_session_stats_line(result))
 
+    def _refresh_focus_note(self) -> None:
+        note = self.query_one("#focus-note", Static)
+        text = self._focus_note_text()
+        note.update(text)
+        note.display = bool(text)
+
     def _begin_session(self, prep: SessionPrep) -> None:
         self._layout_obj = prep.layout_obj
         self._lesson_heatmap = prep.lesson_heatmap
         self._focus_key = prep.focus_key
+        self._focus_reason = prep.focus_reason
+        self._focus_confidence = prep.focus_confidence
         self._session = self._start(
             prep.target_text,
             layout=prep.layout,
@@ -151,6 +178,7 @@ class PracticeScreen(Screen[None]):
                 prep.focus_key,
                 urgency=None,
             )
+        self._refresh_focus_note()
 
     def action_back(self) -> None:
         AbortSession()(self._session)
