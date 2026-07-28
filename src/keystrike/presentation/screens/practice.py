@@ -70,9 +70,7 @@ class PracticeScreen(Screen[None]):
         )
         self._layout_obj: Layout | None = initial.layout_obj
         self._lesson_heatmap = initial.lesson_heatmap
-        self._lesson_urgency = initial.lesson_urgency
         self._focus_key = initial.focus_key
-        self._focus_reason = initial.focus_reason
         self._kb_heatmap: KbHeatmap | None = None
         self._session = self._start(
             initial.target_text,
@@ -99,7 +97,7 @@ class PracticeScreen(Screen[None]):
                     self._layout_obj,
                     self._lesson_heatmap,
                     self._focus_key,
-                    self._lesson_urgency,
+                    urgency=None,
                 )
                 yield self._kb_heatmap
             yield Static("", id="last-session-stats")
@@ -157,9 +155,7 @@ class PracticeScreen(Screen[None]):
     def _begin_session(self, prep: SessionPrep) -> None:
         self._layout_obj = prep.layout_obj
         self._lesson_heatmap = prep.lesson_heatmap
-        self._lesson_urgency = prep.lesson_urgency
         self._focus_key = prep.focus_key
-        self._focus_reason = prep.focus_reason
         self._session = self._start(
             prep.target_text,
             layout=prep.layout,
@@ -173,7 +169,7 @@ class PracticeScreen(Screen[None]):
                 prep.layout_obj,
                 prep.lesson_heatmap,
                 prep.focus_key,
-                prep.lesson_urgency,
+                urgency=None,
             )
 
     def action_back(self) -> None:

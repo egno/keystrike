@@ -23,16 +23,12 @@ def _format_focus_segment(focus_key: int | None, focus_reason: str | None) -> st
 
 def _format_hud(
     session: Session,
-    elapsed_ns: int,
     daily_budget: DailyLearnBudget | None = None,
     *,
     focus_reason: str | None = None,
 ) -> str:
-    minutes = elapsed_ns / 1e9 / 60.0
-    wpm = (session.correct_count / 5.0) / minutes if minutes > 0 else 0.0
     accuracy = (session.correct_count / session.total_count) if session.total_count else 1.0
     return (
-        f"WPM: [bold]{wpm:5.1f}[/]   "
         f"Acc: [bold]{accuracy * 100:5.1f}%[/]"
         f"{_format_goal_segment(daily_budget)}"
         f"{_format_focus_segment(session.focus_key, focus_reason)}"
@@ -63,7 +59,7 @@ class HUD(Widget):
         self._focus_reason = focus_reason
 
     def compose(self) -> ComposeResult:
-        yield Static(_format_hud(self._session, 0, focus_reason=self._focus_reason), id="hud-text")
+        yield Static(_format_hud(self._session, focus_reason=self._focus_reason), id="hud-text")
 
     def on_mount(self) -> None:
         self.set_interval(0.1, self.refresh_display)
@@ -77,7 +73,7 @@ class HUD(Widget):
             else None
         )
         static = self.query_one("#hud-text", Static)
-        static.update(_format_hud(self._session, elapsed, daily_budget, focus_reason=self._focus_reason))
+        static.update(_format_hud(self._session, daily_budget, focus_reason=self._focus_reason))
 
     def set_session(self, session: Session, *, focus_reason: str | None = None) -> None:
         self._session = session
