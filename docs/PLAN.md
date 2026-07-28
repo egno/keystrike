@@ -3,7 +3,10 @@
 > **For raphex:** This is the master plan and the current state of the project.
 > Sections 1–4 describe what keystrike is and how it's designed; section 5 tells
 > you exactly where things stand and what to pick up next. Read section 5 first
-> if you just want to start coding.
+> if you just want to start coding. Small post-milestone fixes are logged in
+> `docs/CHANGELOG.md` (newest first) rather than here, to keep this section
+> from growing unbounded — check it for the detail behind anything §5
+> mentions only in passing.
 
 ---
 
@@ -215,38 +218,8 @@ All three (ruff, pyright, pytest) must be green before commit.
 ### ArjanCodes-lens architecture review — findings fixed
 
 A full-codebase review against the M2 state turned up 5 findings + 3 minors,
-all fixed before M3 began (95 tests passing at that point):
-
-1. Settings/layout writes were happening straight from Screens
-   (`dataclasses.replace` + validation inline in `home.py`/`settings.py`).
-   Fixed: `application/settings_use_cases.py` (`UpdateSettings`,
-   `CycleLayout`) now owns that; Screens only read repos directly.
-2. `typing_area.py` had a dead-import lint hack (`_ = STYLE_CORRECTED`)
-   masking a missing feature. Fixed: `Session.error_positions` now tracks
-   which positions needed a correction, and `render_typing_text` actually
-   uses `STYLE_CORRECTED` for them.
-3. `RecordKeystroke`/`FinishSession`/`PracticeScreen` had `X | None = None`
-   optional deps with scattered `is not None` checks. Fixed: Null Object
-   pattern via `domain/null_adapters.py`.
-4. `HomeScreen.StartPractice(source: str)` was stringly-typed
-   (`"sample"`/`"free"`). Fixed: `PracticeSource` StrEnum in `domain/enums.py`.
-5. The confidence formula (`target_ms_per_char / mean_ms_per_key`) was
-   inlined in `GetHeatmap` (application layer) instead of domain. Fixed:
-   extracted to `domain/confidence.py` — which then became the seed of M3's
-   confidence math.
-   Minors: `Session` moved from `application/session_use_cases.py` into
-   `domain/session.py` (it's an entity, not a use case);
-   `RecordKeystroke.backspace()` added so `PracticeScreen` no longer needs to
-   know the `BACKSPACE` sentinel; `tests/test_architecture.py` added as an
-   automated layering fitness function (verified it actually catches a
-   violation, not just vacuously green).
-
-While wiring M3's `recover_keys` semantics, also fixed a real latent bug:
-`KeyStats.peak_confidence` was hardcoded to `0.0` forever in
-`aggregate_session` and never actually computed anywhere — `recover_keys=True`
-would have silently done nothing. `RebuildAggregates` now stamps each
-per-session slice's `peak_confidence` (evaluated against the *current* target
-speed) before `combine()`'s `max()` reduction, so "historical peak" is real.
+all fixed before M3 began (95 tests passing at that point) — see
+`docs/CHANGELOG.md`.
 
 ### M3 — Adaptive engine: shipped
 
@@ -328,100 +301,18 @@ only ever drew the letter/punctuation grid).
 
 ### Fourth bundled layout: Colemak Mod-DH (ortholinear)
 
-`infrastructure/bundled_layouts/colemak_dh.py` — added on request, wired into
-`layout_repo.BUNDLED_LAYOUTS` alongside qwerty/dvorak/colemak. The Layout data
-itself needed no new infrastructure: since `_grid.py`'s builder already treats
-every layout as an idealized 3×10 finger-by-column grid with no row-stagger
-modeling, an ortholinear/matrix layout is just another
-`build_layout(name, rows)` call.
+`infrastructure/bundled_layouts/colemak_dh.py` — wired into
+`layout_repo.BUNDLED_LAYOUTS` alongside qwerty/dvorak/colemak. Needed
+`Layout.ortholinear: bool` (a rendering hint only — no effect on
+finger/hand assignment or adaptive-engine math) so the Stats heatmap renders
+aligned columns instead of a staggered stairstep; see `docs/CHANGELOG.md` for
+both entries.
 
-The exact letter arrangement was **verified against the authoritative source**
-rather than reconstructed from memory: `ColemakMods/mod-dh`'s
-`autohotkey/colemak_dh_matrix.ahk` (the matrix/ortholinear variant — distinct
-from the ANSI variant, which shifts the bottom row by one column to work
-around ANSI keyboards missing a physical key next to left-shift; ortho boards
-don't have that constraint). Decoded scan codes give:
+### Small fixes since M4
 
-```
-top:    q w f p b j l u y ;
-home:   a r s t g m n e i o
-bottom: z x c d v k h , . /
-```
-
-D and H move off the home row's inner (index-finger) columns down to the
-bottom row's inner columns (confirmed both land on `Finger.INDEX`, matching
-the design's "curl down instead of an inward stretch" rationale), and G
-reclaims its QWERTY home-row column — both facts double-checked with
-dedicated tests (`test_colemak_dh_moves_d_and_h_off_home_row`,
-`test_colemak_dh_g_reclaims_qwerty_home_row_position`) rather than just
-asserting the layout loads.
-
-### Stats page adapted for ortholinear layouts
-
-Follow-up: `kb_heatmap.py`'s ASCII grid was hardcoded to a QWERTY-style
-row-stagger (each row indented 2 more spaces than the last, approximating a
-real staggered keyboard's physical row-shift) — wrong for an ortholinear
-board, where columns line up vertically with no stagger at all.
-
-Added `Layout.ortholinear: bool = False` to the domain model (a rendering
-hint, not something that changes finger/hand assignment or any adaptive-engine
-math — those already worked fine for any layout regardless of physical
-shape). Threaded through everywhere a `Layout` gets built:
-`_grid.build_layout(..., ortholinear=...)`, `colemak_dh.py` passes `True`,
-and `layout_toml.py` parses an optional `ortholinear = true/false` field so
-hand-written custom layouts (e.g. someone's own split-ortho board) can opt in
-too — defaults to `False` (staggered) when absent, so existing custom layout
-files don't need updating.
-
-`render_heatmap()` now skips the per-row indent when `layout.ortholinear` is
-set, and the Stats screen title appends `(ortholinear)` as a visual
-confirmation. Verified end-to-end through the real composition root:
-QWERTY's heatmap still shows the staircase stagger; Colemak Mod-DH's shows
-clean aligned columns.
-
-### Timer doesn't start until the first keystroke
-
-Previously the HUD's elapsed time (and therefore WPM, and `SessionResult.
-duration_ns`) counted from the moment `PracticeScreen` was constructed —
-so however long a user spent reading the prompt before typing was silently
-counted against their WPM.
-
-Added `Session.typing_started_at_ns: int | None = None` (domain/session.py).
-`RecordKeystroke` sets it on the first real (non-backspace) keystroke and
-switches per-keystroke `t_ns` to be relative to it instead of
-`started_at_ns` — a no-op for `KeyStats.mean_time_ns`/`per_key_deltas` math,
-since those only ever look at differences between consecutive keystrokes,
-never the absolute origin. `FinishSession.duration_ns` and the live HUD both
-now measure from `typing_started_at_ns` (falling back to `started_at_ns` only
-if a session somehow finishes with zero keystrokes, which the `finished`
-property makes impossible in practice — kept as a defensive fallback, not a
-reachable path). `started_at_ns` itself is unchanged and still means
-"session/screen created," just no longer drives the timer.
-
-Verified end-to-end with the real `MonotonicClock`: the HUD's `Time` field
-stays at `0.0s` through a full second of real wall-clock waiting before the
-first keystroke (confirmed the 0.1s auto-refresh interval is actually firing
-during that wait, not just untested), then starts ticking correctly the
-instant the first key lands.
-
-### Backspace disabled in Adaptive mode
-
-`RecordKeystroke.__call__`'s `BACKSPACE` branch now only rewinds
-`session.position` when `session.mode is not Mode.ADAPTIVE`. In Free/Sample/
-Code modes backspace still works exactly as before.
-
-Rationale (matches keybr.com): the confidence engine needs an honest record
-of what actually happened at each key — letting the user erase a mistake via
-backspace would distort `KeyStats`/confidence for that key without changing
-what really happened at the keyboard. The error is already captured on the
-original wrong keystroke (`session.error_positions`), so silently no-op'ing
-backspace in adaptive mode doesn't lose any signal — it just stops the user
-from covering it up and re-trying.
-
-Verified end-to-end through the real composition root: in Adaptive mode,
-pressing backspace right after a keystroke leaves `session.position`
-unchanged; the same sequence in sample/free-text mode rewinds by one as
-before.
+Timer-doesn't-start-until-first-keystroke, backspace disabled in Adaptive
+mode, and the accuracy-aware confidence fix — see `docs/CHANGELOG.md` for
+each; not repeated here to keep this section from growing unbounded.
 
 ### Start here next: M5 — Release (referenced from `~/.claude/plans/quiet-snuggling-aurora.md`)
 

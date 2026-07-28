@@ -1,0 +1,63 @@
+# Changelog
+
+Post-milestone fixes and refinements, newest first, one entry per change. Full
+rationale lives in commit history/diffs — these are pointers, not narratives.
+Milestone-level feature work (what shipped in M1–M4, the keybr algorithm
+design) stays in `PLAN.md` §5/§6.
+
+## Confidence now folds in accuracy
+
+`confidence_of`'s live branch, `_stamp_peak_confidence` (feeds
+`peak_confidence`/`recover_keys=True`), and `GetHeatmap` all scored a key
+purely on speed vs. target — `KeyStats.error_count` was tracked but never
+read, so a key typed fast but frequently wrong could read as "confident"
+and unlock the next key prematurely. Added `accuracy_of(key_stats)` in
+`domain/confidence.py` (`samples / (samples + error_count)`), multiplied
+into speed-confidence at all three sites. See
+`docs/research/typing-pedagogy.md` ("Gap found in current implementation").
+
+## Backspace disabled in Adaptive mode
+
+`RecordKeystroke`'s `BACKSPACE` branch now only rewinds `session.position`
+when `session.mode is not Mode.ADAPTIVE` — matches keybr.com: the confidence
+engine needs an honest record of what happened at each key, and the error is
+already captured via `session.error_positions`. Free/Sample/Code modes are
+unaffected.
+
+## Timer doesn't start until the first keystroke
+
+HUD elapsed time (and `SessionResult.duration_ns`) used to count from
+`PracticeScreen` construction, penalizing WPM for time spent reading the
+prompt. Added `Session.typing_started_at_ns`, set on the first non-backspace
+keystroke; `RecordKeystroke`, `FinishSession`, and the live HUD now measure
+from there instead of `started_at_ns`.
+
+## Stats page adapted for ortholinear layouts
+
+`kb_heatmap.py`'s ASCII grid was hardcoded to QWERTY-style row-stagger
+indentation, which is wrong for ortholinear boards. Added
+`Layout.ortholinear: bool` (rendering hint only, no effect on finger/hand
+assignment or adaptive-engine math); `render_heatmap()` skips the per-row
+indent when set, `layout_toml.py` parses an optional `ortholinear` field for
+custom layouts (defaults `False`).
+
+## Fourth bundled layout: Colemak Mod-DH (ortholinear)
+
+`infrastructure/bundled_layouts/colemak_dh.py`, verified against the
+authoritative `ColemakMods/mod-dh` matrix scan codes (not reconstructed from
+memory) — D/H move off home row to the bottom row's inner columns, G
+reclaims QWERTY's home-row column. Dedicated tests assert both facts rather
+than just that the layout loads.
+
+## ArjanCodes-lens architecture review — 5 findings + 3 minors fixed
+
+Full-codebase review at the M2→M3 boundary: Settings/layout writes moved out
+of Screens into `application/settings_use_cases.py`; a dead-import lint hack
+in `typing_area.py` was masking a missing `STYLE_CORRECTED` feature (fixed via
+`Session.error_positions`); `X | None` optional-dependency checks replaced
+with Null Objects (`domain/null_adapters.py`); `HomeScreen.StartPractice`'s
+stringly-typed source became `PracticeSource` StrEnum; the confidence formula
+moved from `GetHeatmap` into `domain/confidence.py`. Also caught while wiring
+`recover_keys`: `KeyStats.peak_confidence` was hardcoded to `0.0` and never
+actually computed — `RebuildAggregates` now stamps it per session before
+`combine()`'s `max()` reduction.
