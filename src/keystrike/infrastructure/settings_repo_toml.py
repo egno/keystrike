@@ -4,6 +4,7 @@ TOML for the small Settings dataclass (all scalar fields, no nesting)."""
 from __future__ import annotations
 
 import tomllib
+from datetime import UTC, datetime
 
 from keystrike.domain.enums import TargetSpeedUnit
 from keystrike.domain.models import Settings
@@ -20,7 +21,6 @@ def _fmt_scalar(v: object) -> str:
     if isinstance(v, float):
         return repr(v)
     if isinstance(v, str):
-        # TOML basic string: escape backslash and double-quote.
         escaped = v.replace("\\", "\\\\").replace('"', '\\"')
         return f'"{escaped}"'
     raise TypeError(f"unsupported settings value type: {type(v).__name__}")
@@ -35,7 +35,6 @@ class TomlSettingsRepository:
             return Settings()
         raw = tomllib.loads(self._paths.settings_file.read_text(encoding="utf-8"))
 
-        # Map raw TOML → Settings. Unknown keys are ignored (forward-compat).
         defaults = Settings()
         unit_raw = str(raw.get("target_speed_unit", defaults.target_speed_unit))
         try:
@@ -52,6 +51,9 @@ class TomlSettingsRepository:
             learn_daily_minutes=int(
                 raw.get("learn_daily_minutes", defaults.learn_daily_minutes),
             ),
+            updated_at=(
+                str(raw["updated_at"]) if raw.get("updated_at") is not None else None
+            ),
         )
 
     def save(self, settings: Settings) -> None:
@@ -67,4 +69,5 @@ class TomlSettingsRepository:
         ]
         for key, value in fields:
             lines.append(f"{key} = {_fmt_scalar(value)}\n")
+        lines.append(f"updated_at = {_fmt_scalar(datetime.now(UTC).isoformat())}\n")
         atomic_write_text(self._paths.settings_file, "".join(lines))

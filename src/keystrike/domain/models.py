@@ -11,6 +11,10 @@ class Keystroke:
     correct: bool
 
 
+def _empty_key_confidence() -> dict[int, float]:
+    return {}
+
+
 @dataclass(frozen=True, slots=True)
 class SessionResult:
     schema_version: int
@@ -26,7 +30,7 @@ class SessionResult:
     words_completed: int = 0
     lang: str = "en"
     unlocked_keys: tuple[int, ...] = ()
-    key_confidence: dict[int, float] = field(default_factory=dict)  # unlocked keys only
+    key_confidence: dict[int, float] = field(default_factory=_empty_key_confidence)
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,3 +105,15 @@ class Settings:
     alphabet_size: int = 16             # letters force-unlocked from cold start
     lang: str = "en"
     learn_daily_minutes: int = 10        # adaptive mode cap per calendar day; 0 = unlimited
+    updated_at: str | None = None          # ISO-8601 UTC; sync LWW
+
+
+@dataclass(frozen=True, slots=True)
+class SyncStatusReport:
+    configured: bool
+    remote_url: str | None
+    git_status: str
+    local_sessions: int
+    clone_sessions: int
+    only_local: int
+    only_clone: int

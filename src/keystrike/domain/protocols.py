@@ -3,7 +3,15 @@ from typing import Protocol
 
 from .daily_learn import DailyLearnBudget
 from .markov import TransitionTable
-from .models import KeyStats, Keystroke, Layout, LayoutAggregates, SessionResult, Settings
+from .models import (
+    KeyStats,
+    Keystroke,
+    Layout,
+    LayoutAggregates,
+    SessionResult,
+    Settings,
+    SyncStatusReport,
+)
 
 
 class Clock(Protocol):
@@ -59,3 +67,17 @@ class DailyLearnBudgetProvider(Protocol):
     """Shape of `application.learn_budget_use_cases.GetDailyLearnBudget`."""
 
     def __call__(self, *, extra_ns: int = 0) -> DailyLearnBudget: ...
+
+
+class SyncStore(Protocol):
+    """Shape of `infrastructure.sync_git.GitSyncGateway`."""
+
+    def is_configured(self) -> bool: ...
+    def init(self, remote_url: str) -> None: ...
+    def pull(self, rebuild: StatsRebuilder) -> int: ...
+    def push(self) -> bool: ...
+    def status(self) -> SyncStatusReport: ...
+
+
+class SyncGateway(SyncStore, Protocol):
+    """Alias kept for application-layer typing."""

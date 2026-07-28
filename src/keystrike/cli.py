@@ -1,7 +1,10 @@
+import subprocess
+from typing import NoReturn
+
 import typer
 
 from keystrike import __version__
-from keystrike.app import build
+from keystrike.app import build, build_sync
 
 app = typer.Typer(
     add_completion=False,
@@ -9,6 +12,9 @@ app = typer.Typer(
     no_args_is_help=False,
     invoke_without_command=True,
 )
+
+sync_app = typer.Typer(help="Git-backed backup of settings and sessions (opt-in, CLI-only)")
+app.add_typer(sync_app, name="sync")
 
 
 @app.callback()
@@ -27,6 +33,62 @@ def _default(  # pyright: ignore[reportUnusedFunction]
 def run() -> None:
     """Launch the typing tutor TUI."""
     build().run()
+
+
+def _sync_err(exc: BaseException) -> NoReturn:
+    typer.echo(str(exc), err=True)
+    raise typer.Exit(code=1) from exc
+
+
+@sync_app.command("init")
+def sync_init(
+    repo_url: str = typer.Argument(..., help="Private git remote URL (HTTPS or SSH)"),
+) -> None:
+    """One-time setup: clone remote, merge local data, write sync.toml."""
+    try:
+        build_sync().init(repo_url)
+    except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
+        _sync_err(exc)
+    typer.echo(f"sync initialized ({repo_url})")
+
+
+@sync_app.command()
+def pull() -> None:
+    """Pull remote, union-merge sessions/settings locally, rebuild stats cache."""
+    try:
+        imported = build_sync().pull()
+    except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
+        _sync_err(exc)
+    typer.echo(f"pull complete: {imported} session(s) imported")
+
+
+@sync_app.command()
+def push() -> None:
+    """Merge local data into clone and push to remote."""
+    try:
+        pushed = build_sync().push()
+    except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
+        _sync_err(exc)
+    typer.echo("push complete" if pushed else "push skipped (nothing to commit)")
+
+
+@sync_app.command()
+def status() -> None:
+    """Show sync remote and session diff summary."""
+    try:
+        st = build_sync().status()
+    except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
+        _sync_err(exc)
+    if not st.configured:
+        typer.echo("sync not configured — run: keystrike sync init <repo-url>")
+        raise typer.Exit(code=1)
+    typer.echo(f"remote: {st.remote_url}")
+    typer.echo(
+        f"sessions: local={st.local_sessions} clone={st.clone_sessions} "
+        f"(only local={st.only_local}, only remote={st.only_clone})",
+    )
+    summary = st.git_status.strip() or "(clean)"
+    typer.echo(f"git: {summary}")
 
 
 if __name__ == "__main__":
