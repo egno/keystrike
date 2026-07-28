@@ -5,12 +5,18 @@ rationale lives in commit history/diffs — these are pointers, not narratives.
 Milestone-level feature work (what shipped in M1–M4, the keybr algorithm
 design) stays in `PLAN.md` §5/§6.
 
-## Unreleased
+## 1.1.0
+
 
 - Git-backed backup sync (CLI-only, opt-in): `keystrike sync init|pull|push|status`.
   Union-merge sessions by `session_id`, settings last-write-wins via `updated_at`
   (or mtime fallback), layouts copied on pull/push; `cache/` excluded — pull
-  triggers aggregate rebuild. See `PLAN.md` §5 "Deferred → Git-backed backup".
+  triggers aggregate rebuild.
+- CI fixes: snapshot tests excluded from default pytest; pyright clean on all
+  platforms; snapshot baselines pinned to GitHub Actions macOS runner.
+- Packaging: PyPI-friendly README (absolute demo GIF URL), lean sdist excludes,
+  `pipx install` documented.
+
 
 ## 1.0.0 — first stable release
 

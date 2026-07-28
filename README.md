@@ -1,9 +1,18 @@
 # Keystrike
 
+[![PyPI](https://img.shields.io/pypi/v/keystrike)](https://pypi.org/project/keystrike/)
+[![CI](https://github.com/egno/keystrike/actions/workflows/ci.yml/badge.svg)](https://github.com/egno/keystrike/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/pypi/pyversions/keystrike)](https://pypi.org/project/keystrike/)
+[![License: MIT](https://img.shields.io/github/license/egno/keystrike)](https://github.com/egno/keystrike/blob/main/LICENSE)
+
 Adaptive drills for your weakest keys — an offline terminal typing tutor inspired by
 [keybr.com](https://www.keybr.com/). Stats stay on your machine; nothing phones home.
+Design follows [research-backed typing pedagogy](https://github.com/egno/keystrike/wiki/Typing-Pedagogy).
 
-![Keystrike demo](https://raw.githubusercontent.com/egno/keystrike/v1.0.0/docs/assets/demo.gif)
+**Install:** `pipx install keystrike` · [PyPI](https://pypi.org/project/keystrike/) · [Discussions](https://github.com/egno/keystrike/discussions)
+
+![Keystrike demo](https://raw.githubusercontent.com/egno/keystrike/v1.1.0/docs/assets/demo.gif)
+
 
 ## What it does
 
@@ -11,6 +20,23 @@ Keystrike tracks how fast and accurately you type each key, unlocks new letters 
 you hit your targets, and generates practice text that overweight your current weak
 spot. Switch keyboard layouts (QWERTY, Dvorak, Colemak, Colemak Mod-DH, or your own
 TOML) and each layout keeps its own history.
+## Why it works
+
+The adaptive engine applies principles from typing research and tools like Keybr — see
+the **[Typing pedagogy wiki](https://github.com/egno/keystrike/wiki/Typing-Pedagogy)**
+for sources and how each maps to the code.
+
+- **Accuracy before speed** — a new key unlocks only when every letter in your current
+  set is fast *and* accurate; high speed with lots of errors does not advance you.
+- **Targets your weak keys** — generated text overweight keys and bigrams you still
+  miss, instead of generic full-alphabet drills.
+- **Home row first** — unlock order follows keyboard rows (home → top → bottom),
+  matching standard touch-typing curricula and reach-distance effects in keystroke timing.
+- **Word-level practice** — Markov word chunks build sequence memory; skilled typing is
+  controlled at the word and bigram level, not isolated letters.
+- **Spaced review** — keys you have not practiced recently resurface in lessons before
+  they fade.
+
 
 ## Features
 
@@ -85,6 +111,8 @@ drill into that key's confidence trend; `Esc` / `q` returns to the overview.
 
 Opt-in git sync for backing up or moving data between machines. Requires `git` on
 `PATH` and a **private** remote (sessions contain your typing history).
+
+Not Keystrike cloud sync — only runs when you invoke `keystrike sync`. Background and FAQ: [discussion #6](https://github.com/egno/keystrike/discussions/6).
 
 ```bash
 keystrike sync init git@github.com:you/keystrike-backup.git   # one-time

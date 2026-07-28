@@ -1,0 +1,27 @@
+name: Feature request
+description: Suggest an improvement or new capability
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What are you trying to do? What's missing today?
+      placeholder: "I'm learning Colemak and want..."
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: How would you like this to work?
+    validations:
+      required: false
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Fits project scope?
+      description: Keystrike is offline-first, terminal-native, English-only in v1.
+      options:
+        - label: I read the README and this fits the offline / local-data model
+          required: true
