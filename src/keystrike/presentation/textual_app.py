@@ -100,8 +100,10 @@ class KeystrikeApp(App[None]):
         settings = self._settings_repo.load()
         mode = Mode.FREE
         focus_key: int | None = None
+        focus_reason: str | None = None
         layout_obj = None
         lesson_heatmap = None
+        lesson_urgency = None
         target_text = self._sample_text
 
         if source is PracticeSource.ADAPTIVE:
@@ -111,15 +113,19 @@ class KeystrikeApp(App[None]):
             target_text = lesson.text
             mode = Mode.ADAPTIVE
             focus_key = lesson.focus_key
+            focus_reason = lesson.focus_reason
             layout_obj = self._layout_repo.get(settings.layout)
             lesson_heatmap = lesson.heatmap
+            lesson_urgency = lesson.urgency
         elif source is PracticeSource.CODE:
             lesson = self._build_code_lesson(settings.layout)
             target_text = lesson.text
             mode = Mode.CODE
             focus_key = lesson.focus_key
+            focus_reason = lesson.focus_reason
             layout_obj = self._layout_repo.get(settings.layout)
             lesson_heatmap = lesson.heatmap
+            lesson_urgency = lesson.urgency
         elif source is PracticeSource.FREE and settings.freeform_path:
             target_text = self._freeform_provider.load(Path(settings.freeform_path))
         elif source is PracticeSource.SAMPLE:
@@ -130,8 +136,10 @@ class KeystrikeApp(App[None]):
             layout=settings.layout,
             mode=mode,
             focus_key=focus_key,
+            focus_reason=focus_reason,
             layout_obj=layout_obj,
             lesson_heatmap=lesson_heatmap,
+            lesson_urgency=lesson_urgency,
         )
 
     def on_home_screen_start_practice(self, message: HomeScreen.StartPractice) -> None:

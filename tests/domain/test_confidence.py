@@ -4,6 +4,7 @@ from keystrike.domain.confidence import (
     confidence_of,
     key_confidence,
     practice_weight,
+    review_urgency,
     select_focus,
     target_ms_per_char,
 )
@@ -30,13 +31,19 @@ def test_key_confidence_no_samples_is_zero():
     assert key_confidence(200.0, 0.0) == 0.0
 
 
-def _stats(codepoint: int, mean_time_ns: float, error_count: int = 0) -> KeyStats:
+def _stats(
+    codepoint: int,
+    mean_time_ns: float,
+    error_count: int = 0,
+    *,
+    last_seen: float = 0.0,
+) -> KeyStats:
     return KeyStats(
         codepoint=codepoint,
         samples=10,
         mean_time_ns=mean_time_ns,
         error_count=error_count,
-        last_seen=0.0,
+        last_seen=last_seen,
     )
 
 
@@ -109,12 +116,42 @@ def test_select_focus_picks_weakest_unlocked_key():
         1: _stats(1, mean_time_ns=100_000_000.0),  # confidence 2.0
         2: _stats(2, mean_time_ns=400_000_000.0),  # confidence 0.5
     }
-    assert select_focus((1, 2), stats, target=200.0) == 2
+    assert select_focus((1, 2), stats, target=200.0, now=1000.0) == 2
 
 
 def test_select_focus_prefers_never_practiced_key():
     stats = {1: _stats(1, mean_time_ns=100_000_000.0)}
-    assert select_focus((1, 2), stats, target=200.0) == 2
+    assert select_focus((1, 2), stats, target=200.0, now=1000.0) == 2
+
+
+def test_review_urgency_never_seen_or_fresh_is_zero():
+    assert review_urgency(0.0, 1_000_000.0) == 0.0
+    assert review_urgency(1000.0, 1000.0) == 0.0
+    assert review_urgency(1000.0, 999.0) == 0.0
+
+
+def test_review_urgency_rises_after_one_day_and_peaks_by_three():
+    base = 1_000_000.0
+    day = 86_400.0
+    assert review_urgency(base, base + day) == 0.0
+    mid = review_urgency(base, base + 2 * day)
+    assert 0.0 < mid < 1.0
+    assert review_urgency(base, base + 3 * day) == 1.0
+    assert review_urgency(base, base + 7 * day) == 1.0
+
+
+def test_practice_weight_boosts_stale_mastered_key():
+    assert practice_weight(1.0, urgency=1.0) == 2.0
+
+
+def test_select_focus_picks_stale_over_slightly_weaker_recent():
+    now = 1_000_000.0
+    five_days = 5 * 86_400.0
+    stats = {
+        1: _stats(1, mean_time_ns=210_000_000.0, last_seen=now - five_days),  # ~0.95
+        2: _stats(2, mean_time_ns=235_000_000.0, last_seen=now),  # ~0.85
+    }
+    assert select_focus((1, 2), stats, target=200.0, now=now) == 1
 
 
 def test_practice_weight_unpracticed_key_is_max_biased():

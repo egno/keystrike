@@ -13,5 +13,7 @@ class SessionPrep:
     layout: str
     mode: Mode
     focus_key: int | None
+    focus_reason: str | None
     layout_obj: Layout | None
     lesson_heatmap: dict[int, float] | None
+    lesson_urgency: dict[int, float] | None

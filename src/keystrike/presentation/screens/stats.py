@@ -48,7 +48,7 @@ class StatsScreen(Screen[None]):
 
     def on_mount(self) -> None:
         self._rebuild_aggregates(self._layout_name)
-        heatmap = self._get_heatmap(self._layout_name)
+        heatmap_view = self._get_heatmap(self._layout_name)
         layout = self._layout_repo.get(self._layout_name)
 
         title = f"[bold]Stats — {self._layout_name}[/]"
@@ -57,7 +57,8 @@ class StatsScreen(Screen[None]):
         self.query_one("#stats-title", Static).update(title)
 
         self.query_one(Vertical).mount(
-            KbHeatmap(layout, heatmap), before="#stats-history",
+            KbHeatmap(layout, heatmap_view.confidence, urgency=heatmap_view.urgency),
+            before="#stats-history",
         )
 
         history = self._get_history(self._layout_name, limit=10)

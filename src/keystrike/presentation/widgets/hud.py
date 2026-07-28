@@ -15,10 +15,18 @@ def _format_goal_segment(budget: DailyLearnBudget | None) -> str:
     return f"   Goal: [bold]{remaining_min:.1f}[/]/{limit_min:g} min"
 
 
+def _format_focus_segment(focus_key: int | None, focus_reason: str | None) -> str:
+    if focus_key is None or not focus_reason:
+        return ""
+    return f"   Focus: [bold]{chr(focus_key)}[/] [dim]{focus_reason}[/]"
+
+
 def _format_hud(
     session: Session,
     elapsed_ns: int,
     daily_budget: DailyLearnBudget | None = None,
+    *,
+    focus_reason: str | None = None,
 ) -> str:
     minutes = elapsed_ns / 1e9 / 60.0
     wpm = (session.correct_count / 5.0) / minutes if minutes > 0 else 0.0
@@ -27,6 +35,7 @@ def _format_hud(
         f"WPM: [bold]{wpm:5.1f}[/]   "
         f"Acc: [bold]{accuracy * 100:5.1f}%[/]"
         f"{_format_goal_segment(daily_budget)}"
+        f"{_format_focus_segment(session.focus_key, focus_reason)}"
     )
 
 
@@ -45,14 +54,16 @@ class HUD(Widget):
         clock: Clock,
         *,
         get_daily_learn_budget: DailyLearnBudgetProvider | None = None,
+        focus_reason: str | None = None,
     ) -> None:
         super().__init__()
         self._session = session
         self._clock = clock
         self._get_daily_learn_budget = get_daily_learn_budget
+        self._focus_reason = focus_reason
 
     def compose(self) -> ComposeResult:
-        yield Static(_format_hud(self._session, 0), id="hud-text")
+        yield Static(_format_hud(self._session, 0, focus_reason=self._focus_reason), id="hud-text")
 
     def on_mount(self) -> None:
         self.set_interval(0.1, self.refresh_display)
@@ -66,8 +77,9 @@ class HUD(Widget):
             else None
         )
         static = self.query_one("#hud-text", Static)
-        static.update(_format_hud(self._session, elapsed, daily_budget))
+        static.update(_format_hud(self._session, elapsed, daily_budget, focus_reason=self._focus_reason))
 
-    def set_session(self, session: Session) -> None:
+    def set_session(self, session: Session, *, focus_reason: str | None = None) -> None:
         self._session = session
+        self._focus_reason = focus_reason
         self.refresh_display()

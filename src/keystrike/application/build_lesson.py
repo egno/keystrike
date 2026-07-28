@@ -10,6 +10,7 @@ hard alphabet the way English words can).
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from random import Random
 
@@ -18,6 +19,7 @@ from keystrike.domain.confidence import (
     compute_unlocked,
     confidence_of,
     practice_weight,
+    review_urgency,
     select_focus,
     target_ms_per_char,
 )
@@ -33,12 +35,31 @@ from keystrike.domain.protocols import (
 )
 
 WORD_COUNT = 12
+_CONFIDENCE_GOOD = 1.0
+
+
+def _focus_reason(
+    focus: int,
+    stats: dict[int, KeyStats],
+    target: float,
+    now: float,
+) -> str | None:
+    key_stats = stats.get(focus)
+    urgency = review_urgency(key_stats.last_seen if key_stats else 0.0, now)
+    confidence = confidence_of(focus, stats, target)
+    if urgency > 0 and confidence >= _CONFIDENCE_GOOD:
+        return "review"
+    if confidence < _CONFIDENCE_GOOD:
+        return "weak"
+    return None
 
 
 @dataclass(slots=True)
 class Lesson:
     text: str
     state: LessonState
+    urgency: dict[int, float]
+    focus_reason: str | None
 
     @property
     def focus_key(self) -> int:
@@ -50,12 +71,16 @@ class Lesson:
 
 
 def _lesson_progress(
-    layout_name: str, layout: Layout, stats: dict[int, KeyStats], settings: Settings,
+    layout_name: str,
+    layout: Layout,
+    stats: dict[int, KeyStats],
+    settings: Settings,
+    now: float,
 ) -> tuple[tuple[int, ...], int, LessonState]:
     target = target_ms_per_char(settings.target_speed_cpm)
     order = keyboard_order(layout)
     unlocked = compute_unlocked(order, settings.alphabet_size, stats, target)
-    focus = select_focus(unlocked, stats, target)
+    focus = select_focus(unlocked, stats, target, now)
 
     keys = tuple(
         LessonKey(
@@ -87,17 +112,36 @@ class BuildLesson:
         settings = self.settings_repo.load()
         layout = self.layout_repo.get(layout_name)
         stats = self.aggregates_cache.get(layout_name) or {}
-        unlocked, focus, state = _lesson_progress(layout_name, layout, stats, settings)
+        now = time.time()
+        unlocked, focus, state = _lesson_progress(layout_name, layout, stats, settings, now)
+        target = target_ms_per_char(settings.target_speed_cpm)
 
         table = self.language_provider.transitions(settings.lang)
         generator = AdaptiveGenerator(table=table, rng=self.rng)
         alphabet_chars = frozenset(chr(cp) for cp in unlocked)
-        char_weights = {chr(k.codepoint): practice_weight(k.confidence) for k in state.keys}
+        char_weights = {
+            chr(k.codepoint): practice_weight(
+                k.confidence,
+                urgency=review_urgency(
+                    stats[k.codepoint].last_seen if k.codepoint in stats else 0.0, now,
+                ),
+            )
+            for k in state.keys
+        }
         text = generator.generate_lesson(
             alphabet_chars, chr(focus), word_count=WORD_COUNT, char_weights=char_weights,
         )
 
-        return Lesson(text=text, state=state)
+        urgency = {
+            cp: review_urgency(stats[cp].last_seen if cp in stats else 0.0, now)
+            for cp in unlocked
+        }
+        return Lesson(
+            text=text,
+            state=state,
+            urgency=urgency,
+            focus_reason=_focus_reason(focus, stats, target, now),
+        )
 
 
 @dataclass(slots=True)
@@ -112,8 +156,21 @@ class BuildCodeLesson:
         settings = self.settings_repo.load()
         layout = self.layout_repo.get(layout_name)
         stats = self.aggregates_cache.get(layout_name) or {}
-        _unlocked, focus, state = _lesson_progress(layout_name, layout, stats, settings)
+        now = time.time()
+        unlocked, focus, state = _lesson_progress(
+            layout_name, layout, stats, settings, now,
+        )
+        target = target_ms_per_char(settings.target_speed_cpm)
 
         text = select_snippet(self.code_provider.snippets(), chr(focus), self.rng)
 
-        return Lesson(text=text, state=state)
+        urgency = {
+            cp: review_urgency(stats[cp].last_seen if cp in stats else 0.0, now)
+            for cp in unlocked
+        }
+        return Lesson(
+            text=text,
+            state=state,
+            urgency=urgency,
+            focus_reason=_focus_reason(focus, stats, target, now),
+        )

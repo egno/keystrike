@@ -48,3 +48,26 @@ def test_focus_key_style_applies_even_without_heatmap_entry():
     text = render_heatmap(QWERTY, {}, focus=ord("a"))
     span = next(s for s in text.spans if text.plain[s.start : s.end].strip() == "a")
     assert span.style == "bold underline cyan"
+
+
+def test_render_heatmap_marks_due_for_review_with_magenta_underline():
+    text = render_heatmap(QWERTY, {ord("a"): 1.5}, urgency={ord("a"): 0.5})
+    span = next(s for s in text.spans if text.plain[s.start : s.end].strip() == "a")
+    assert "magenta" in span.style
+    assert "green" in span.style
+
+
+def test_render_heatmap_weak_key_without_urgency_stays_red_only():
+    text = render_heatmap(QWERTY, {ord("a"): 0.1}, urgency={ord("a"): 0.0})
+    span = next(s for s in text.spans if text.plain[s.start : s.end].strip() == "a")
+    assert "magenta" not in span.style
+    assert "red" in span.style
+
+
+def test_render_heatmap_focus_style_overrides_urgency_underline():
+    text = render_heatmap(
+        QWERTY, {ord("a"): 1.5}, focus=ord("a"), urgency={ord("a"): 1.0},
+    )
+    span = next(s for s in text.spans if text.plain[s.start : s.end].strip() == "a")
+    assert span.style == "bold underline cyan"
+    assert "magenta" not in span.style

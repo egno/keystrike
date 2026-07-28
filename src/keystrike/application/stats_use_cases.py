@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 
 from keystrike.domain.aggregate import aggregate_session, combine, per_key_deltas
-from keystrike.domain.confidence import accuracy_of, key_confidence, target_ms_per_char
+from keystrike.domain.confidence import (
+    accuracy_of,
+    key_confidence,
+    review_urgency,
+    target_ms_per_char,
+)
 from keystrike.domain.models import KeyStats, SessionResult
 from keystrike.domain.protocols import AggregatesCache, SessionRepository, SettingsRepository
 from keystrike.domain.regression import estimate_sessions_to_goal
@@ -30,21 +36,32 @@ class RebuildAggregates:
         return combined
 
 
+@dataclass(frozen=True, slots=True)
+class HeatmapView:
+    confidence: dict[int, float]
+    urgency: dict[int, float]
+
+
 @dataclass(slots=True)
 class GetHeatmap:
-    """Confidence per key: target_ms_per_char / mean_ms_per_key. Reads the cache as-is."""
+    """Confidence and review-urgency per key. Reads the cache as-is."""
 
     cache: AggregatesCache
     settings_repo: SettingsRepository
 
-    def __call__(self, layout: str) -> dict[int, float]:
+    def __call__(self, layout: str) -> HeatmapView:
         stats = self.cache.get(layout)
         if not stats:
-            return {}
+            return HeatmapView(confidence={}, urgency={})
         target = target_ms_per_char(self.settings_repo.load().target_speed_cpm)
-        return {
-            cp: key_confidence(target, k.mean_time_ns) * accuracy_of(k) for cp, k in stats.items()
-        }
+        now = time.time()
+        return HeatmapView(
+            confidence={
+                cp: key_confidence(target, k.mean_time_ns) * accuracy_of(k)
+                for cp, k in stats.items()
+            },
+            urgency={cp: review_urgency(k.last_seen, now) for cp, k in stats.items()},
+        )
 
 
 @dataclass(slots=True)

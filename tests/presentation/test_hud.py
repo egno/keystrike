@@ -30,7 +30,15 @@ def test_hud_omits_goal_when_daily_limit_disabled():
     assert "Keys" not in text
 
 
-def test_hud_shows_daily_time_goal():
+def test_hud_shows_focus_reason_when_given():
+    text = _format_hud(_session(), elapsed_ns=0, focus_reason="review")
+    assert "Focus:" in text
+    assert "review" in text
+
+
+def test_hud_omits_focus_when_reason_missing():
+    text = _format_hud(_session(), elapsed_ns=0, focus_reason=None)
+    assert "Focus:" not in text
     budget = compute_daily_learn_budget(
         completed_ns=6 * 60 * 1_000_000_000,
         limit_minutes=10,

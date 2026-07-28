@@ -10,6 +10,8 @@ from collections.abc import Mapping, Sequence
 
 from .models import KeyStats
 
+_SECONDS_PER_DAY = 86_400.0
+
 
 def target_ms_per_char(target_speed_cpm: int) -> float:
     return 60_000.0 / target_speed_cpm
@@ -65,17 +67,68 @@ def compute_unlocked(
     return tuple(unlocked)
 
 
-def practice_weight(confidence: float, *, max_bias: float = 3.0) -> float:
+def review_urgency(last_seen: float, now: float) -> float:
+    """How urgently a key needs re-testing before forgetting (0.0–1.0).
+
+    ponytail: fixed day-scale ramp, not per-key ACT-R decay; upgrade to
+    SlimStampen-style individual half-life once we have enough per-key history.
+    """
+    if last_seen <= 0 or now <= last_seen:
+        return 0.0
+    elapsed_days = (now - last_seen) / _SECONDS_PER_DAY
+    if elapsed_days < 1.0:
+        return 0.0
+    if elapsed_days >= 3.0:
+        return 1.0
+    return (elapsed_days - 1.0) / 2.0
+
+
+def practice_weight(
+    confidence: float,
+    *,
+    max_bias: float = 3.0,
+    urgency: float = 0.0,
+    review_bias: float = 1.0,
+) -> float:
     """Sampling weight for practice-text generation: a weak key (confidence 0)
     gets `1 + max_bias` the weight of a mastered key (confidence >= 1.0), so
     generated text is deliberately concentrated on weak keys rather than
     treating every unlocked key as equally likely to appear (see "Deliberate
     practice targeting weak points" in docs/research/typing-pedagogy.md).
     Capped at confidence 1.0 so an already-fast key doesn't get pushed below
-    baseline weight just for being unusually fast."""
-    return 1.0 + max_bias * (1.0 - min(confidence, 1.0))
+    baseline weight just for being unusually fast.
+
+    `urgency` (from `review_urgency`) multiplies weight so stale-but-mastered
+    keys still appear in generated text."""
+    base = 1.0 + max_bias * (1.0 - min(confidence, 1.0))
+    return base * (1.0 + review_bias * urgency)
 
 
-def select_focus(unlocked: Sequence[int], stats: Mapping[int, KeyStats], target: float) -> int:
-    """The weakest unlocked key — the one a lesson should emphasize."""
-    return min(unlocked, key=lambda cp: confidence_of(cp, stats, target))
+def _focus_score(
+    codepoint: int,
+    stats: Mapping[int, KeyStats],
+    target: float,
+    now: float,
+    *,
+    review_penalty: float,
+) -> float:
+    key_stats = stats.get(codepoint)
+    urgency = review_urgency(key_stats.last_seen if key_stats else 0.0, now)
+    return confidence_of(codepoint, stats, target) * (1.0 - review_penalty * urgency)
+
+
+def select_focus(
+    unlocked: Sequence[int],
+    stats: Mapping[int, KeyStats],
+    target: float,
+    now: float,
+    *,
+    review_penalty: float = 0.5,
+) -> int:
+    """The unlocked key a lesson should emphasize — weakest by confidence, but
+    stale keys are treated as weaker so high-confidence keys due for review
+    still surface (SlimStampen-style spacing; see typing-pedagogy.md)."""
+    return min(
+        unlocked,
+        key=lambda cp: _focus_score(cp, stats, target, now, review_penalty=review_penalty),
+    )
