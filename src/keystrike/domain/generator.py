@@ -48,7 +48,10 @@ class AdaptiveGenerator:
     ) -> str:
         if words:
             word = self._sample_from_wordlist(words, char_weights, wordlist_weights)
-            if MIN_WORD_LEN <= len(word) <= MAX_WORD_LEN:
+            if (
+                MIN_WORD_LEN <= len(word) <= MAX_WORD_LEN
+                and set(word) <= alphabet
+            ):
                 return word
         word = ""
         for _ in range(MAX_RETRIES):

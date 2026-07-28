@@ -53,7 +53,7 @@ def test_generate_lesson_char_weights_bias_toward_weak_key():
 
 def test_generate_word_uses_wordlist_when_provided():
     generator = AdaptiveGenerator(table=_uniform_table("xyz"), rng=Random(0))
-    words = ["cat", "dog", "bat"]
+    words = ["cab", "bad", "dab"]
     for _ in range(10):
         word = generator.generate_word(frozenset("abcd"), words=words)
         assert word in words
@@ -62,6 +62,12 @@ def test_generate_word_uses_wordlist_when_provided():
 def test_generate_word_falls_back_to_markov_without_wordlist():
     generator = AdaptiveGenerator(table=_uniform_table("abc"), rng=Random(0))
     word = generator.generate_word(frozenset("abc"))
+    assert set(word) <= {"a", "b", "c"}
+
+
+def test_generate_word_falls_back_when_wordlist_outside_alphabet():
+    generator = AdaptiveGenerator(table=_uniform_table("abc"), rng=Random(0))
+    word = generator.generate_word(frozenset("abc"), words=["xyz", "qrs"])
     assert set(word) <= {"a", "b", "c"}
 
 

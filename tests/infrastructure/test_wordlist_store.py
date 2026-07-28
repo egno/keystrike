@@ -2,6 +2,7 @@ import hashlib
 
 import pytest
 
+from keystrike import __version__
 from keystrike.infrastructure.paths import Paths
 from keystrike.infrastructure.wordlist_store import MAX_DOWNLOAD_BYTES, FileWordListStore
 
@@ -31,6 +32,7 @@ def test_load_returns_none_when_missing(paths):
 def test_download_and_cache_then_load(paths, monkeypatch):
     url = "https://example.com/words.txt"
     body = "cat\ndog\nbird\n"
+    captured: list[object] = []
 
     class FakeResponse:
         _data = body.encode()
@@ -47,13 +49,18 @@ def test_download_and_cache_then_load(paths, monkeypatch):
         def __exit__(self, *args: object) -> None:
             pass
 
+    def _open(req: object, *args: object, **kwargs: object) -> object:
+        captured.append(req)
+        return FakeResponse()
+
     monkeypatch.setattr(
         "keystrike.infrastructure.wordlist_store.urllib.request.urlopen",
-        _stub_urlopen(FakeResponse()),
+        _open,
     )
 
     store = FileWordListStore(paths)
     words = store.download_and_cache(url)
+    assert captured[0].headers["User-agent"] == f"keystrike/{__version__}"  # type: ignore[union-attr]
     assert words == ["cat", "dog", "bird"]
     assert store.cached_word_count(url) == 3
 

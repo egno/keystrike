@@ -6,13 +6,14 @@ import hashlib
 import urllib.error
 import urllib.request
 
+from keystrike import __version__
 from keystrike.domain.wordlist import parse_wordlist_text
 
 from .atomic_write import atomic_write_text
 from .paths import Paths
 
 MAX_DOWNLOAD_BYTES = 5 * 1024 * 1024
-_USER_AGENT = "keystrike/0.1"
+_USER_AGENT = f"keystrike/{__version__}"
 _READ_CHUNK = 65536
 
 
