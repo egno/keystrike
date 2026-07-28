@@ -156,6 +156,7 @@ def _header_from_dict(d: dict[str, object]) -> SessionResult:
         lang=str(d.get("lang", "en")),
         unlocked_keys=tuple(d.get("unlocked_keys", ())),  # type: ignore[arg-type]
         key_confidence=_parse_key_confidence(d.get("key_confidence", {})),
+        target_speed_cpm=_as_int(d.get("target_speed_cpm", 0)),
     )
 
 

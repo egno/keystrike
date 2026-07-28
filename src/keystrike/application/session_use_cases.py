@@ -162,6 +162,7 @@ class FinishSession:
         )
         duration_ns = self.clock.now_ns() - started_ns
 
+        target_speed_cpm = 0
         unlocked_keys: tuple[int, ...] = ()
         key_confidence: dict[int, float] = {}
         if (
@@ -169,6 +170,8 @@ class FinishSession:
             and self.settings_repo is not None
             and self.layout_repo is not None
         ):
+            settings = self.settings_repo.load()
+            target_speed_cpm = settings.target_speed_cpm
             unlocked_keys, key_confidence = _snapshot_unlock_state(
                 session,
                 duration_ns,
@@ -193,6 +196,7 @@ class FinishSession:
             lang=session.lang,
             unlocked_keys=unlocked_keys,
             key_confidence=key_confidence,
+            target_speed_cpm=target_speed_cpm,
         )
         self.repo.save_header(result)
         return result
@@ -271,19 +275,46 @@ def wpm_sparkline(headers: Sequence[SessionResult], *, limit: int = 20) -> str:
     return value_sparkline([compute_wpm(h) for h in ordered])
 
 
+def _display_confidence(
+    stored_conf: float,
+    stored_target_cpm: int,
+    current_target_cpm: int,
+) -> float:
+    if stored_target_cpm <= 0 or current_target_cpm <= 0:
+        return stored_conf
+    return stored_conf * (
+        target_ms_per_char(current_target_cpm)
+        / target_ms_per_char(stored_target_cpm)
+    )
+
+
 def focus_confidence_values(
-    headers: Sequence[SessionResult], *, limit: int = 20,
+    headers: Sequence[SessionResult],
+    *,
+    limit: int = 20,
+    current_target_speed_cpm: int = 0,
 ) -> list[float]:
     ordered = sorted(headers, key=lambda h: h.started_at)[-limit:]
     return [
-        h.key_confidence.get(h.focus_key, 0.0) if h.focus_key is not None else 0.0
+        _display_confidence(
+            h.key_confidence.get(h.focus_key, 0.0) if h.focus_key is not None else 0.0,
+            h.target_speed_cpm,
+            current_target_speed_cpm,
+        )
         for h in ordered
     ]
 
 
-def focus_confidence_sparkline(headers: Sequence[SessionResult], *, limit: int = 20) -> str:
+def focus_confidence_sparkline(
+    headers: Sequence[SessionResult],
+    *,
+    limit: int = 20,
+    current_target_speed_cpm: int = 0,
+) -> str:
     """Unicode sparkline of focus-key confidence per session, oldest→newest."""
-    values = focus_confidence_values(headers, limit=limit)
+    values = focus_confidence_values(
+        headers, limit=limit, current_target_speed_cpm=current_target_speed_cpm,
+    )
     if not values:
         return ""
     return value_sparkline(values)
@@ -294,9 +325,17 @@ def key_confidence_values(
     codepoint: int,
     *,
     limit: int = 20,
+    current_target_speed_cpm: int = 0,
 ) -> list[float]:
     ordered = sorted(headers, key=lambda h: h.started_at)[-limit:]
-    return [h.key_confidence.get(codepoint, 0.0) for h in ordered]
+    return [
+        _display_confidence(
+            h.key_confidence.get(codepoint, 0.0),
+            h.target_speed_cpm,
+            current_target_speed_cpm,
+        )
+        for h in ordered
+    ]
 
 
 def key_confidence_sparkline(
@@ -304,8 +343,11 @@ def key_confidence_sparkline(
     codepoint: int,
     *,
     limit: int = 20,
+    current_target_speed_cpm: int = 0,
 ) -> str:
-    values = key_confidence_values(headers, codepoint, limit=limit)
+    values = key_confidence_values(
+        headers, codepoint, limit=limit, current_target_speed_cpm=current_target_speed_cpm,
+    )
     if not values:
         return ""
     return value_sparkline(values)
@@ -335,13 +377,20 @@ def format_wpm_trend_line(headers: Sequence[SessionResult], *, limit: int = 20) 
 
 
 def format_focus_confidence_trend_line(
-    headers: Sequence[SessionResult], *, limit: int = 20,
+    headers: Sequence[SessionResult],
+    *,
+    limit: int = 20,
+    current_target_speed_cpm: int = 0,
 ) -> str:
     ordered = sorted(headers, key=lambda h: h.started_at)[-limit:]
     if not ordered:
         return ""
-    values = focus_confidence_values(headers, limit=limit)
-    spark = focus_confidence_sparkline(headers, limit=limit)
+    values = focus_confidence_values(
+        headers, limit=limit, current_target_speed_cpm=current_target_speed_cpm,
+    )
+    spark = focus_confidence_sparkline(
+        headers, limit=limit, current_target_speed_cpm=current_target_speed_cpm,
+    )
     label = _focus_char_label(ordered[-1].focus_key)
     return (
         f"[bold]Focus '{label}' confidence[/] ({len(values)} sessions)  {spark}  "
@@ -354,13 +403,18 @@ def format_key_confidence_trend_line(
     codepoint: int,
     *,
     limit: int = 20,
+    current_target_speed_cpm: int = 0,
     cumulative: float | None = None,
 ) -> str:
     ordered = sorted(headers, key=lambda h: h.started_at)[-limit:]
     if not ordered:
         return ""
-    values = key_confidence_values(headers, codepoint, limit=limit)
-    spark = key_confidence_sparkline(headers, codepoint, limit=limit)
+    values = key_confidence_values(
+        headers, codepoint, limit=limit, current_target_speed_cpm=current_target_speed_cpm,
+    )
+    spark = key_confidence_sparkline(
+        headers, codepoint, limit=limit, current_target_speed_cpm=current_target_speed_cpm,
+    )
     label = _char_label(codepoint)
     line = (
         f"[bold]'{label}' confidence[/] ({len(values)} sessions)  {spark}  "
