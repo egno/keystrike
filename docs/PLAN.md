@@ -324,7 +324,8 @@ each; not repeated here to keep this section from growing unbounded.
   pulls `jinja2` → `markupsafe`, which has no PyPI wheels for Android on
   Python 3.12 — keep it out of default dev deps until snapshot tests land).
   Ruff lives in the optional `lint` group for the same reason (sdist build →
-  `maturin`, no Android wheels).
+  `maturin`, no Android wheels). `hypothesis` was removed from `dev` — it
+  shipped no Android wheel and was unused in tests.
 - PyPI publish (`uv tool install keystrike`); double check `pyproject.toml`
   metadata (author, URLs) before publishing.
 - README with a demo GIF; Windows Terminal setup docs (raw-mode input hasn't

@@ -37,7 +37,6 @@ Homepage = "https://github.com/anthropic/keystrike"
 dev = [
   "pytest>=8",
   "pytest-asyncio>=0.24",
-  "hypothesis>=6.100",
   "pyright>=1.1.380",
 ]
 lint = [

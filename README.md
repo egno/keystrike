@@ -43,8 +43,8 @@ uv sync --all-groups
 uv run ruff check
 ```
 
-Keep native-wheel dev tools out of `dev` (e.g. `pytest-textual-snapshot` →
-`markupsafe`; Ruff → `maturin`).
+Keep native-wheel dev tools out of `dev` (e.g. `hypothesis` — Rust wheels, no
+Android tag; `pytest-textual-snapshot` → `markupsafe`; Ruff → `maturin`).
 
 ## Development
 
