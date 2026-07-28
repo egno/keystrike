@@ -1,12 +1,13 @@
 import pytest
 from textual.app import App
-from textual.widgets import Input, Select
+from textual.widgets import Button, Input, Select, Static
 
 from keystrike.application.settings_use_cases import UpdateSettings
 from keystrike.application.wordlist_use_cases import ImportWordList
 from keystrike.domain.enums import TargetSpeedUnit
 from keystrike.domain.generator import cpm_from_wpm, wpm_from_cpm
 from keystrike.domain.models import Settings
+from keystrike.domain.wordlist import DEFAULT_WORDLIST_URL
 from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS
 from keystrike.presentation.screens.settings import SettingsScreen
 from tests.fakes import FakeLayoutRepository, FakeSettingsRepository, FakeWordListStore
@@ -166,3 +167,22 @@ async def test_loads_wpm_display_value():
             wpm_from_cpm(300),
         )
         assert app.screen.query_one("#settings-speed-unit", Select).value == TargetSpeedUnit.WPM
+
+
+@pytest.mark.asyncio
+async def test_import_uses_default_url_when_field_empty():
+    app = App()
+    store = FakeWordListStore(by_url={DEFAULT_WORDLIST_URL: ["hello", "world"]})
+    screen, settings_repo, _store = _build_screen(wordlist_store=store)
+    async with app.run_test() as pilot:
+        await app.push_screen(screen)
+        await pilot.pause()
+
+        assert app.screen.query_one("#settings-wordlist-url", Input).value == ""
+        app.screen.query_one("#settings-wordlist-import", Button).press()
+        await pilot.pause()
+
+        assert settings_repo.settings.wordlist_url == DEFAULT_WORDLIST_URL
+        assert app.screen.query_one("#settings-wordlist-url", Input).value == DEFAULT_WORDLIST_URL
+        status = str(app.screen.query_one("#settings-wordlist-status", Static).content)
+        assert "Imported 2 words." in status

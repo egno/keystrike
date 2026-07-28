@@ -178,8 +178,7 @@ class SettingsScreen(Screen[None]):
     def _do_import(self) -> None:
         url = self.query_one("#settings-wordlist-url", Input).value.strip()
         if not url:
-            self._show_error("Enter a word list URL to import.")
-            return
+            url = DEFAULT_WORDLIST_URL
         try:
             count = self._import_wordlist(url)
         except WordListError as exc:
