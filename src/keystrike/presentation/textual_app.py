@@ -1,6 +1,8 @@
 from pathlib import Path
+from typing import ClassVar
 
 from textual.app import App
+from textual.binding import BindingType
 
 from keystrike.application.build_lesson import BuildCodeLesson, BuildLesson
 from keystrike.application.session_use_cases import (
@@ -24,10 +26,12 @@ from keystrike.domain.protocols import (
     LayoutRepository,
     SettingsRepository,
 )
+from keystrike.presentation.bindings import QUIT
 from keystrike.presentation.screens.home import HomeScreen
 from keystrike.presentation.screens.practice import PracticeScreen
 from keystrike.presentation.screens.settings import SettingsScreen
 from keystrike.presentation.screens.stats import StatsScreen
+from keystrike.presentation.session_prep import SessionPrep
 
 # M1 sample text — a short paragraph, always available regardless of freeform_path.
 _SAMPLE_TEXT = (
@@ -39,6 +43,7 @@ _SAMPLE_TEXT = (
 
 class KeystrikeApp(App[None]):
     ENABLE_COMMAND_PALETTE = False
+    BINDINGS: ClassVar[list[BindingType]] = [QUIT]
 
     def __init__(
         self,
@@ -91,53 +96,63 @@ class KeystrikeApp(App[None]):
             get_daily_learn_budget=self._get_daily_learn_budget,
         )
 
-    def on_home_screen_start_practice(self, message: HomeScreen.StartPractice) -> None:
+    def _session_prep(self, source: PracticeSource) -> SessionPrep | None:
         settings = self._settings_repo.load()
         mode = Mode.FREE
         focus_key: int | None = None
         layout_obj = None
         lesson_heatmap = None
+        target_text = self._sample_text
 
-        if message.source is PracticeSource.ADAPTIVE:
+        if source is PracticeSource.ADAPTIVE:
             if self._get_daily_learn_budget().limit_reached:
-                self.notify(
-                    "Daily learn limit reached. Change learn_daily_minutes in Settings "
-                    "or try sample/code/free practice.",
-                    severity="warning",
-                )
-                return
+                return None
             lesson = self._build_lesson(settings.layout)
             target_text = lesson.text
             mode = Mode.ADAPTIVE
             focus_key = lesson.focus_key
             layout_obj = self._layout_repo.get(settings.layout)
             lesson_heatmap = lesson.heatmap
-        elif message.source is PracticeSource.CODE:
+        elif source is PracticeSource.CODE:
             lesson = self._build_code_lesson(settings.layout)
             target_text = lesson.text
             mode = Mode.CODE
             focus_key = lesson.focus_key
             layout_obj = self._layout_repo.get(settings.layout)
             lesson_heatmap = lesson.heatmap
-        elif message.source is PracticeSource.FREE and settings.freeform_path:
+        elif source is PracticeSource.FREE and settings.freeform_path:
             target_text = self._freeform_provider.load(Path(settings.freeform_path))
-        else:
+        elif source is PracticeSource.SAMPLE:
             target_text = self._sample_text
+
+        return SessionPrep(
+            target_text=target_text,
+            layout=settings.layout,
+            mode=mode,
+            focus_key=focus_key,
+            layout_obj=layout_obj,
+            lesson_heatmap=lesson_heatmap,
+        )
+
+    def on_home_screen_start_practice(self, message: HomeScreen.StartPractice) -> None:
+        initial = self._session_prep(message.source)
+        if initial is None:
+            self.notify(
+                "Daily learn limit reached. Change learn_daily_minutes in Settings "
+                "or try sample/code/free practice.",
+                severity="warning",
+            )
+            return
 
         practice = PracticeScreen(
             start=self._start,
             record=self._record,
             finish=self._finish,
             clock=self._clock,
-            target_text=target_text,
-            layout=settings.layout,
-            mode=mode,
-            focus_key=focus_key,
+            initial=initial,
+            prepare_next=lambda: self._session_prep(message.source),
             rebuild_aggregates=self._rebuild_aggregates,
-            get_learning_rate=self._get_learning_rate,
             get_daily_learn_budget=self._get_daily_learn_budget,
-            layout_obj=layout_obj,
-            lesson_heatmap=lesson_heatmap,
         )
         self.push_screen(practice)
 
@@ -161,3 +176,6 @@ class KeystrikeApp(App[None]):
                 update_settings=self._update_settings,
             )
         )
+
+    def action_quit_app(self) -> None:
+        self.exit()

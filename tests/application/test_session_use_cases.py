@@ -7,6 +7,7 @@ from keystrike.application.session_use_cases import (
     StartSession,
     compute_accuracy,
     compute_wpm,
+    format_session_stats_line,
 )
 from keystrike.domain.enums import Mode, SessionState
 from keystrike.domain.session import BACKSPACE
@@ -140,3 +141,11 @@ def test_timer_does_not_start_until_first_keystroke(clock, id_gen):
     result = finish(session)
     # Duration only spans the two keystrokes (100ms), not the 10s thinking time.
     assert result.duration_ns == 100_000_000
+
+
+def test_format_session_stats_line(clock, id_gen):
+    _, result = _drive("hello", "hello", clock, id_gen)
+    line = format_session_stats_line(result)
+    assert line.startswith("Last: WPM")
+    assert "Acc" in line
+    assert "Keys" in line

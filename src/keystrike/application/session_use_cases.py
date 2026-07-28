@@ -138,3 +138,15 @@ def compute_accuracy(result: SessionResult) -> float:
     if result.total_keystrokes == 0:
         return 0.0
     return result.correct_keystrokes / result.total_keystrokes
+
+
+def format_session_stats_line(result: SessionResult) -> str:
+    wpm = compute_wpm(result)
+    acc = compute_accuracy(result) * 100
+    duration = result.duration_ns / 1e9
+    return (
+        f"Last: WPM [bold]{wpm:5.1f}[/]  "
+        f"Acc [bold]{acc:5.1f}%[/]  "
+        f"Time [bold]{duration:5.1f}s[/]  "
+        f"Keys [bold]{result.total_keystrokes}[/]"
+    )

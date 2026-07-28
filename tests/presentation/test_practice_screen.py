@@ -105,10 +105,12 @@ async def test_app_launches_types_and_persists_session():
         clock.advance(100_000_000)
         await pilot.press("i")
         await pilot.pause()
-        # Now on ResultsScreen — the finished session's header was persisted.
         assert len(session_repo.headers) == 1
         assert session_repo.headers[0].layout == "qwerty"
-        await pilot.press("enter")
+        assert isinstance(app.screen, PracticeScreen)
+        assert app.screen._session.position == 0
+        last_stats = str(app.screen.query_one("#last-session-stats", Static).content)
+        assert "Last: WPM" in last_stats
 
 
 @pytest.mark.asyncio
@@ -140,11 +142,9 @@ async def test_stats_are_isolated_per_layout():
         clock.advance(100_000_000)
         await pilot.press("i")
         await pilot.pause()
-        await pilot.press("enter")  # back to Home from Results
-        await pilot.pause()
-
-        assert settings_repo.settings.layout == "qwerty"
         assert any(h.layout == "qwerty" for h in session_repo.headers)
+        app.pop_screen()
+        await pilot.pause()
 
         # Switch to a different layout and open Stats — it should show no history.
         await pilot.press("l")
@@ -233,7 +233,27 @@ async def test_sample_practice_has_no_active_keys_widget():
 
 
 @pytest.mark.asyncio
-async def test_abort_marks_session_cancelled_before_exit():
+async def test_adaptive_shows_last_session_stats_after_completion():
+    app, clock, session_repo, _ = _build_app()
+    async with app.run_test() as pilot:
+        await pilot.press("enter")
+        await pilot.pause()
+        practice = app.screen
+        assert isinstance(practice, PracticeScreen)
+        target = practice._session.target_text
+        for ch in target:
+            clock.advance(100_000_000)
+            await pilot.press("space" if ch == " " else ch)
+            await pilot.pause()
+        assert len(session_repo.headers) == 1
+        last_stats = str(practice.query_one("#last-session-stats", Static).content)
+        assert "Last: WPM" in last_stats
+        assert practice._session.position == 0
+        assert practice._session.target_text
+
+
+@pytest.mark.asyncio
+async def test_escape_returns_to_home_and_cancels_session():
     app, _clock, _repo, _settings = _build_app()
     async with app.run_test() as pilot:
         await pilot.press("p")  # sample text practice
@@ -245,3 +265,4 @@ async def test_abort_marks_session_cancelled_before_exit():
         await pilot.pause()
 
         assert practice._session.state is SessionState.CANCELLED
+        assert isinstance(app.screen, HomeScreen)

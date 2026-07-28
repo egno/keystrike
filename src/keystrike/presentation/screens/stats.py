@@ -1,7 +1,7 @@
 from typing import ClassVar
 
 from textual.app import ComposeResult
-from textual.binding import Binding, BindingType
+from textual.binding import BindingType
 from textual.containers import Vertical
 from textual.screen import Screen
 from textual.widgets import Footer, Static
@@ -9,6 +9,7 @@ from textual.widgets import Footer, Static
 from keystrike.application.session_use_cases import compute_accuracy, compute_wpm
 from keystrike.application.stats_use_cases import GetHeatmap, GetHistory, RebuildAggregates
 from keystrike.domain.protocols import LayoutRepository
+from keystrike.presentation.bindings import BACK_BINDINGS
 from keystrike.presentation.widgets.kb_heatmap import KbHeatmap
 
 
@@ -20,8 +21,7 @@ class StatsScreen(Screen[None]):
     """
 
     BINDINGS: ClassVar[list[BindingType]] = [
-        Binding("escape", "close", "Back", priority=True),
-        Binding("q", "close", "Back"),
+        *BACK_BINDINGS,
     ]
 
     def __init__(
@@ -69,5 +69,5 @@ class StatsScreen(Screen[None]):
             "\n".join(lines) if lines else "[dim]No sessions yet for this layout.[/]"
         )
 
-    def action_close(self) -> None:
+    def action_back(self) -> None:
         self.app.pop_screen()

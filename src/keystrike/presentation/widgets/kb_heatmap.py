@@ -74,3 +74,13 @@ class KbHeatmap(Widget):
             render_heatmap(self._layout, self._heatmap, self._focus),
             id="kb-heatmap-text",
         )
+
+    def refresh_heatmap(
+        self, layout: Layout, heatmap: dict[int, float], focus: int | None = None,
+    ) -> None:
+        self._layout = layout
+        self._heatmap = heatmap
+        self._focus = focus
+        self.query_one("#kb-heatmap-text", Static).update(
+            render_heatmap(layout, heatmap, focus),
+        )

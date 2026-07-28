@@ -2,31 +2,27 @@ from typing import ClassVar
 
 from textual import events
 from textual.app import ComposeResult
-from textual.binding import Binding, BindingType
+from textual.binding import BindingType
 from textual.containers import Vertical
 from textual.screen import Screen
-from textual.widgets import Footer
+from textual.widgets import Footer, Static
 
 from keystrike.application.session_use_cases import (
     AbortSession,
     FinishSession,
     RecordKeystroke,
     StartSession,
+    format_session_stats_line,
 )
 from keystrike.domain.enums import Mode
-from keystrike.domain.models import Layout
+from keystrike.domain.models import Layout, SessionResult
 from keystrike.domain.null_adapters import (
     NULL_DAILY_LEARN_BUDGET,
-    NULL_LEARNING_RATE_ESTIMATOR,
     NULL_STATS_REBUILDER,
 )
-from keystrike.domain.protocols import (
-    Clock,
-    DailyLearnBudgetProvider,
-    LearningRateEstimator,
-    StatsRebuilder,
-)
-from keystrike.presentation.screens.results import ResultsScreen
+from keystrike.domain.protocols import Clock, DailyLearnBudgetProvider, StatsRebuilder
+from keystrike.presentation.bindings import BACK_BINDINGS
+from keystrike.presentation.session_prep import PrepareNextSession, SessionPrep
 from keystrike.presentation.widgets.hud import HUD
 from keystrike.presentation.widgets.kb_heatmap import KbHeatmap
 from keystrike.presentation.widgets.typing_area import TypingArea
@@ -37,11 +33,15 @@ class PracticeScreen(Screen[None]):
     PracticeScreen > Vertical {
         padding: 1 2;
     }
+    PracticeScreen #last-session-stats {
+        color: $text-muted;
+        padding: 0 2;
+        height: 1;
+    }
     """
 
     BINDINGS: ClassVar[list[BindingType]] = [
-        Binding("ctrl+q", "quit_app", "Quit", priority=True),
-        Binding("escape", "abort", "Abort", priority=True),
+        *BACK_BINDINGS,
     ]
 
     def __init__(
@@ -51,39 +51,39 @@ class PracticeScreen(Screen[None]):
         record: RecordKeystroke,
         finish: FinishSession,
         clock: Clock,
-        target_text: str,
-        layout: str = "qwerty",
-        mode: Mode = Mode.FREE,
-        focus_key: int | None = None,
+        initial: SessionPrep,
+        prepare_next: PrepareNextSession,
         rebuild_aggregates: StatsRebuilder = NULL_STATS_REBUILDER,
-        get_learning_rate: LearningRateEstimator = NULL_LEARNING_RATE_ESTIMATOR,
         get_daily_learn_budget: DailyLearnBudgetProvider = NULL_DAILY_LEARN_BUDGET,
-        layout_obj: Layout | None = None,
-        lesson_heatmap: dict[int, float] | None = None,
     ) -> None:
         super().__init__()
         self._start = start
         self._record = record
         self._finish = finish
         self._clock = clock
+        self._prepare_next = prepare_next
         self._rebuild_aggregates = rebuild_aggregates
-        self._layout_obj = layout_obj
-        self._lesson_heatmap = lesson_heatmap
-        self._focus_key = focus_key
         self._get_daily_learn_budget = (
-            get_daily_learn_budget if mode is Mode.ADAPTIVE else NULL_DAILY_LEARN_BUDGET
+            get_daily_learn_budget
+            if initial.mode is Mode.ADAPTIVE
+            else NULL_DAILY_LEARN_BUDGET
         )
-        self._session = self._start(target_text, layout=layout, mode=mode, focus_key=focus_key)
-        sessions_to_goal = (
-            get_learning_rate(layout, focus_key) if focus_key is not None else None
+        self._layout_obj: Layout | None = initial.layout_obj
+        self._lesson_heatmap = initial.lesson_heatmap
+        self._focus_key = initial.focus_key
+        self._kb_heatmap: KbHeatmap | None = None
+        self._session = self._start(
+            initial.target_text,
+            layout=initial.layout,
+            mode=initial.mode,
+            focus_key=initial.focus_key,
         )
         self._typing_area = TypingArea(self._session)
         self._hud = HUD(
             self._session,
             clock,
-            sessions_to_goal,
             get_daily_learn_budget=(
-                self._get_daily_learn_budget if mode is Mode.ADAPTIVE else None
+                self._get_daily_learn_budget if initial.mode is Mode.ADAPTIVE else None
             ),
         )
 
@@ -92,15 +92,17 @@ class PracticeScreen(Screen[None]):
             yield self._hud
             yield self._typing_area
             if self._layout_obj is not None and self._lesson_heatmap is not None:
-                yield KbHeatmap(self._layout_obj, self._lesson_heatmap, self._focus_key)
+                self._kb_heatmap = KbHeatmap(
+                    self._layout_obj, self._lesson_heatmap, self._focus_key,
+                )
+                yield self._kb_heatmap
+            yield Static("", id="last-session-stats")
         yield Footer()
 
     def on_mount(self) -> None:
         self.focus()
 
     def on_key(self, event: events.Key) -> None:
-        # Textual's Key event: event.character is the printable char (or None),
-        # event.key is the symbolic name ("backspace", "enter", "space", etc.).
         key = event.key
         char: str | None = event.character
 
@@ -117,7 +119,7 @@ class PracticeScreen(Screen[None]):
         self._typing_area.refresh_display()
 
         if self._session.mode is Mode.ADAPTIVE and self._daily_limit_reached():
-            self._finish_session()
+            self._finish_session(start_next=False)
             return
 
         if self._session.finished:
@@ -132,14 +134,37 @@ class PracticeScreen(Screen[None]):
     def _daily_limit_reached(self) -> bool:
         return self._get_daily_learn_budget(extra_ns=self._current_elapsed_ns()).limit_reached
 
-    def _finish_session(self) -> None:
+    def _finish_session(self, *, start_next: bool = True) -> None:
         result = self._finish(self._session)
         self._rebuild_aggregates(result.layout)
-        self.app.switch_screen(ResultsScreen(result))
+        self._show_last_session_stats(result)
+        if not start_next:
+            return
+        prep = self._prepare_next()
+        if prep is None:
+            return
+        self._begin_session(prep)
 
-    def action_quit_app(self) -> None:
-        self.app.exit()
+    def _show_last_session_stats(self, result: SessionResult) -> None:
+        self.query_one("#last-session-stats", Static).update(format_session_stats_line(result))
 
-    def action_abort(self) -> None:
+    def _begin_session(self, prep: SessionPrep) -> None:
+        self._layout_obj = prep.layout_obj
+        self._lesson_heatmap = prep.lesson_heatmap
+        self._focus_key = prep.focus_key
+        self._session = self._start(
+            prep.target_text,
+            layout=prep.layout,
+            mode=prep.mode,
+            focus_key=prep.focus_key,
+        )
+        self._typing_area.set_session(self._session)
+        self._hud.set_session(self._session)
+        if self._kb_heatmap is not None and prep.layout_obj and prep.lesson_heatmap is not None:
+            self._kb_heatmap.refresh_heatmap(
+                prep.layout_obj, prep.lesson_heatmap, prep.focus_key,
+            )
+
+    def action_back(self) -> None:
         AbortSession()(self._session)
-        self.app.exit()
+        self.app.pop_screen()

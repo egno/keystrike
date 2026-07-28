@@ -1,7 +1,7 @@
 from typing import ClassVar, cast
 
 from textual.app import ComposeResult
-from textual.binding import Binding, BindingType
+from textual.binding import BindingType
 from textual.containers import Vertical
 from textual.screen import Screen
 from textual.widgets import Footer, Input, Label, Select, Static
@@ -9,6 +9,7 @@ from textual.widgets.select import NoSelection
 
 from keystrike.application.settings_use_cases import SettingsValidationError, UpdateSettings
 from keystrike.domain.protocols import LayoutRepository, SettingsRepository
+from keystrike.presentation.bindings import BACK_BINDINGS, SAVE
 
 
 class SettingsScreen(Screen[None]):
@@ -23,8 +24,8 @@ class SettingsScreen(Screen[None]):
     """
 
     BINDINGS: ClassVar[list[BindingType]] = [
-        Binding("ctrl+s", "save", "Save", priority=True),
-        Binding("escape", "cancel", "Cancel", priority=True),
+        SAVE,
+        *BACK_BINDINGS,
     ]
 
     def __init__(
@@ -43,7 +44,7 @@ class SettingsScreen(Screen[None]):
         settings = self._settings_repo.load()
         layouts = [(name, name) for name in self._layout_repo.list_available()]
         with Vertical():
-            yield Static("[bold]Settings[/]  [dim](Ctrl+S save, Esc cancel)[/]")
+            yield Static("[bold]Settings[/]  [dim](Ctrl+S save, Esc/q back)[/]")
             yield Label("Layout")
             yield Select(layouts, value=settings.layout, id="settings-layout", allow_blank=False)
             yield Label("Target speed (chars/min)")
@@ -112,7 +113,7 @@ class SettingsScreen(Screen[None]):
 
         self.app.pop_screen()
 
-    def action_cancel(self) -> None:
+    def action_back(self) -> None:
         self.app.pop_screen()
 
     def _show_error(self, message: str) -> None:

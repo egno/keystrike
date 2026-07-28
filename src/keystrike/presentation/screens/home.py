@@ -43,7 +43,8 @@ def _hero_text(layout: str, has_freeform: bool, learn_budget: DailyLearnBudget) 
         "Press [bold]p[/] to practice a fixed sample text.\n"
         "Press [bold]c[/] to practice Python code.\n"
         f"{free_hint}\n"
-        "Press [bold]s[/] for Stats, [bold]o[/] for Settings, [bold]Ctrl+Q[/] to quit."
+        "Press [bold]s[/] for Stats, [bold]o[/] for Settings.\n"
+        "Press [bold]Esc[/] or [bold]q[/] to go back from any screen, [bold]Ctrl+Q[/] to quit."
     )
 
 
@@ -68,7 +69,6 @@ class HomeScreen(Screen[None]):
         Binding("s", "open_stats", "Stats"),
         Binding("o", "open_settings", "Settings"),
         Binding("l", "cycle_layout", "Switch layout"),
-        Binding("ctrl+q", "quit_app", "Quit", priority=True),
     ]
 
     class StartPractice(Message):
@@ -133,6 +133,3 @@ class HomeScreen(Screen[None]):
     def action_cycle_layout(self) -> None:
         self._cycle_layout()
         self._refresh_hero()
-
-    def action_quit_app(self) -> None:
-        self.app.exit()

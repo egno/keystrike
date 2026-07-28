@@ -65,3 +65,7 @@ class TypingArea(Widget):
     def refresh_display(self) -> None:
         static = self.query_one("#typing-text", Static)
         static.update(render_typing_text(self._session))
+
+    def set_session(self, session: Session) -> None:
+        self._session = session
+        self.refresh_display()
