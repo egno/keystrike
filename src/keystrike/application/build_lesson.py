@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from random import Random
 
 from keystrike.domain.code_lesson import select_snippet
+from keystrike.domain.aggregate import transition_key
 from keystrike.domain.confidence import (
     compute_unlocked,
     confidence_of,
@@ -22,6 +23,8 @@ from keystrike.domain.confidence import (
     review_urgency,
     select_focus,
     target_ms_per_char,
+    transition_confidence_of,
+    transition_practice_weight,
 )
 from keystrike.domain.generator import AdaptiveGenerator
 from keystrike.domain.learn_order import keyboard_order
@@ -111,7 +114,9 @@ class BuildLesson:
     def __call__(self, layout_name: str) -> Lesson:
         settings = self.settings_repo.load()
         layout = self.layout_repo.get(layout_name)
-        stats = self.aggregates_cache.get(layout_name) or {}
+        aggregates = self.aggregates_cache.get(layout_name)
+        stats = aggregates.keys if aggregates else {}
+        transitions = aggregates.transitions if aggregates else {}
         now = time.time()
         unlocked, focus, state = _lesson_progress(layout_name, layout, stats, settings, now)
         target = target_ms_per_char(settings.target_speed_cpm)
@@ -128,12 +133,25 @@ class BuildLesson:
             )
             for k in state.keys
         }
+        transition_weights = {
+            transition_key(prev, nxt): transition_practice_weight(
+                transition_confidence_of(prev, nxt, transitions, target),
+                urgency=review_urgency(
+                    transitions[transition_key(prev, nxt)].last_seen
+                    if transition_key(prev, nxt) in transitions else 0.0,
+                    now,
+                ),
+            )
+            for prev in unlocked
+            for nxt in unlocked
+        }
         text = generator.generate_lesson(
             alphabet_chars,
             chr(focus),
             word_count=WORD_COUNT,
             char_weights=char_weights,
             layout=layout,
+            transition_weights=transition_weights,
         )
 
         urgency = {
@@ -159,7 +177,8 @@ class BuildCodeLesson:
     def __call__(self, layout_name: str) -> Lesson:
         settings = self.settings_repo.load()
         layout = self.layout_repo.get(layout_name)
-        stats = self.aggregates_cache.get(layout_name) or {}
+        aggregates = self.aggregates_cache.get(layout_name)
+        stats = aggregates.keys if aggregates else {}
         now = time.time()
         unlocked, focus, state = _lesson_progress(
             layout_name, layout, stats, settings, now,

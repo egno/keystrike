@@ -1,11 +1,16 @@
 from keystrike.domain.aggregate import (
     aggregate_session,
+    aggregate_transitions,
     combine,
+    combine_transitions,
     merge_key_stats,
+    merge_transition_stats,
     per_key_deltas,
+    per_transition_deltas,
+    transition_key,
 )
 from keystrike.domain.enums import Mode
-from keystrike.domain.models import KeyStats, Keystroke, SessionResult
+from keystrike.domain.models import KeyStats, Keystroke, SessionResult, TransitionStats
 
 
 def _session(session_id: str = "s1", started_at: float = 1000.0,
@@ -112,3 +117,62 @@ def test_combine_multiple_maps():
     assert out[ord("x")].samples == 2
     assert abs(out[ord("x")].mean_time_ns - 200.0) < 1e-9
     assert out[ord("y")].samples == 2
+
+
+def test_per_transition_deltas_tracks_prev_to_next_pair():
+    keys = [
+        Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
+        Keystroke(codepoint=ord("b"), typed=ord("b"), t_ns=100_000_000, correct=True),
+        Keystroke(codepoint=ord("c"), typed=ord("c"), t_ns=250_000_000, correct=True),
+    ]
+    deltas = per_transition_deltas(keys)
+    assert deltas["ab"] == [100_000_000]
+    assert deltas["bc"] == [150_000_000]
+
+
+def test_aggregate_transitions_attributes_errors_to_pair():
+    keys = [
+        Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
+        Keystroke(codepoint=ord("b"), typed=ord("x"), t_ns=50_000_000, correct=False),
+        Keystroke(codepoint=ord("b"), typed=ord("b"), t_ns=100_000_000, correct=True),
+    ]
+    transitions = aggregate_transitions(_session(), keys)
+    ab = transitions["ab"]
+    assert ab.error_count == 1
+    assert ab.samples == 1
+    assert abs(ab.mean_time_ns - 100_000_000) < 1
+
+
+def test_aggregate_transitions_skips_error_on_first_keystroke():
+    keys = [
+        Keystroke(codepoint=ord("a"), typed=ord("x"), t_ns=0, correct=False),
+        Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=50_000_000, correct=True),
+    ]
+    transitions = aggregate_transitions(_session(), keys)
+    assert "aa" not in transitions
+    assert transitions == {}
+
+
+def test_merge_transition_stats_weighted_mean():
+    a = TransitionStats(ord("a"), ord("b"), 2, 100.0, 1, 100.0)
+    b = TransitionStats(ord("a"), ord("b"), 3, 200.0, 2, 200.0)
+    merged = merge_transition_stats(a, b)
+    assert merged.samples == 5
+    assert abs(merged.mean_time_ns - 160.0) < 1e-9
+    assert merged.error_count == 3
+
+
+def test_combine_transitions_multiple_maps():
+    a = {"ab": TransitionStats(ord("a"), ord("b"), 1, 100.0, 0, 1.0)}
+    b = {
+        "ab": TransitionStats(ord("a"), ord("b"), 1, 300.0, 1, 2.0),
+        "bc": TransitionStats(ord("b"), ord("c"), 2, 50.0, 0, 3.0),
+    }
+    out = combine_transitions(a, b)
+    assert out["ab"].samples == 2
+    assert abs(out["ab"].mean_time_ns - 200.0) < 1e-9
+    assert out["bc"].samples == 2
+
+
+def test_transition_key_format():
+    assert transition_key(ord("a"), ord("b")) == "ab"

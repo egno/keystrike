@@ -4,7 +4,7 @@ from typing import Protocol
 
 from .daily_learn import DailyLearnBudget
 from .markov import TransitionTable
-from .models import KeyStats, Keystroke, Layout, SessionResult, Settings
+from .models import KeyStats, Keystroke, Layout, LayoutAggregates, SessionResult, Settings
 
 
 class Clock(Protocol):
@@ -35,8 +35,8 @@ class LayoutRepository(Protocol):
 
 
 class AggregatesCache(Protocol):
-    def get(self, layout: str) -> dict[int, KeyStats] | None: ...
-    def put(self, layout: str, stats: dict[int, KeyStats]) -> None: ...
+    def get(self, layout: str) -> LayoutAggregates | None: ...
+    def put(self, layout: str, aggregates: LayoutAggregates) -> None: ...
 
 
 class FreeformTextProvider(Protocol):

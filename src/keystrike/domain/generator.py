@@ -26,10 +26,11 @@ class AdaptiveGenerator:
         alphabet: frozenset[str],
         char_weights: Mapping[str, float] | None = None,
         layout: Layout | None = None,
+        transition_weights: Mapping[str, float] | None = None,
     ) -> str:
         word = ""
         for _ in range(MAX_RETRIES):
-            word = self._sample_word(alphabet, char_weights, layout)
+            word = self._sample_word(alphabet, char_weights, layout, transition_weights)
             if MIN_WORD_LEN <= len(word) <= MAX_WORD_LEN:
                 return word
         return word
@@ -41,9 +42,11 @@ class AdaptiveGenerator:
         word_count: int = DEFAULT_WORD_COUNT,
         char_weights: Mapping[str, float] | None = None,
         layout: Layout | None = None,
+        transition_weights: Mapping[str, float] | None = None,
     ) -> str:
         words = [
-            self.generate_word(alphabet, char_weights, layout) for _ in range(word_count)
+            self.generate_word(alphabet, char_weights, layout, transition_weights)
+            for _ in range(word_count)
         ]
         if not any(focus_char in w for w in words):
             idx = self.rng.randrange(len(words))
@@ -55,6 +58,7 @@ class AdaptiveGenerator:
         alphabet: frozenset[str],
         char_weights: Mapping[str, float] | None,
         layout: Layout | None,
+        transition_weights: Mapping[str, float] | None,
     ) -> str:
         chars: list[str] = []
         while len(chars) < MAX_WORD_LEN:
@@ -62,7 +66,7 @@ class AdaptiveGenerator:
             if chars and self.rng.random() < p_stop:
                 break
             ch = self.table.sample(
-                "".join(chars), alphabet, self.rng, char_weights, layout,
+                "".join(chars), alphabet, self.rng, char_weights, layout, transition_weights,
             )
             if ch is None:
                 ch = self.rng.choice(sorted(alphabet))

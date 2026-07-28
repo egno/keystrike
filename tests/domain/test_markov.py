@@ -83,3 +83,13 @@ def test_sample_prefers_different_hand_with_equal_language_weights():
         ch = table.sample("a", frozenset("afj"), rng, layout=layout)
         counts[ch] += 1
     assert counts["j"] > counts["f"]
+
+
+def test_sample_transition_weights_bias_weak_pair():
+    table = TransitionTable(order=2, transitions={"a": {"b": 1, "c": 1}})
+    rng = Random(0)
+    counts = {"b": 0, "c": 0}
+    for _ in range(200):
+        ch = table.sample("a", frozenset("abc"), rng, transition_weights={"ab": 100.0})
+        counts[ch] += 1
+    assert counts["b"] > counts["c"]

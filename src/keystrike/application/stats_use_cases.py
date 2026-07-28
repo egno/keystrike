@@ -5,14 +5,20 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 
-from keystrike.domain.aggregate import aggregate_session, combine, per_key_deltas
+from keystrike.domain.aggregate import (
+    aggregate_session,
+    aggregate_transitions,
+    combine,
+    combine_transitions,
+    per_key_deltas,
+)
 from keystrike.domain.confidence import (
     accuracy_of,
     key_confidence,
     review_urgency,
     target_ms_per_char,
 )
-from keystrike.domain.models import KeyStats, SessionResult
+from keystrike.domain.models import KeyStats, LayoutAggregates, SessionResult, TransitionStats
 from keystrike.domain.protocols import AggregatesCache, SessionRepository, SettingsRepository
 from keystrike.domain.regression import estimate_sessions_to_goal
 
@@ -27,12 +33,15 @@ class RebuildAggregates:
     cache: AggregatesCache
 
     def __call__(self, layout: str) -> dict[int, KeyStats]:
-        maps = [
-            aggregate_session(header, self.repo.load_keystrokes(header.session_id))
-            for header in self.repo.iter_headers(layout)
-        ]
-        combined = combine(*maps)
-        self.cache.put(layout, combined)
+        key_maps: list[dict[int, KeyStats]] = []
+        transition_maps: list[dict[str, TransitionStats]] = []
+        for header in self.repo.iter_headers(layout):
+            keystrokes = self.repo.load_keystrokes(header.session_id)
+            key_maps.append(aggregate_session(header, keystrokes))
+            transition_maps.append(aggregate_transitions(header, keystrokes))
+        combined = combine(*key_maps)
+        combined_transitions = combine_transitions(*transition_maps)
+        self.cache.put(layout, LayoutAggregates(keys=combined, transitions=combined_transitions))
         return combined
 
 
@@ -50,9 +59,10 @@ class GetHeatmap:
     settings_repo: SettingsRepository
 
     def __call__(self, layout: str) -> HeatmapView:
-        stats = self.cache.get(layout)
-        if not stats:
+        aggregates = self.cache.get(layout)
+        if not aggregates:
             return HeatmapView(confidence={}, urgency={})
+        stats = aggregates.keys
         target = target_ms_per_char(self.settings_repo.load().target_speed_cpm)
         now = time.time()
         return HeatmapView(

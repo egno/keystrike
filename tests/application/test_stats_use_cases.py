@@ -5,7 +5,7 @@ from keystrike.application.stats_use_cases import (
     RebuildAggregates,
 )
 from keystrike.domain.enums import Mode
-from keystrike.domain.models import Keystroke, KeyStats, SessionResult, Settings
+from keystrike.domain.models import Keystroke, KeyStats, LayoutAggregates, SessionResult, Settings
 from tests.fakes import FakeAggregatesCache, FakeSessionRepository, FakeSettingsRepository
 
 
@@ -52,7 +52,9 @@ def test_rebuild_aggregates_combines_all_sessions_for_layout():
 
     assert set(result) == {ord("a")}
     assert result[ord("a")].samples == 2
-    assert cache.get("qwerty") == result
+    cached = cache.get("qwerty")
+    assert cached is not None
+    assert cached.keys == result
     assert cache.get("dvorak") is None
 
 
@@ -94,15 +96,17 @@ def test_get_heatmap_urgency_from_last_seen(monkeypatch):
     monkeypatch.setattr("keystrike.application.stats_use_cases.time.time", lambda: now)
     cache.put(
         "qwerty",
-        {
-            ord("a"): KeyStats(
-                codepoint=ord("a"),
-                samples=10,
-                mean_time_ns=200_000_000.0,
-                error_count=0,
-                last_seen=now - 3 * 86_400.0,
-            ),
-        },
+        LayoutAggregates(
+            keys={
+                ord("a"): KeyStats(
+                    codepoint=ord("a"),
+                    samples=10,
+                    mean_time_ns=200_000_000.0,
+                    error_count=0,
+                    last_seen=now - 3 * 86_400.0,
+                ),
+            },
+        ),
     )
 
     view = GetHeatmap(cache=cache, settings_repo=settings_repo)("qwerty")

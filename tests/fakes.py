@@ -6,7 +6,7 @@ from itertools import count
 from pathlib import Path
 
 from keystrike.domain.markov import TransitionTable
-from keystrike.domain.models import KeyStats, Keystroke, Layout, SessionResult, Settings
+from keystrike.domain.models import KeyStats, Keystroke, Layout, LayoutAggregates, SessionResult, Settings
 
 
 @dataclass(slots=True)
@@ -68,19 +68,19 @@ class FakeSessionRepository:
         return iter(self.keystrokes.get(session_id, []))
 
 
-def _empty_aggregates() -> dict[str, dict[int, KeyStats]]:
+def _empty_aggregates() -> dict[str, LayoutAggregates]:
     return {}
 
 
 @dataclass(slots=True)
 class FakeAggregatesCache:
-    by_layout: dict[str, dict[int, KeyStats]] = field(default_factory=_empty_aggregates)
+    by_layout: dict[str, LayoutAggregates] = field(default_factory=_empty_aggregates)
 
-    def get(self, layout: str) -> dict[int, KeyStats] | None:
+    def get(self, layout: str) -> LayoutAggregates | None:
         return self.by_layout.get(layout)
 
-    def put(self, layout: str, stats: dict[int, KeyStats]) -> None:
-        self.by_layout[layout] = stats
+    def put(self, layout: str, aggregates: LayoutAggregates) -> None:
+        self.by_layout[layout] = aggregates
 
 
 @dataclass(slots=True)

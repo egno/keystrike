@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 
-from .models import KeyStats, Keystroke, SessionResult
+from .models import KeyStats, Keystroke, SessionResult, TransitionStats
 
 
 @dataclass(slots=True)
@@ -94,4 +94,86 @@ def combine(*maps: dict[int, KeyStats]) -> dict[int, KeyStats]:
     for m in maps:
         for cp, k in m.items():
             out[cp] = merge_key_stats(out[cp], k) if cp in out else k
+    return out
+
+
+def transition_key(prev_cp: int, next_cp: int) -> str:
+    return chr(prev_cp) + chr(next_cp)
+
+
+def per_transition_deltas(keystrokes: Iterable[Keystroke]) -> dict[str, list[int]]:
+    """Inter-keystroke deltas per prev→next target pair for correct keystrokes."""
+    deltas: dict[str, list[int]] = {}
+    last_correct_cp: int | None = None
+    last_correct_t_ns: int | None = None
+
+    for k in keystrokes:
+        if not k.correct:
+            continue
+        if last_correct_cp is not None and last_correct_t_ns is not None:
+            delta = k.t_ns - last_correct_t_ns
+            if delta > 0:
+                deltas.setdefault(transition_key(last_correct_cp, k.codepoint), []).append(delta)
+        last_correct_cp = k.codepoint
+        last_correct_t_ns = k.t_ns
+
+    return deltas
+
+
+def aggregate_transitions(
+    result: SessionResult,
+    keystrokes: Iterable[Keystroke],
+) -> dict[str, TransitionStats]:
+    partial: dict[str, _Partial] = {}
+    all_keystrokes = list(keystrokes)
+
+    for i, k in enumerate(all_keystrokes):
+        if not k.correct and i > 0:
+            key = transition_key(all_keystrokes[i - 1].codepoint, k.codepoint)
+            partial.setdefault(key, _Partial()).error_count += 1
+
+    for key, samples in per_transition_deltas(all_keystrokes).items():
+        partial.setdefault(key, _Partial()).time_samples.extend(samples)
+
+    session_end_wall = result.started_at + result.duration_ns / 1e9
+
+    return {
+        key: TransitionStats(
+            prev_cp=ord(key[0]),
+            next_cp=ord(key[1]),
+            samples=len(p.time_samples),
+            mean_time_ns=(sum(p.time_samples) / len(p.time_samples))
+            if p.time_samples else 0.0,
+            error_count=p.error_count,
+            last_seen=session_end_wall,
+        )
+        for key, p in partial.items()
+    }
+
+
+def merge_transition_stats(a: TransitionStats, b: TransitionStats) -> TransitionStats:
+    if a.prev_cp != b.prev_cp or a.next_cp != b.next_cp:
+        raise ValueError(
+            f"transition mismatch: {a.prev_cp}→{a.next_cp} vs {b.prev_cp}→{b.next_cp}",
+        )
+    total = a.samples + b.samples
+    mean = (
+        (a.mean_time_ns * a.samples + b.mean_time_ns * b.samples) / total
+        if total > 0 else 0.0
+    )
+    return TransitionStats(
+        prev_cp=a.prev_cp,
+        next_cp=a.next_cp,
+        samples=total,
+        mean_time_ns=mean,
+        error_count=a.error_count + b.error_count,
+        last_seen=max(a.last_seen, b.last_seen),
+    )
+
+
+def combine_transitions(*maps: dict[str, TransitionStats]) -> dict[str, TransitionStats]:
+    out: dict[str, TransitionStats] = {}
+    for m in maps:
+        for key, t in m.items():
+            out[key] = merge_transition_stats(out[key], t) if key in out else t
     return out

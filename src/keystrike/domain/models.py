@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .enums import Finger, Hand, Mode
 
@@ -33,6 +33,22 @@ class KeyStats:
     mean_time_ns: float
     error_count: int
     last_seen: float
+
+
+@dataclass(frozen=True, slots=True)
+class TransitionStats:
+    prev_cp: int
+    next_cp: int
+    samples: int
+    mean_time_ns: float
+    error_count: int
+    last_seen: float
+
+
+@dataclass(frozen=True, slots=True)
+class LayoutAggregates:
+    keys: dict[int, KeyStats]
+    transitions: dict[str, TransitionStats] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)

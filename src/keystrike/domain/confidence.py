@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from .models import KeyStats
+from .models import KeyStats, TransitionStats
 
 _SECONDS_PER_DAY = 86_400.0
 
@@ -81,6 +81,49 @@ def review_urgency(last_seen: float, now: float) -> float:
     if elapsed_days >= 3.0:
         return 1.0
     return (elapsed_days - 1.0) / 2.0
+
+
+def transition_accuracy_of(transition_stats: TransitionStats) -> float:
+    total = transition_stats.samples + transition_stats.error_count
+    return transition_stats.samples / total if total > 0 else 0.0
+
+
+def transition_confidence(target_ms_per_char: float, mean_time_ns: float) -> float:
+    if mean_time_ns <= 0:
+        return 0.0
+    return key_confidence(target_ms_per_char, mean_time_ns)
+
+
+def transition_confidence_of(
+    prev_cp: int,
+    next_cp: int,
+    stats: Mapping[str, TransitionStats],
+    target: float,
+) -> float:
+    """Live confidence for one bigram transition. 0.0 when never practiced."""
+    transition_stats = stats.get(chr(prev_cp) + chr(next_cp))
+    if transition_stats is None:
+        return 0.0
+    return (
+        transition_confidence(target, transition_stats.mean_time_ns)
+        * transition_accuracy_of(transition_stats)
+    )
+
+
+def transition_practice_weight(
+    confidence: float,
+    *,
+    max_bias: float = 3.0,
+    urgency: float = 0.0,
+    review_bias: float = 1.0,
+) -> float:
+    """Sampling weight for a prev→next pair — mirrors `practice_weight`."""
+    return practice_weight(
+        confidence,
+        max_bias=max_bias,
+        urgency=urgency,
+        review_bias=review_bias,
+    )
 
 
 def practice_weight(
