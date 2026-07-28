@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from keystrike.application.session_use_cases import (
+    AbortSession,
     FinishSession,
     RecordKeystroke,
     StartSession,
@@ -34,6 +35,12 @@ def test_perfect_run(clock, id_gen):
     assert result.total_keystrokes == 3
     assert result.correct_keystrokes == 3
     assert compute_accuracy(result) == 1.0
+
+
+def test_abort_session_marks_cancelled(clock, id_gen):
+    session = StartSession(clock=clock, id_gen=id_gen)("ab", layout="qwerty", mode=Mode.FREE)
+    AbortSession()(session)
+    assert session.state is SessionState.CANCELLED
 
 
 def test_wrong_then_correct(clock, id_gen):

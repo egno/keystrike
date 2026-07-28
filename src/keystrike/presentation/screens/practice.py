@@ -8,6 +8,7 @@ from textual.screen import Screen
 from textual.widgets import Footer
 
 from keystrike.application.session_use_cases import (
+    AbortSession,
     FinishSession,
     RecordKeystroke,
     StartSession,
@@ -51,9 +52,6 @@ class PracticeScreen(Screen[None]):
         self._record = record
         self._finish = finish
         self._clock = clock
-        self._target_text = target_text
-        self._layout = layout
-        self._mode = mode
         self._rebuild_aggregates = rebuild_aggregates
         self._session = self._start(target_text, layout=layout, mode=mode, focus_key=focus_key)
         sessions_to_goal = (
@@ -98,4 +96,5 @@ class PracticeScreen(Screen[None]):
         self.app.exit()
 
     def action_abort(self) -> None:
+        AbortSession()(self._session)
         self.app.exit()

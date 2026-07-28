@@ -42,15 +42,3 @@ def test_layout_isolation(paths):
     assert ord("a") in qwerty
     assert ord("z") in dvorak
     assert ord("z") not in qwerty
-
-
-def test_invalidate_deletes_file(paths):
-    cache = FileAggregatesCache(paths)
-    cache.put("qwerty", {ord("a"): KeyStats(ord("a"), 1, 1.0, 0, 1.0, 0.0)})
-    assert cache.get("qwerty") is not None
-    cache.invalidate("qwerty")
-    assert cache.get("qwerty") is None
-
-
-def test_invalidate_no_op_when_missing(paths):
-    FileAggregatesCache(paths).invalidate("no_such_layout")

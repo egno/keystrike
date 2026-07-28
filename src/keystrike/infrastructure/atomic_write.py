@@ -11,10 +11,3 @@ def atomic_write_text(path: Path, contents: str) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(contents, encoding="utf-8")
     os.replace(tmp, path)
-
-
-def atomic_write_bytes(path: Path, contents: bytes) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_bytes(contents)
-    os.replace(tmp, path)
