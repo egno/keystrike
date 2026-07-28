@@ -5,6 +5,7 @@ Documentation for [Keystrike](https://github.com/egno/keystrike) — an offline 
 ## Guides
 
 - **[Git sync](Git-sync)** — back up and sync settings and sessions via a private git repository (CLI-only, opt-in).
+- **[Word lists](Word-Lists)** — import a remote dictionary for real-word adaptive drills (Settings, optional).
 
 ## Project links
 
