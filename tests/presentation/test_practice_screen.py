@@ -13,12 +13,7 @@ from keystrike.application.session_use_cases import (
     StartSession,
 )
 from keystrike.application.settings_use_cases import CycleLayout, UpdateSettings
-from keystrike.application.stats_use_cases import (
-    GetHeatmap,
-    GetHistory,
-    GetLearningRate,
-    RebuildAggregates,
-)
+from keystrike.application.stats_use_cases import GetHeatmap, GetHistory, RebuildAggregates
 from keystrike.domain.enums import Mode, SessionState
 from keystrike.domain.models import SessionResult, Settings
 from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS
@@ -83,7 +78,6 @@ def _build_app(
         rebuild_aggregates=RebuildAggregates(repo=session_repo, cache=cache),
         get_heatmap=GetHeatmap(cache=cache, settings_repo=settings_repo),
         get_history=GetHistory(repo=session_repo),
-        get_learning_rate=GetLearningRate(repo=session_repo, settings_repo=settings_repo),
         get_daily_learn_budget=get_daily_learn_budget,
         cycle_layout=CycleLayout(settings_repo=settings_repo, layout_repo=layout_repo),
         update_settings=UpdateSettings(repo=settings_repo),

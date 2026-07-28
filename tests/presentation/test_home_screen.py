@@ -70,7 +70,8 @@ async def test_shows_daily_learn_budget():
         await pilot.pause()
         hero = str(app.screen.query_one("#home-hero", Static).content)
         assert "Learn today:" in hero
-        assert "4.0" in hero
+        assert "6.0" in hero
+        assert "left" not in hero
 
 
 @pytest.mark.asyncio

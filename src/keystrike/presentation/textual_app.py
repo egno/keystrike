@@ -16,7 +16,6 @@ from keystrike.domain.protocols import (
     Clock,
     DailyLearnBudgetProvider,
     LayoutRepository,
-    LearningRateEstimator,
     SettingsRepository,
     StatsRebuilder,
 )
@@ -44,7 +43,6 @@ class KeystrikeApp(App[None]):
         rebuild_aggregates: StatsRebuilder,
         get_heatmap: GetHeatmap,
         get_history: GetHistory,
-        get_learning_rate: LearningRateEstimator,
         cycle_layout: CycleLayout,
         update_settings: UpdateSettings,
         get_daily_learn_budget: DailyLearnBudgetProvider = NULL_DAILY_LEARN_BUDGET,
@@ -60,7 +58,6 @@ class KeystrikeApp(App[None]):
         self._rebuild_aggregates = rebuild_aggregates
         self._get_heatmap = get_heatmap
         self._get_history = get_history
-        self._get_learning_rate = get_learning_rate
         self._cycle_layout = cycle_layout
         self._update_settings = update_settings
         self._get_daily_learn_budget = get_daily_learn_budget
@@ -94,7 +91,6 @@ class KeystrikeApp(App[None]):
             prepare_next=self._prepare_practice,
             rebuild_aggregates=self._rebuild_aggregates,
             get_daily_learn_budget=self._get_daily_learn_budget,
-            get_learning_rate=self._get_learning_rate,
         )
         self.push_screen(practice)
 

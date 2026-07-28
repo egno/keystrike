@@ -53,16 +53,6 @@ def test_hud_omits_daily_goal_when_limit_disabled():
     assert "Learn:" not in text
 
 
-def test_hud_shows_sessions_to_goal_for_focus_key():
-    text = _format_hud(_session(), _UNLIMITED, sessions_to_goal=3)
-    assert "Sessions[e]: ~3 sessions" in text
-
-
-def test_hud_shows_learning_when_sessions_to_goal_unknown():
-    text = _format_hud(_session(), _UNLIMITED, sessions_to_goal=None)
-    assert "Sessions[e]: learning…" in text
-
-
 def test_hud_shows_focus_reason_when_given():
     text = _format_hud(_session(), _UNLIMITED, focus_reason="review")
     assert "Focus:" in text
@@ -81,12 +71,23 @@ def test_hud_shows_daily_learn_goal_when_limited():
     )
     text = _format_hud(_session(), budget)
     assert "Learn:" in text
-    assert "4.0" in text
+    assert "6.0" in text
     assert "/10 min" in text
+    assert "left" not in text
     assert "WPM" not in text
 
 
-def test_hud_distinct_labels_for_daily_budget_sessions_and_focus():
+def test_hud_shows_daily_learn_limit_reached():
+    budget = compute_daily_learn_budget(
+        completed_ns=10 * 60 * 1_000_000_000,
+        limit_minutes=10,
+    )
+    text = _format_hud(_session(), budget)
+    assert "Daily learn limit reached" in text
+    assert "Learn:" not in text
+
+
+def test_hud_distinct_labels_for_daily_budget_and_focus():
     budget = compute_daily_learn_budget(
         completed_ns=9 * 60 * 1_000_000_000,
         limit_minutes=10,
@@ -97,12 +98,11 @@ def test_hud_distinct_labels_for_daily_budget_sessions_and_focus():
         session,
         budget,
         focus_reason="weak",
-        sessions_to_goal=0,
     )
     assert "Learn:" in text
-    assert "1.0" in text
+    assert "9.0" in text
     assert "/10 min" in text
-    assert "Sessions[s]: done" in text
+    assert "left" not in text
     assert "Focus:" in text
     assert "weak" in text
     assert text.count("Goal:") == 0

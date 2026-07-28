@@ -11,12 +11,7 @@ from keystrike.application.session_use_cases import (
     StartSession,
 )
 from keystrike.application.settings_use_cases import CycleLayout, UpdateSettings
-from keystrike.application.stats_use_cases import (
-    GetHeatmap,
-    GetHistory,
-    GetLearningRate,
-    RebuildAggregates,
-)
+from keystrike.application.stats_use_cases import GetHeatmap, GetHistory, RebuildAggregates
 from keystrike.infrastructure.aggregates_cache import FileAggregatesCache
 from keystrike.infrastructure.clock import MonotonicClock
 from keystrike.infrastructure.id_gen import UlidGenerator
@@ -46,7 +41,6 @@ def build() -> KeystrikeApp:
     rebuild_aggregates = RebuildAggregates(repo=session_repo, cache=aggregates_cache)
     get_heatmap = GetHeatmap(cache=aggregates_cache, settings_repo=settings_repo)
     get_history = GetHistory(repo=session_repo)
-    get_learning_rate = GetLearningRate(repo=session_repo, settings_repo=settings_repo)
     get_daily_learn_budget = GetDailyLearnBudget(
         clock=clock,
         repo=session_repo,
@@ -79,7 +73,6 @@ def build() -> KeystrikeApp:
         rebuild_aggregates=rebuild_aggregates,
         get_heatmap=get_heatmap,
         get_history=get_history,
-        get_learning_rate=get_learning_rate,
         cycle_layout=cycle_layout,
         update_settings=update_settings,
         get_daily_learn_budget=get_daily_learn_budget,

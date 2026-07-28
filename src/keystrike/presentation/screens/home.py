@@ -8,23 +8,13 @@ from textual.screen import Screen
 from textual.widgets import Footer, Static
 
 from keystrike.application.settings_use_cases import CycleLayout
-from keystrike.domain.daily_learn import DailyLearnBudget
+from keystrike.domain.daily_learn import DailyLearnBudget, format_daily_learn_display
 from keystrike.domain.null_adapters import NULL_DAILY_LEARN_BUDGET
 from keystrike.domain.protocols import DailyLearnBudgetProvider, SettingsRepository
 
 
 def _format_daily_learn_line(budget: DailyLearnBudget) -> str:
-    if not budget.limited:
-        return ""
-    limit_min = budget.limit_ns / 1e9 / 60
-    if budget.limit_reached:
-        return f"[dim]Daily learn limit reached ({limit_min:g} min).[/]"
-    used_min = budget.used_ns / 1e9 / 60
-    remaining_min = budget.remaining_ns / 1e9 / 60
-    return (
-        f"Learn today: [bold]{used_min:.1f}[/]/{limit_min:g} min "
-        f"([bold]{remaining_min:.1f}[/] left)"
-    )
+    return format_daily_learn_display(budget, label="Learn today:")
 
 
 def _hero_text(layout: str, learn_budget: DailyLearnBudget) -> str:

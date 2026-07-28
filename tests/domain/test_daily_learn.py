@@ -3,6 +3,7 @@ import datetime as dt
 from keystrike.domain.daily_learn import (
     compute_daily_learn_budget,
     daily_learn_duration_ns,
+    format_daily_learn_display,
     session_local_date,
 )
 from keystrike.domain.enums import Mode
@@ -48,6 +49,20 @@ def test_compute_daily_learn_budget_unlimited_when_limit_zero():
     budget = compute_daily_learn_budget(completed_ns=999_000_000_000, limit_minutes=0)
     assert not budget.limited
     assert not budget.limit_reached
+
+
+def test_format_daily_learn_display_shows_used_and_limit():
+    budget = compute_daily_learn_budget(completed_ns=9 * 60 * 1_000_000_000, limit_minutes=10)
+    text = format_daily_learn_display(budget, label="Learn today:")
+    assert "9.0" in text
+    assert "/10 min" in text
+    assert "left" not in text
+
+
+def test_format_daily_learn_display_limit_reached():
+    budget = compute_daily_learn_budget(completed_ns=10 * 60 * 1_000_000_000, limit_minutes=10)
+    text = format_daily_learn_display(budget, label="Learn today:")
+    assert "Daily learn limit reached" in text
 
 
 def test_compute_daily_learn_budget_tracks_remaining_and_limit_reached():

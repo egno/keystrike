@@ -16,31 +16,12 @@ from keystrike.application.session_use_cases import (
     format_session_stats_line,
 )
 from keystrike.domain.models import Layout, SessionResult
-from keystrike.domain.null_adapters import (
-    NULL_DAILY_LEARN_BUDGET,
-    NULL_LEARNING_RATE_ESTIMATOR,
-    NULL_STATS_REBUILDER,
-)
-from keystrike.domain.protocols import (
-    Clock,
-    DailyLearnBudgetProvider,
-    LearningRateEstimator,
-    StatsRebuilder,
-)
+from keystrike.domain.null_adapters import NULL_DAILY_LEARN_BUDGET, NULL_STATS_REBUILDER
+from keystrike.domain.protocols import Clock, DailyLearnBudgetProvider, StatsRebuilder
 from keystrike.presentation.bindings import BACK_BINDINGS
 from keystrike.presentation.widgets.hud import HUD
 from keystrike.presentation.widgets.kb_heatmap import KbHeatmap
 from keystrike.presentation.widgets.typing_area import TypingArea
-
-
-def _sessions_to_goal(
-    get_learning_rate: LearningRateEstimator,
-    layout: str,
-    focus_key: int | None,
-) -> int | None:
-    if focus_key is None:
-        return None
-    return get_learning_rate(layout, focus_key)
 
 
 class PracticeScreen(Screen[None]):
@@ -70,7 +51,6 @@ class PracticeScreen(Screen[None]):
         prepare_next: PrepareNextSession,
         rebuild_aggregates: StatsRebuilder = NULL_STATS_REBUILDER,
         get_daily_learn_budget: DailyLearnBudgetProvider = NULL_DAILY_LEARN_BUDGET,
-        get_learning_rate: LearningRateEstimator = NULL_LEARNING_RATE_ESTIMATOR,
     ) -> None:
         super().__init__()
         self._start = start
@@ -80,7 +60,6 @@ class PracticeScreen(Screen[None]):
         self._prepare_next = prepare_next
         self._rebuild_aggregates = rebuild_aggregates
         self._get_daily_learn_budget = get_daily_learn_budget
-        self._get_learning_rate = get_learning_rate
         self._layout_obj: Layout | None = initial.layout_obj
         self._lesson_heatmap = initial.lesson_heatmap
         self._focus_key = initial.focus_key
@@ -97,9 +76,6 @@ class PracticeScreen(Screen[None]):
             clock,
             get_daily_learn_budget=self._get_daily_learn_budget,
             focus_reason=initial.focus_reason,
-            sessions_to_goal=_sessions_to_goal(
-                get_learning_rate, initial.layout, initial.focus_key,
-            ),
         )
 
     def compose(self) -> ComposeResult:
@@ -180,9 +156,6 @@ class PracticeScreen(Screen[None]):
         self._hud.set_session(
             self._session,
             focus_reason=prep.focus_reason,
-            sessions_to_goal=_sessions_to_goal(
-                self._get_learning_rate, prep.layout, prep.focus_key,
-            ),
         )
         if self._kb_heatmap is not None and prep.layout_obj and prep.lesson_heatmap is not None:
             self._kb_heatmap.refresh_heatmap(
