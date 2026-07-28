@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
+from keystrike.application.wordlist_use_cases import WordListError, validate_wordlist_url
 from keystrike.domain.enums import TargetSpeedUnit
 from keystrike.domain.models import Settings
 from keystrike.domain.protocols import LayoutRepository, SettingsRepository
@@ -42,6 +43,11 @@ class UpdateSettings:
             raise SettingsValidationError("Number of letters must be zero or more.")
         if learn_daily_minutes < 0:
             raise SettingsValidationError("Daily learn minutes must be zero or more.")
+        if wordlist_url.strip():
+            try:
+                validate_wordlist_url(wordlist_url)
+            except WordListError as exc:
+                raise SettingsValidationError(str(exc)) from exc
         updated = replace(
             self.repo.load(),
             layout=layout,

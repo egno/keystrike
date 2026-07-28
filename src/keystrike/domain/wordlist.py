@@ -2,12 +2,7 @@
 
 from __future__ import annotations
 
-from .generator import MAX_WORD_LEN, MIN_WORD_LEN
-
-DEFAULT_WORDLIST_URL = (
-    "https://raw.githubusercontent.com/first20hours/google-10000-english/"
-    "master/google-10000-english-usa-no-swears.txt"
-)
+from .word_bounds import MAX_WORD_LEN, MIN_WORD_LEN
 
 
 def parse_wordlist_text(text: str) -> list[str]:

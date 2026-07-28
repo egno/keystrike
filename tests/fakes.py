@@ -139,7 +139,7 @@ class FakeWordListStore:
 
     def download_and_cache(self, url: str) -> list[str]:
         if self.download_error is not None:
-            raise ValueError(str(self.download_error))
+            raise self.download_error
         if url in self.by_url:
             return list(self.by_url[url])
         raise ValueError("download failed")

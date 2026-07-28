@@ -14,7 +14,7 @@ from keystrike.application.session_use_cases import (
 from keystrike.application.settings_use_cases import CycleLayout, UpdateSettings
 from keystrike.application.stats_use_cases import GetHeatmap, GetHistory, RebuildAggregates
 from keystrike.application.sync_use_cases import GetSyncStatus, InitSync, PullSync, PushSync
-from keystrike.application.wordlist_use_cases import ImportWordList
+from keystrike.application.wordlist_use_cases import GetWordListCacheStatus, ImportWordList
 from keystrike.infrastructure.aggregates_cache import FileAggregatesCache
 from keystrike.infrastructure.clock import MonotonicClock
 from keystrike.infrastructure.id_gen import UlidGenerator
@@ -83,7 +83,9 @@ def build() -> KeystrikeApp:
     cycle_layout = CycleLayout(settings_repo=settings_repo, layout_repo=layout_repo)
     update_settings = UpdateSettings(repo=settings_repo)
     wordlist_store = FileWordListStore(paths)
+    # Shared by BuildLesson (load), ImportWordList (download), GetWordListCacheStatus.
     import_wordlist = ImportWordList(store=wordlist_store, settings_repo=settings_repo)
+    get_wordlist_cache_status = GetWordListCacheStatus(store=wordlist_store)
     build_lesson = BuildLesson(
         layout_repo=layout_repo,
         aggregates_cache=aggregates_cache,
@@ -113,6 +115,6 @@ def build() -> KeystrikeApp:
         cycle_layout=cycle_layout,
         update_settings=update_settings,
         import_wordlist=import_wordlist,
-        wordlist_store=wordlist_store,
+        get_wordlist_cache_status=get_wordlist_cache_status,
         get_daily_learn_budget=get_daily_learn_budget,
     )

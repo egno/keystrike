@@ -3,11 +3,14 @@ from textual.app import App
 from textual.widgets import Button, Input, Select, Static
 
 from keystrike.application.settings_use_cases import UpdateSettings
-from keystrike.application.wordlist_use_cases import ImportWordList
+from keystrike.application.wordlist_use_cases import (
+    DEFAULT_WORDLIST_URL,
+    GetWordListCacheStatus,
+    ImportWordList,
+)
 from keystrike.domain.enums import TargetSpeedUnit
 from keystrike.domain.generator import cpm_from_wpm, wpm_from_cpm
 from keystrike.domain.models import Settings
-from keystrike.domain.wordlist import DEFAULT_WORDLIST_URL
 from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS
 from keystrike.presentation.screens.settings import SettingsScreen
 from tests.fakes import FakeLayoutRepository, FakeSettingsRepository, FakeWordListStore
@@ -19,12 +22,13 @@ def _build_screen(*, wordlist_store: FakeWordListStore | None = None):
     store = wordlist_store or FakeWordListStore()
     update_settings = UpdateSettings(repo=settings_repo)
     import_wordlist = ImportWordList(store=store, settings_repo=settings_repo)
+    get_wordlist_cache_status = GetWordListCacheStatus(store=store)
     screen = SettingsScreen(
         settings_repo=settings_repo,
         layout_repo=layout_repo,
         update_settings=update_settings,
         import_wordlist=import_wordlist,
-        wordlist_store=store,
+        get_wordlist_cache_status=get_wordlist_cache_status,
     )
     return screen, settings_repo, store
 
@@ -152,12 +156,13 @@ async def test_loads_wpm_display_value():
     store = FakeWordListStore()
     update_settings = UpdateSettings(repo=settings_repo)
     import_wordlist = ImportWordList(store=store, settings_repo=settings_repo)
+    get_wordlist_cache_status = GetWordListCacheStatus(store=store)
     screen = SettingsScreen(
         settings_repo=settings_repo,
         layout_repo=layout_repo,
         update_settings=update_settings,
         import_wordlist=import_wordlist,
-        wordlist_store=store,
+        get_wordlist_cache_status=get_wordlist_cache_status,
     )
     async with app.run_test() as pilot:
         await app.push_screen(screen)
@@ -186,3 +191,43 @@ async def test_import_uses_default_url_when_field_empty():
         assert app.screen.query_one("#settings-wordlist-url", Input).value == DEFAULT_WORDLIST_URL
         status = str(app.screen.query_one("#settings-wordlist-status", Static).content)
         assert "Imported 2 words." in status
+
+
+@pytest.mark.asyncio
+async def test_import_shows_error_on_wordlist_error():
+    app = App()
+    store = FakeWordListStore(download_error=RuntimeError("network down"))
+    screen, settings_repo, _store = _build_screen(wordlist_store=store)
+    async with app.run_test() as pilot:
+        await app.push_screen(screen)
+        await pilot.pause()
+
+        app.screen.query_one("#settings-wordlist-url", Input).value = "https://example.com/w.txt"
+        app.screen.query_one("#settings-wordlist-import", Button).press()
+        await pilot.pause()
+
+        error = str(app.screen.query_one("#settings-error", Static).content)
+        assert "network down" in error
+        assert settings_repo.settings.wordlist_url == ""
+
+
+@pytest.mark.asyncio
+async def test_saved_url_without_cache_shows_markov_status():
+    app = App()
+    url = "https://example.com/words.txt"
+    settings_repo = FakeSettingsRepository(Settings(wordlist_url=url))
+    layout_repo = FakeLayoutRepository(dict(BUNDLED_LAYOUTS))
+    store = FakeWordListStore()
+    screen = SettingsScreen(
+        settings_repo=settings_repo,
+        layout_repo=layout_repo,
+        update_settings=UpdateSettings(repo=settings_repo),
+        import_wordlist=ImportWordList(store=store, settings_repo=settings_repo),
+        get_wordlist_cache_status=GetWordListCacheStatus(store=store),
+    )
+    async with app.run_test() as pilot:
+        await app.push_screen(screen)
+        await pilot.pause()
+
+        status = str(app.screen.query_one("#settings-wordlist-status", Static).content)
+        assert "not cached" in status

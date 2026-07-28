@@ -9,9 +9,8 @@ from random import Random
 
 from .markov import TransitionTable
 from .models import Layout
+from .word_bounds import MAX_WORD_LEN, MIN_WORD_LEN
 
-MIN_WORD_LEN = 3
-MAX_WORD_LEN = 10
 MAX_RETRIES = 5
 DEFAULT_WORD_COUNT = 12
 
@@ -45,9 +44,10 @@ class AdaptiveGenerator:
         transition_weights: Mapping[str, float] | None = None,
         *,
         words: list[str] | None = None,
+        wordlist_weights: list[float] | None = None,
     ) -> str:
         if words:
-            word = self._sample_from_wordlist(words, char_weights)
+            word = self._sample_from_wordlist(words, char_weights, wordlist_weights)
             if MIN_WORD_LEN <= len(word) <= MAX_WORD_LEN:
                 return word
         word = ""
@@ -69,9 +69,19 @@ class AdaptiveGenerator:
         focus_bigram: tuple[int, int] | None = None,
         words: list[str] | None = None,
     ) -> str:
+        wordlist_weights: list[float] | None = None
+        if words and char_weights:
+            wordlist_weights = [
+                sum(char_weights.get(ch, 1.0) for ch in w) for w in words
+            ]
         lesson_words = [
             self.generate_word(
-                alphabet, char_weights, layout, transition_weights, words=words,
+                alphabet,
+                char_weights,
+                layout,
+                transition_weights,
+                words=words,
+                wordlist_weights=wordlist_weights,
             )
             for _ in range(word_count)
         ]
@@ -92,7 +102,10 @@ class AdaptiveGenerator:
         self,
         words: list[str],
         char_weights: Mapping[str, float] | None,
+        wordlist_weights: list[float] | None = None,
     ) -> str:
+        if wordlist_weights is not None:
+            return self.rng.choices(words, weights=wordlist_weights, k=1)[0]
         if not char_weights:
             return self.rng.choice(words)
         weights = [sum(char_weights.get(ch, 1.0) for ch in w) for w in words]

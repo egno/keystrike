@@ -7,6 +7,14 @@ design) stays in `PLAN.md` §5/§6.
 
 ## 1.1.0
 
+- Optional word-list import: Settings URL field + Import button; cached lists drive
+  lesson words when alphabet-compatible, Markov fallback otherwise
+  (`application/wordlist_use_cases.py`, `infrastructure/wordlist_store.py`).
+- Daily learn goal is HUD-only — practice no longer stops when the goal is reached;
+  `PreparePracticeSession` and `PracticeScreen` removed the hard limit gate.
+- README: "Why it works" section with pedagogy wiki link; daily goal vs limit wording;
+  git-sync FAQ pointer. Wiki: `Typing-Pedagogy`, `Git-sync`, `Home` index pages.
+
 - Git-backed backup sync (CLI-only, opt-in): `keystrike sync init|pull|push|status`.
   Union-merge sessions by `session_id`, settings last-write-wins via `updated_at`
   (or mtime fallback), layouts copied on pull/push; `cache/` excluded — pull

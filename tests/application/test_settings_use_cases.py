@@ -81,6 +81,23 @@ def test_update_settings_rejects_negative_learn_daily_minutes():
     assert repo.settings == Settings()
 
 
+def test_update_settings_rejects_invalid_wordlist_url():
+    repo = FakeSettingsRepository(Settings())
+    update = UpdateSettings(repo=repo)
+
+    with pytest.raises(SettingsValidationError, match="http"):
+        update(
+            layout="qwerty",
+            target_speed_cpm=300,
+            target_speed_unit=TargetSpeedUnit.CPM,
+            alphabet_size=16,
+            learn_daily_minutes=10,
+            wordlist_url="ftp://example.com/w.txt",
+        )
+
+    assert repo.settings.wordlist_url == ""
+
+
 def test_cycle_layout_advances_and_wraps():
     repo = FakeSettingsRepository(Settings(layout="qwerty"))
     layout_repo = FakeLayoutRepository(dict(BUNDLED_LAYOUTS))

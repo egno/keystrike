@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from keystrike.domain.generator import MAX_WORD_LEN, MIN_WORD_LEN
+from keystrike.domain.word_bounds import MAX_WORD_LEN, MIN_WORD_LEN
 from keystrike.domain.wordlist import parse_wordlist_text, words_for_alphabet
 
 

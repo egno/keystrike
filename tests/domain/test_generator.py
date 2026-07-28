@@ -1,14 +1,13 @@
 from random import Random
 
 from keystrike.domain.generator import (
-    MAX_WORD_LEN,
-    MIN_WORD_LEN,
     AdaptiveGenerator,
     cpm_from_wpm,
     typical_chars_per_word,
     wpm_from_cpm,
 )
 from keystrike.domain.markov import TransitionTable
+from keystrike.domain.word_bounds import MAX_WORD_LEN, MIN_WORD_LEN
 
 
 def _uniform_table(alphabet: str) -> TransitionTable:
