@@ -96,16 +96,23 @@ class SettingsScreen(Screen[None]):
                 id="settings-learn-daily-minutes",
                 type="integer",
             )
-            yield Label("Word list URL (optional; import to cache)")
+            yield Label("Word list")
+            wordlist_display_url = settings.wordlist_url or DEFAULT_WORDLIST_URL
+            yield Static(
+                "[dim]Click Import to download and cache the word list.[/]",
+                id="settings-wordlist-help",
+            )
             with Horizontal():
                 yield Input(
-                    value=settings.wordlist_url,
-                    placeholder=DEFAULT_WORDLIST_URL,
+                    value=wordlist_display_url,
                     id="settings-wordlist-url",
                 )
                 yield Button("Import", id="settings-wordlist-import", variant="primary")
             yield Static(
-                self._wordlist_status(settings.wordlist_url),
+                self._wordlist_status(
+                    wordlist_display_url,
+                    persisted_url=settings.wordlist_url,
+                ),
                 id="settings-wordlist-status",
             )
             yield Static("", id="settings-error")
@@ -192,17 +199,21 @@ class SettingsScreen(Screen[None]):
             self._settings_repo.load().wordlist_url
         )
 
-    def _wordlist_status(self, url: str) -> str:
-        if not url.strip():
+    def _wordlist_status(self, url: str, *, persisted_url: str = "") -> str:
+        stripped = url.strip()
+        if not stripped:
             return "[dim]No word list — Markov-generated words.[/]"
-        count = self._get_wordlist_cache_status(url)
-        if count is None:
-            return "[dim]URL saved but not cached — import or Markov fallback.[/]"
-        return f"[dim]{count} words cached.[/]"
+        count = self._get_wordlist_cache_status(stripped)
+        if count is not None:
+            return f"[dim]{count} words cached.[/]"
+        if stripped == persisted_url.strip():
+            return "[dim]URL saved but not cached — click Import or Markov fallback.[/]"
+        return "[dim]Not imported — click Import to download.[/]"
 
     def _refresh_wordlist_status(self, message: str | None = None) -> None:
         url = self.query_one("#settings-wordlist-url", Input).value
-        text = message or self._wordlist_status(url)
+        persisted = self._settings_repo.load().wordlist_url
+        text = message or self._wordlist_status(url, persisted_url=persisted)
         self.query_one("#settings-wordlist-status", Static).update(text)
 
     def _show_error(self, message: str) -> None:

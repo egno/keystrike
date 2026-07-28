@@ -175,6 +175,21 @@ async def test_loads_wpm_display_value():
 
 
 @pytest.mark.asyncio
+async def test_wordlist_url_prefilled_with_default_on_load():
+    app = App()
+    screen, _settings_repo, _store = _build_screen()
+    async with app.run_test() as pilot:
+        await app.push_screen(screen)
+        await pilot.pause()
+
+        assert app.screen.query_one("#settings-wordlist-url", Input).value == DEFAULT_WORDLIST_URL
+        help_text = str(app.screen.query_one("#settings-wordlist-help", Static).content)
+        assert "Click Import" in help_text
+        status = str(app.screen.query_one("#settings-wordlist-status", Static).content)
+        assert "Not imported" in status
+
+
+@pytest.mark.asyncio
 async def test_import_uses_default_url_when_field_empty():
     app = App()
     store = FakeWordListStore(by_url={DEFAULT_WORDLIST_URL: ["hello", "world"]})
@@ -183,12 +198,29 @@ async def test_import_uses_default_url_when_field_empty():
         await app.push_screen(screen)
         await pilot.pause()
 
-        assert app.screen.query_one("#settings-wordlist-url", Input).value == ""
+        app.screen.query_one("#settings-wordlist-url", Input).value = ""
         app.screen.query_one("#settings-wordlist-import", Button).press()
         await pilot.pause()
 
         assert settings_repo.settings.wordlist_url == DEFAULT_WORDLIST_URL
         assert app.screen.query_one("#settings-wordlist-url", Input).value == DEFAULT_WORDLIST_URL
+        status = str(app.screen.query_one("#settings-wordlist-status", Static).content)
+        assert "Imported 2 words." in status
+
+
+@pytest.mark.asyncio
+async def test_import_prefilled_default_url():
+    app = App()
+    store = FakeWordListStore(by_url={DEFAULT_WORDLIST_URL: ["hello", "world"]})
+    screen, settings_repo, _store = _build_screen(wordlist_store=store)
+    async with app.run_test() as pilot:
+        await app.push_screen(screen)
+        await pilot.pause()
+
+        app.screen.query_one("#settings-wordlist-import", Button).press()
+        await pilot.pause()
+
+        assert settings_repo.settings.wordlist_url == DEFAULT_WORDLIST_URL
         status = str(app.screen.query_one("#settings-wordlist-status", Static).content)
         assert "Imported 2 words." in status
 
