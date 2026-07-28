@@ -3,7 +3,7 @@
 Adaptive drills for your weakest keys — an offline terminal typing tutor inspired by
 [keybr.com](https://www.keybr.com/). Stats stay on your machine; nothing phones home.
 
-![Keystrike demo](https://raw.githubusercontent.com/egno/keystrike/v1.0.0/docs/assets/demo.gif)
+![Keystrike demo](https://raw.githubusercontent.com/egno/keystrike/v1.1.0/docs/assets/demo.gif)
 
 ## What it does
 
