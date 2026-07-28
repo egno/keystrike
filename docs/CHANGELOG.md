@@ -7,7 +7,6 @@ design) stays in `PLAN.md` §5/§6.
 
 ## 1.1.0
 
-
 - Git-backed backup sync (CLI-only, opt-in): `keystrike sync init|pull|push|status`.
   Union-merge sessions by `session_id`, settings last-write-wins via `updated_at`
   (or mtime fallback), layouts copied on pull/push; `cache/` excluded — pull
@@ -16,7 +15,6 @@ design) stays in `PLAN.md` §5/§6.
   platforms; snapshot baselines pinned to GitHub Actions macOS runner.
 - Packaging: PyPI-friendly README (absolute demo GIF URL), lean sdist excludes,
   `pipx install` documented.
-
 
 ## 1.0.0 — first stable release
 
