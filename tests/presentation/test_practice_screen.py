@@ -14,7 +14,7 @@ from keystrike.application.session_use_cases import (
 )
 from keystrike.application.settings_use_cases import CycleLayout, UpdateSettings
 from keystrike.application.stats_use_cases import GetHeatmap, GetHistory, RebuildAggregates
-from keystrike.application.wordlist_use_cases import GetWordListCacheStatus, ImportWordList
+from keystrike.application.wordlist_use_cases import ClearWordList, GetWordListCacheStatus, ImportWordList
 from keystrike.domain.enums import Mode, SessionState
 from keystrike.domain.models import SessionResult, Settings
 from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS
@@ -86,6 +86,7 @@ def _build_app(
         cycle_layout=CycleLayout(settings_repo=settings_repo, layout_repo=layout_repo),
         update_settings=UpdateSettings(repo=settings_repo),
         import_wordlist=ImportWordList(store=wordlist_store, settings_repo=settings_repo),
+        clear_wordlist=ClearWordList(settings_repo=settings_repo),
         get_wordlist_cache_status=GetWordListCacheStatus(store=wordlist_store),
     )
     return app, clock, session_repo, settings_repo

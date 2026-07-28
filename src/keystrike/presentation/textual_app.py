@@ -11,7 +11,7 @@ from keystrike.application.session_use_cases import (
 )
 from keystrike.application.settings_use_cases import CycleLayout, UpdateSettings
 from keystrike.application.stats_use_cases import GetHeatmap, GetHistory
-from keystrike.application.wordlist_use_cases import GetWordListCacheStatus, ImportWordList
+from keystrike.application.wordlist_use_cases import ClearWordList, GetWordListCacheStatus, ImportWordList
 from keystrike.domain.null_adapters import NULL_DAILY_LEARN_BUDGET
 from keystrike.domain.protocols import (
     Clock,
@@ -47,6 +47,7 @@ class KeystrikeApp(App[None]):
         cycle_layout: CycleLayout,
         update_settings: UpdateSettings,
         import_wordlist: ImportWordList,
+        clear_wordlist: ClearWordList,
         get_wordlist_cache_status: GetWordListCacheStatus,
         get_daily_learn_budget: DailyLearnBudgetProvider = NULL_DAILY_LEARN_BUDGET,
     ) -> None:
@@ -64,6 +65,7 @@ class KeystrikeApp(App[None]):
         self._cycle_layout = cycle_layout
         self._update_settings = update_settings
         self._import_wordlist = import_wordlist
+        self._clear_wordlist = clear_wordlist
         self._get_wordlist_cache_status = get_wordlist_cache_status
         self._get_daily_learn_budget = get_daily_learn_budget
 
@@ -114,6 +116,7 @@ class KeystrikeApp(App[None]):
                 layout_repo=self._layout_repo,
                 update_settings=self._update_settings,
                 import_wordlist=self._import_wordlist,
+                clear_wordlist=self._clear_wordlist,
                 get_wordlist_cache_status=self._get_wordlist_cache_status,
             )
         )

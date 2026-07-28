@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
-from keystrike.application.wordlist_use_cases import WordListError, validate_wordlist_url
 from keystrike.domain.enums import TargetSpeedUnit
 from keystrike.domain.models import Settings
 from keystrike.domain.protocols import LayoutRepository, SettingsRepository
@@ -33,7 +32,6 @@ class UpdateSettings:
         target_speed_unit: TargetSpeedUnit,
         alphabet_size: int,
         learn_daily_minutes: int,
-        wordlist_url: str = "",
     ) -> Settings:
         if target_speed_cpm <= 0:
             raise SettingsValidationError("Target speed must be a positive integer.")
@@ -43,11 +41,6 @@ class UpdateSettings:
             raise SettingsValidationError("Number of letters must be zero or more.")
         if learn_daily_minutes < 0:
             raise SettingsValidationError("Daily learn minutes must be zero or more.")
-        if wordlist_url.strip():
-            try:
-                validate_wordlist_url(wordlist_url)
-            except WordListError as exc:
-                raise SettingsValidationError(str(exc)) from exc
         updated = replace(
             self.repo.load(),
             layout=layout,
@@ -55,7 +48,6 @@ class UpdateSettings:
             target_speed_unit=target_speed_unit,
             alphabet_size=alphabet_size,
             learn_daily_minutes=learn_daily_minutes,
-            wordlist_url=wordlist_url.strip(),
         )
         self.repo.save(updated)
         return updated

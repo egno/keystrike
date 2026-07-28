@@ -42,6 +42,15 @@ class ImportWordList:
 
 
 @dataclass(slots=True)
+class ClearWordList:
+    settings_repo: SettingsRepository
+
+    def __call__(self) -> None:
+        updated = replace(self.settings_repo.load(), wordlist_url="")
+        self.settings_repo.save(updated)
+
+
+@dataclass(slots=True)
 class GetWordListCacheStatus:
     store: WordListStore
 

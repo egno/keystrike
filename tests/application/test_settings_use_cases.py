@@ -21,7 +21,6 @@ def test_update_settings_persists_all_fields():
         target_speed_unit=TargetSpeedUnit.WPM,
         alphabet_size=20,
         learn_daily_minutes=15,
-        wordlist_url="https://example.com/w.txt",
     )
 
     assert result.layout == "dvorak"
@@ -29,7 +28,7 @@ def test_update_settings_persists_all_fields():
     assert result.target_speed_unit == TargetSpeedUnit.WPM
     assert result.alphabet_size == 20
     assert result.learn_daily_minutes == 15
-    assert result.wordlist_url == "https://example.com/w.txt"
+    assert result.wordlist_url == ""
     assert repo.settings == result
 
 
@@ -79,23 +78,6 @@ def test_update_settings_rejects_negative_learn_daily_minutes():
         )
 
     assert repo.settings == Settings()
-
-
-def test_update_settings_rejects_invalid_wordlist_url():
-    repo = FakeSettingsRepository(Settings())
-    update = UpdateSettings(repo=repo)
-
-    with pytest.raises(SettingsValidationError, match="http"):
-        update(
-            layout="qwerty",
-            target_speed_cpm=300,
-            target_speed_unit=TargetSpeedUnit.CPM,
-            alphabet_size=16,
-            learn_daily_minutes=10,
-            wordlist_url="ftp://example.com/w.txt",
-        )
-
-    assert repo.settings.wordlist_url == ""
 
 
 def test_cycle_layout_advances_and_wraps():

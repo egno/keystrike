@@ -2,6 +2,7 @@ import pytest
 
 from keystrike.application.wordlist_use_cases import (
     DEFAULT_WORDLIST_URL,
+    ClearWordList,
     GetWordListCacheStatus,
     ImportWordList,
     WordListError,
@@ -51,6 +52,16 @@ def test_import_wordlist_wraps_download_errors():
 
     with pytest.raises(WordListError, match="network down"):
         import_wordlist("https://example.com/w.txt")
+
+    assert repo.settings.wordlist_url == ""
+
+
+def test_clear_wordlist_clears_persisted_url():
+    url = "https://example.com/w.txt"
+    repo = FakeSettingsRepository(Settings(wordlist_url=url))
+    clear = ClearWordList(settings_repo=repo)
+
+    clear()
 
     assert repo.settings.wordlist_url == ""
 

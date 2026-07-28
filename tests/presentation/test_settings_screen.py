@@ -5,6 +5,7 @@ from textual.widgets import Button, Input, Select, Static
 from keystrike.application.settings_use_cases import UpdateSettings
 from keystrike.application.wordlist_use_cases import (
     DEFAULT_WORDLIST_URL,
+    ClearWordList,
     GetWordListCacheStatus,
     ImportWordList,
 )
@@ -22,12 +23,14 @@ def _build_screen(*, wordlist_store: FakeWordListStore | None = None):
     store = wordlist_store or FakeWordListStore()
     update_settings = UpdateSettings(repo=settings_repo)
     import_wordlist = ImportWordList(store=store, settings_repo=settings_repo)
+    clear_wordlist = ClearWordList(settings_repo=settings_repo)
     get_wordlist_cache_status = GetWordListCacheStatus(store=store)
     screen = SettingsScreen(
         settings_repo=settings_repo,
         layout_repo=layout_repo,
         update_settings=update_settings,
         import_wordlist=import_wordlist,
+        clear_wordlist=clear_wordlist,
         get_wordlist_cache_status=get_wordlist_cache_status,
     )
     return screen, settings_repo, store
@@ -156,12 +159,14 @@ async def test_loads_wpm_display_value():
     store = FakeWordListStore()
     update_settings = UpdateSettings(repo=settings_repo)
     import_wordlist = ImportWordList(store=store, settings_repo=settings_repo)
+    clear_wordlist = ClearWordList(settings_repo=settings_repo)
     get_wordlist_cache_status = GetWordListCacheStatus(store=store)
     screen = SettingsScreen(
         settings_repo=settings_repo,
         layout_repo=layout_repo,
         update_settings=update_settings,
         import_wordlist=import_wordlist,
+        clear_wordlist=clear_wordlist,
         get_wordlist_cache_status=get_wordlist_cache_status,
     )
     async with app.run_test() as pilot:
@@ -175,18 +180,39 @@ async def test_loads_wpm_display_value():
 
 
 @pytest.mark.asyncio
-async def test_wordlist_url_prefilled_with_default_on_load():
+async def test_wordlist_url_shows_default_as_placeholder():
     app = App()
     screen, _settings_repo, _store = _build_screen()
     async with app.run_test() as pilot:
         await app.push_screen(screen)
         await pilot.pause()
 
-        assert app.screen.query_one("#settings-wordlist-url", Input).value == DEFAULT_WORDLIST_URL
+        url_input = app.screen.query_one("#settings-wordlist-url", Input)
+        assert url_input.value == ""
+        assert url_input.placeholder == DEFAULT_WORDLIST_URL
         help_text = str(app.screen.query_one("#settings-wordlist-help", Static).content)
-        assert "Click Import" in help_text
+        assert "Import" in help_text
         status = str(app.screen.query_one("#settings-wordlist-status", Static).content)
-        assert "Not imported" in status
+        assert "Markov" in status
+
+
+@pytest.mark.asyncio
+async def test_save_does_not_persist_wordlist_url():
+    app = App()
+    screen, settings_repo, _store = _build_screen()
+    async with app.run_test() as pilot:
+        await app.push_screen(screen)
+        await pilot.pause()
+
+        app.screen.query_one("#settings-wordlist-url", Input).value = DEFAULT_WORDLIST_URL
+        app.screen.query_one("#settings-speed", Input).value = "400"
+        app.screen.query_one("#settings-speed-unit", Select).value = TargetSpeedUnit.CPM
+        await pilot.pause()
+        await pilot.press("ctrl+s")
+        await pilot.pause()
+
+        assert settings_repo.settings.wordlist_url == ""
+        assert settings_repo.settings.target_speed_cpm == 400
 
 
 @pytest.mark.asyncio
@@ -255,6 +281,7 @@ async def test_saved_url_without_cache_shows_markov_status():
         layout_repo=layout_repo,
         update_settings=UpdateSettings(repo=settings_repo),
         import_wordlist=ImportWordList(store=store, settings_repo=settings_repo),
+        clear_wordlist=ClearWordList(settings_repo=settings_repo),
         get_wordlist_cache_status=GetWordListCacheStatus(store=store),
     )
     async with app.run_test() as pilot:
@@ -263,3 +290,31 @@ async def test_saved_url_without_cache_shows_markov_status():
 
         status = str(app.screen.query_one("#settings-wordlist-status", Static).content)
         assert "not cached" in status
+
+
+@pytest.mark.asyncio
+async def test_clear_removes_wordlist_and_uses_markov():
+    app = App()
+    url = "https://example.com/words.txt"
+    settings_repo = FakeSettingsRepository(Settings(wordlist_url=url))
+    layout_repo = FakeLayoutRepository(dict(BUNDLED_LAYOUTS))
+    store = FakeWordListStore(by_url={url: ["hello"]})
+    screen = SettingsScreen(
+        settings_repo=settings_repo,
+        layout_repo=layout_repo,
+        update_settings=UpdateSettings(repo=settings_repo),
+        import_wordlist=ImportWordList(store=store, settings_repo=settings_repo),
+        clear_wordlist=ClearWordList(settings_repo=settings_repo),
+        get_wordlist_cache_status=GetWordListCacheStatus(store=store),
+    )
+    async with app.run_test() as pilot:
+        await app.push_screen(screen)
+        await pilot.pause()
+
+        app.screen.query_one("#settings-wordlist-clear", Button).press()
+        await pilot.pause()
+
+        assert settings_repo.settings.wordlist_url == ""
+        assert app.screen.query_one("#settings-wordlist-url", Input).value == ""
+        status = str(app.screen.query_one("#settings-wordlist-status", Static).content)
+        assert "Markov" in status

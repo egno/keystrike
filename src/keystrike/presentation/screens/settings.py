@@ -10,6 +10,7 @@ from textual.widgets.select import NoSelection
 from keystrike.application.settings_use_cases import SettingsValidationError, UpdateSettings
 from keystrike.application.wordlist_use_cases import (
     DEFAULT_WORDLIST_URL,
+    ClearWordList,
     GetWordListCacheStatus,
     ImportWordList,
     WordListError,
@@ -32,7 +33,8 @@ class SettingsScreen(Screen[None]):
     SettingsScreen Horizontal {
         height: auto;
     }
-    SettingsScreen #settings-wordlist-import {
+    SettingsScreen #settings-wordlist-import,
+    SettingsScreen #settings-wordlist-clear {
         margin-left: 1;
     }
     """
@@ -49,6 +51,7 @@ class SettingsScreen(Screen[None]):
         layout_repo: LayoutRepository,
         update_settings: UpdateSettings,
         import_wordlist: ImportWordList,
+        clear_wordlist: ClearWordList,
         get_wordlist_cache_status: GetWordListCacheStatus,
     ) -> None:
         super().__init__()
@@ -56,6 +59,7 @@ class SettingsScreen(Screen[None]):
         self._layout_repo = layout_repo
         self._update_settings = update_settings
         self._import_wordlist = import_wordlist
+        self._clear_wordlist = clear_wordlist
         self._get_wordlist_cache_status = get_wordlist_cache_status
 
     def compose(self) -> ComposeResult:
@@ -97,20 +101,22 @@ class SettingsScreen(Screen[None]):
                 type="integer",
             )
             yield Label("Word list")
-            wordlist_display_url = settings.wordlist_url or DEFAULT_WORDLIST_URL
             yield Static(
-                "[dim]Click Import to download and cache the word list.[/]",
+                "[dim]Import downloads a word list; Clear uses Markov words. "
+                "Ctrl+S does not change this.[/]",
                 id="settings-wordlist-help",
             )
             with Horizontal():
                 yield Input(
-                    value=wordlist_display_url,
+                    value=settings.wordlist_url,
+                    placeholder=DEFAULT_WORDLIST_URL,
                     id="settings-wordlist-url",
                 )
                 yield Button("Import", id="settings-wordlist-import", variant="primary")
+                yield Button("Clear", id="settings-wordlist-clear")
             yield Static(
                 self._wordlist_status(
-                    wordlist_display_url,
+                    settings.wordlist_url,
                     persisted_url=settings.wordlist_url,
                 ),
                 id="settings-wordlist-status",
@@ -124,6 +130,8 @@ class SettingsScreen(Screen[None]):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "settings-wordlist-import":
             self._do_import()
+        elif event.button.id == "settings-wordlist-clear":
+            self._do_clear()
 
     def action_save(self) -> None:
         speed_raw = self.query_one("#settings-speed", Input).value
@@ -166,8 +174,6 @@ class SettingsScreen(Screen[None]):
             # Unreachable with allow_blank=False + an initial value, but keeps typing sound.
             return
 
-        wordlist_url = self.query_one("#settings-wordlist-url", Input).value
-
         try:
             self._update_settings(
                 layout=layout,
@@ -175,7 +181,6 @@ class SettingsScreen(Screen[None]):
                 target_speed_unit=target_speed_unit,
                 alphabet_size=alphabet_size,
                 learn_daily_minutes=learn_daily_minutes,
-                wordlist_url=wordlist_url,
             )
         except SettingsValidationError as exc:
             self._show_error(str(exc))
@@ -185,6 +190,12 @@ class SettingsScreen(Screen[None]):
 
     def action_back(self) -> None:
         self.app.pop_screen()
+
+    def _do_clear(self) -> None:
+        self._clear_wordlist()
+        self.query_one("#settings-error", Static).update("")
+        self.query_one("#settings-wordlist-url", Input).value = ""
+        self._refresh_wordlist_status()
 
     def _do_import(self) -> None:
         url = self.query_one("#settings-wordlist-url", Input).value
