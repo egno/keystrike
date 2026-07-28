@@ -7,6 +7,24 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from random import Random
 
+from .models import Layout
+
+_DIFFERENT_HAND_BOOST = 1.5
+_DIFFERENT_FINGER_SAME_HAND_BOOST = 1.2
+
+
+def transition_practice_weight(prev_cp: int, next_cp: int, layout: Layout) -> float:
+    """Ergonomics bias for bigram transitions during practice text sampling."""
+    prev = layout.keys.get(prev_cp)
+    nxt = layout.keys.get(next_cp)
+    if prev is None or nxt is None:
+        return 1.0
+    if prev.hand != nxt.hand:
+        return _DIFFERENT_HAND_BOOST
+    if prev.finger != nxt.finger:
+        return _DIFFERENT_FINGER_SAME_HAND_BOOST
+    return 1.0
+
 
 @dataclass(frozen=True, slots=True)
 class TransitionTable:
@@ -19,6 +37,7 @@ class TransitionTable:
         alphabet: frozenset[str],
         rng: Random,
         char_weights: Mapping[str, float] | None = None,
+        layout: Layout | None = None,
     ) -> str | None:
         """Sample the next char given `context`, restricted to `alphabet`.
 
@@ -30,7 +49,11 @@ class TransitionTable:
         candidate's language-frequency weight, so callers can bias sampling
         toward specific chars (weak keys) without abandoning natural bigram
         frequencies entirely.
+
+        When `layout` is set, each candidate is also scaled by
+        `transition_practice_weight` from the last char in `context`.
         """
+        prev_cp = ord(context[-1]) if context else None
         max_len = min(self.order, len(context))
         for length in range(max_len, -1, -1):
             ctx = context[len(context) - length:] if length else ""
@@ -41,8 +64,13 @@ class TransitionTable:
             if not candidates:
                 continue
             chars = [c for c, _ in candidates]
-            if char_weights:
-                weights = [w * char_weights.get(c, 1.0) for c, w in candidates]
+            if char_weights or layout:
+                weights = []
+                for c, w in candidates:
+                    weight = w * (char_weights.get(c, 1.0) if char_weights else 1.0)
+                    if layout is not None and prev_cp is not None:
+                        weight *= transition_practice_weight(prev_cp, ord(c), layout)
+                    weights.append(weight)
             else:
                 weights = [w for _, w in candidates]
             return rng.choices(chars, weights=weights, k=1)[0]

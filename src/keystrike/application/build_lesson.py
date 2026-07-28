@@ -129,7 +129,11 @@ class BuildLesson:
             for k in state.keys
         }
         text = generator.generate_lesson(
-            alphabet_chars, chr(focus), word_count=WORD_COUNT, char_weights=char_weights,
+            alphabet_chars,
+            chr(focus),
+            word_count=WORD_COUNT,
+            char_weights=char_weights,
+            layout=layout,
         )
 
         urgency = {
