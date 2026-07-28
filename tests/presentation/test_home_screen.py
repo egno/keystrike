@@ -75,7 +75,7 @@ async def test_shows_daily_learn_budget():
 
 
 @pytest.mark.asyncio
-async def test_shows_daily_learn_limit_reached():
+async def test_shows_daily_learn_goal_reached():
 
     noon = dt.datetime(2026, 7, 28, 12, 0, tzinfo=_TZ).timestamp()
     header = SessionResult(
@@ -96,7 +96,9 @@ async def test_shows_daily_learn_limit_reached():
         await app.push_screen(screen)
         await pilot.pause()
         hero = str(app.screen.query_one("#home-hero", Static).content)
-        assert "Daily learn limit reached" in hero
+        assert "Learn today:" in hero
+        assert "10.0" in hero
+        assert "/10 min" in hero
 
 
 @pytest.mark.asyncio

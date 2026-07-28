@@ -147,7 +147,7 @@ async def test_stats_are_isolated_per_layout():
 
 
 @pytest.mark.asyncio
-async def test_adaptive_blocked_when_daily_learn_limit_reached():
+async def test_adaptive_allowed_when_daily_learn_goal_reached():
     noon = dt.datetime(2026, 7, 28, 12, 0, tzinfo=_TZ).timestamp()
     header = SessionResult(
         schema_version=1,
@@ -166,7 +166,7 @@ async def test_adaptive_blocked_when_daily_learn_limit_reached():
         await pilot.press("enter")
         await pilot.pause()
 
-        assert isinstance(app.screen, HomeScreen)
+        assert isinstance(app.screen, PracticeScreen)
 
 
 @pytest.mark.asyncio

@@ -74,7 +74,7 @@ class SettingsScreen(Screen[None]):
                 id="settings-alphabet-size",
                 type="integer",
             )
-            yield Label("Daily learn limit (minutes; 0 = unlimited)")
+            yield Label("Daily learn goal (minutes; 0 = no goal)")
             yield Input(
                 value=str(settings.learn_daily_minutes),
                 id="settings-learn-daily-minutes",

@@ -77,14 +77,15 @@ def test_hud_shows_daily_learn_goal_when_limited():
     assert "WPM" not in text
 
 
-def test_hud_shows_daily_learn_limit_reached():
+def test_hud_shows_daily_learn_goal_reached():
     budget = compute_daily_learn_budget(
         completed_ns=10 * 60 * 1_000_000_000,
         limit_minutes=10,
     )
     text = _format_hud(_session(), budget)
-    assert "Daily learn limit reached" in text
-    assert "Learn:" not in text
+    assert "Learn:" in text
+    assert "10.0" in text
+    assert "/10 min" in text
 
 
 def test_hud_distinct_labels_for_daily_budget_and_focus():

@@ -112,21 +112,8 @@ class PracticeScreen(Screen[None]):
         event.stop()
         self._typing_area.refresh_display()
 
-        if self._daily_limit_reached():
-            self._finish_session(start_next=False)
-            return
-
         if self._session.finished:
             self._finish_session()
-
-    def _current_elapsed_ns(self) -> int:
-        started = self._session.typing_started_at_ns
-        if started is None:
-            return 0
-        return self._clock.now_ns() - started
-
-    def _daily_limit_reached(self) -> bool:
-        return self._get_daily_learn_budget(extra_ns=self._current_elapsed_ns()).limit_reached
 
     def _finish_session(self, *, start_next: bool = True) -> None:
         result = self._finish(self._session)
