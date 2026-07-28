@@ -17,7 +17,7 @@ def _format_daily_learn_line(budget: DailyLearnBudget) -> str:
     return format_daily_learn_display(budget, label="Learn today:")
 
 
-def _hero_text(layout: str, learn_budget: DailyLearnBudget) -> str:
+def _hero_text(layout: str, learn_budget: DailyLearnBudget, *, app_version: str = "") -> str:
     lines = [
         "[bold cyan]Keystrike[/]",
         "[dim italic]Adaptive drills for your weakest keys[/]",
@@ -26,6 +26,8 @@ def _hero_text(layout: str, learn_budget: DailyLearnBudget) -> str:
     daily = _format_daily_learn_line(learn_budget)
     if daily:
         lines.append(daily)
+    if app_version:
+        lines.append(f"[dim]v{app_version}[/]")
     return "\n".join(lines)
 
 
@@ -68,11 +70,13 @@ class HomeScreen(Screen[None]):
         settings_repo: SettingsRepository,
         cycle_layout: CycleLayout,
         get_daily_learn_budget: DailyLearnBudgetProvider = NULL_DAILY_LEARN_BUDGET,
+        app_version: str = "",
     ) -> None:
         super().__init__()
         self._settings_repo = settings_repo
         self._cycle_layout = cycle_layout
         self._get_daily_learn_budget = get_daily_learn_budget
+        self._app_version = app_version
 
     def compose(self) -> ComposeResult:
         yield VerticalScroll(Static(self._render_hero(), id="home-hero"))
@@ -83,7 +87,11 @@ class HomeScreen(Screen[None]):
 
     def _render_hero(self) -> str:
         settings = self._settings_repo.load()
-        return _hero_text(settings.layout, self._get_daily_learn_budget())
+        return _hero_text(
+            settings.layout,
+            self._get_daily_learn_budget(),
+            app_version=self._app_version,
+        )
 
     def _refresh_hero(self) -> None:
         self.query_one("#home-hero", Static).update(self._render_hero())

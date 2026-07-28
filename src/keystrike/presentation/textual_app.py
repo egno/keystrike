@@ -54,6 +54,7 @@ class KeystrikeApp(App[None]):
         clear_wordlist: ClearWordList,
         get_wordlist_cache_status: GetWordListCacheStatus,
         get_daily_learn_budget: DailyLearnBudgetProvider = NULL_DAILY_LEARN_BUDGET,
+        app_version: str = "",
     ) -> None:
         super().__init__()
         self._clock = clock
@@ -72,6 +73,7 @@ class KeystrikeApp(App[None]):
         self._clear_wordlist = clear_wordlist
         self._get_wordlist_cache_status = get_wordlist_cache_status
         self._get_daily_learn_budget = get_daily_learn_budget
+        self._app_version = app_version
 
     def on_mount(self) -> None:
         self.install_screen(self._build_home(), name="home")
@@ -82,6 +84,7 @@ class KeystrikeApp(App[None]):
             settings_repo=self._settings_repo,
             cycle_layout=self._cycle_layout,
             get_daily_learn_budget=self._get_daily_learn_budget,
+            app_version=self._app_version,
         )
 
     def on_home_screen_start_practice(self, _: HomeScreen.StartPractice) -> None:

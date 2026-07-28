@@ -8,6 +8,7 @@ from keystrike.application.learn_budget_use_cases import GetDailyLearnBudget
 from keystrike.application.settings_use_cases import CycleLayout
 from keystrike.domain.enums import Mode
 from keystrike.domain.models import SessionResult, Settings
+from keystrike.domain.version import __version__
 from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS
 from keystrike.presentation.screens.home import HomeScreen
 from tests.fakes import (
@@ -25,6 +26,7 @@ def _build_screen(
     settings: Settings | None = None,
     headers: list[SessionResult] | None = None,
     wall: float | None = None,
+    app_version: str = __version__,
 ) -> tuple[HomeScreen, FakeSettingsRepository]:
     clock = FakeClock(wall=wall or dt.datetime(2026, 7, 28, 12, 0, tzinfo=_TZ).timestamp())
     settings_repo = FakeSettingsRepository(settings or Settings())
@@ -42,6 +44,7 @@ def _build_screen(
             settings_repo=settings_repo,
             cycle_layout=cycle_layout,
             get_daily_learn_budget=get_daily_learn_budget,
+            app_version=app_version,
         ),
         settings_repo,
     )
@@ -99,6 +102,17 @@ async def test_shows_daily_learn_goal_reached():
         assert "Learn today:" in hero
         assert "10.0" in hero
         assert "/10 min" in hero
+
+
+@pytest.mark.asyncio
+async def test_shows_app_version():
+    app = App()
+    async with app.run_test() as pilot:
+        screen, _ = _build_screen()
+        await app.push_screen(screen)
+        await pilot.pause()
+        hero = str(app.screen.query_one("#home-hero", Static).content)
+        assert f"v{__version__}" in hero
 
 
 @pytest.mark.asyncio

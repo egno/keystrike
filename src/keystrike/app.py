@@ -19,6 +19,7 @@ from keystrike.application.wordlist_use_cases import (
     GetWordListCacheStatus,
     ImportWordList,
 )
+from keystrike.domain.version import __version__
 from keystrike.infrastructure.aggregates_cache import FileAggregatesCache
 from keystrike.infrastructure.clock import MonotonicClock
 from keystrike.infrastructure.id_gen import UlidGenerator
@@ -123,4 +124,5 @@ def build() -> KeystrikeApp:
         clear_wordlist=clear_wordlist,
         get_wordlist_cache_status=get_wordlist_cache_status,
         get_daily_learn_budget=get_daily_learn_budget,
+        app_version=__version__,
     )

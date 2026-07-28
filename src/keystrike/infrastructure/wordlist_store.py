@@ -6,7 +6,7 @@ import hashlib
 import urllib.error
 import urllib.request
 
-from keystrike import __version__
+from keystrike.domain.version import __version__
 from keystrike.domain.wordlist import parse_wordlist_text
 
 from .atomic_write import atomic_write_text
