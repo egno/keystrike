@@ -1,4 +1,3 @@
-from collections.abc import Callable
 from typing import ClassVar, cast
 
 from textual.app import ComposeResult
@@ -37,13 +36,11 @@ class SettingsScreen(Screen[None]):
         settings_repo: SettingsRepository,
         layout_repo: LayoutRepository,
         update_settings: UpdateSettings,
-        on_saved: Callable[[], None] | None = None,
     ) -> None:
         super().__init__()
         self._settings_repo = settings_repo
         self._layout_repo = layout_repo
         self._update_settings = update_settings
-        self._on_saved = on_saved
 
     def compose(self) -> ComposeResult:
         settings = self._settings_repo.load()
@@ -143,8 +140,6 @@ class SettingsScreen(Screen[None]):
             self._show_error(str(exc))
             return
 
-        if self._on_saved is not None:
-            self._on_saved()
         self.app.pop_screen()
 
     def action_cancel(self) -> None:

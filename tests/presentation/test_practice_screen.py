@@ -16,7 +16,7 @@ from keystrike.application.stats_use_cases import (
     GetLearningRate,
     RebuildAggregates,
 )
-from keystrike.domain.enums import Mode
+from keystrike.domain.enums import Mode, SessionState
 from keystrike.domain.models import Settings
 from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS
 from keystrike.presentation.screens.practice import PracticeScreen
@@ -153,9 +153,9 @@ async def test_adaptive_practice_generates_lesson_text_for_focus_key():
         await pilot.pause()
         practice = app.screen
         assert isinstance(practice, PracticeScreen)
-        assert practice._mode is Mode.ADAPTIVE
+        assert practice._session.mode is Mode.ADAPTIVE
         assert practice._session.focus_key is not None
-        assert practice._target_text
+        assert practice._session.target_text
 
 
 @pytest.mark.asyncio
@@ -166,9 +166,9 @@ async def test_code_practice_generates_snippet_text_for_focus_key():
         await pilot.pause()
         practice = app.screen
         assert isinstance(practice, PracticeScreen)
-        assert practice._mode is Mode.CODE
+        assert practice._session.mode is Mode.CODE
         assert practice._session.focus_key is not None
-        assert practice._target_text in FakeCodeSnippetProvider().snippets()
+        assert practice._session.target_text in FakeCodeSnippetProvider().snippets()
 
 
 @pytest.mark.asyncio
@@ -196,3 +196,18 @@ async def test_sample_practice_has_no_active_keys_widget():
         await pilot.press("p")  # sample text, not adaptive
         await pilot.pause()
         assert not app.screen.query(KbHeatmap)
+
+
+@pytest.mark.asyncio
+async def test_abort_marks_session_cancelled_before_exit():
+    app, _clock, _repo, _settings = _build_app()
+    async with app.run_test() as pilot:
+        await pilot.press("p")  # sample text practice
+        await pilot.pause()
+        practice = app.screen
+        assert isinstance(practice, PracticeScreen)
+
+        await pilot.press("escape")
+        await pilot.pause()
+
+        assert practice._session.state is SessionState.CANCELLED

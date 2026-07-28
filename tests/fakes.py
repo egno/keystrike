@@ -79,9 +79,6 @@ class FakeAggregatesCache:
     def put(self, layout: str, stats: dict[int, KeyStats]) -> None:
         self.by_layout[layout] = stats
 
-    def invalidate(self, layout: str) -> None:
-        self.by_layout.pop(layout, None)
-
 
 @dataclass(slots=True)
 class FakeSettingsRepository:
