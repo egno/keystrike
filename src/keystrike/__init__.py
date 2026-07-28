@@ -1,1 +1,3 @@
-__version__ = "1.1.0"
+from keystrike.domain.version import __version__
+
+__all__ = ["__version__"]

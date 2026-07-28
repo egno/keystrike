@@ -51,4 +51,4 @@ jobs:
         if: failure()
         with:
           name: snapshot-report
-          path: snapshot_report/
+          path: snapshot_report.html

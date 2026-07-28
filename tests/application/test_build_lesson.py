@@ -10,6 +10,7 @@ from tests.fakes import (
     FakeLanguageProvider,
     FakeLayoutRepository,
     FakeSettingsRepository,
+    FakeWordListStore,
 )
 
 
@@ -19,6 +20,7 @@ def _build_lesson(settings: Settings | None = None, rng_seed: int = 0) -> BuildL
         aggregates_cache=FakeAggregatesCache(),
         settings_repo=FakeSettingsRepository(settings or Settings()),
         language_provider=FakeLanguageProvider(),
+        wordlist_store=FakeWordListStore(),
         rng=Random(rng_seed),
     )
 
@@ -104,6 +106,7 @@ def test_lesson_uses_transition_focus_when_transitions_weak():
         aggregates_cache=cache,
         settings_repo=FakeSettingsRepository(Settings(alphabet_size=2)),
         language_provider=FakeLanguageProvider(),
+        wordlist_store=FakeWordListStore(),
         rng=Random(0),
     )
     lesson = builder("qwerty")
@@ -111,3 +114,83 @@ def test_lesson_uses_transition_focus_when_transitions_weak():
     assert lesson.focus_key == s
     assert lesson.focus_reason == f"{pair} weak transition"
     assert pair in lesson.text.replace(" ", "")
+
+
+def test_lesson_uses_cached_wordlist_when_configured():
+    url = "https://example.com/words.txt"
+    cached = ["the", "and", "for", "are", "but", "not", "you", "all"]
+    settings = Settings(wordlist_url=url, alphabet_size=26)
+    store = FakeWordListStore(by_url={url: cached})
+    builder = BuildLesson(
+        layout_repo=FakeLayoutRepository(dict(BUNDLED_LAYOUTS)),
+        aggregates_cache=FakeAggregatesCache(),
+        settings_repo=FakeSettingsRepository(settings),
+        language_provider=FakeLanguageProvider(),
+        wordlist_store=store,
+        rng=Random(42),
+    )
+    lesson = builder("qwerty")
+    lesson_words = set(lesson.text.split())
+    assert lesson_words <= set(cached)
+    assert len(lesson_words) >= 1
+
+
+def test_lesson_falls_back_to_markov_when_cache_missing():
+    url = "https://example.com/words.txt"
+    exclusive = ["abcdefgh"] * 20
+    settings = Settings(wordlist_url=url, alphabet_size=26)
+    with_cache = BuildLesson(
+        layout_repo=FakeLayoutRepository(dict(BUNDLED_LAYOUTS)),
+        aggregates_cache=FakeAggregatesCache(),
+        settings_repo=FakeSettingsRepository(settings),
+        language_provider=FakeLanguageProvider(),
+        wordlist_store=FakeWordListStore(by_url={url: exclusive}),
+        rng=Random(42),
+    )
+    assert "abcdefgh" in with_cache("qwerty").text
+
+    without_cache = BuildLesson(
+        layout_repo=FakeLayoutRepository(dict(BUNDLED_LAYOUTS)),
+        aggregates_cache=FakeAggregatesCache(),
+        settings_repo=FakeSettingsRepository(settings),
+        language_provider=FakeLanguageProvider(),
+        wordlist_store=FakeWordListStore(),
+        rng=Random(42),
+    )
+    assert "abcdefgh" not in without_cache("qwerty").text
+
+
+def test_lesson_falls_back_when_alphabet_filters_all_words():
+    url = "https://example.com/words.txt"
+    cached = ["zzzzzz", "zzzzzzz", "zzzzzzzz"]
+    settings = Settings(wordlist_url=url, alphabet_size=8)
+    store = FakeWordListStore(by_url={url: cached})
+    builder = BuildLesson(
+        layout_repo=FakeLayoutRepository(dict(BUNDLED_LAYOUTS)),
+        aggregates_cache=FakeAggregatesCache(),
+        settings_repo=FakeSettingsRepository(settings),
+        language_provider=FakeLanguageProvider(),
+        wordlist_store=store,
+        rng=Random(42),
+    )
+    lesson = builder("qwerty")
+    assert all("z" not in word for word in lesson.text.split())
+
+
+def test_lesson_uses_markov_when_url_saved_without_cache():
+    url = "https://example.com/words.txt"
+    settings = Settings(wordlist_url=url, alphabet_size=26)
+    builder = BuildLesson(
+        layout_repo=FakeLayoutRepository(dict(BUNDLED_LAYOUTS)),
+        aggregates_cache=FakeAggregatesCache(),
+        settings_repo=FakeSettingsRepository(settings),
+        language_provider=FakeLanguageProvider(),
+        wordlist_store=FakeWordListStore(),
+        rng=Random(0),
+    )
+    lesson = builder("qwerty")
+    assert lesson.text
+    assert all(
+        set(word) <= {chr(k.codepoint) for k in lesson.state.keys}
+        for word in lesson.text.split()
+    )

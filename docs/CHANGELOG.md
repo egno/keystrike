@@ -5,6 +5,17 @@ rationale lives in commit history/diffs — these are pointers, not narratives.
 Milestone-level feature work (what shipped in M1–M4, the keybr algorithm
 design) stays in `PLAN.md` §5/§6.
 
+## 1.2.0 — Unreleased
+
+- Optional word-list import: Settings URL field + Import button; cached lists drive
+  lesson words when alphabet-compatible, Markov fallback otherwise
+  (`application/wordlist_use_cases.py`, `infrastructure/wordlist_store.py`).
+- Daily learn goal is HUD-only — practice no longer stops when the goal is reached;
+  `PreparePracticeSession` and `PracticeScreen` removed the hard limit gate; HUD always
+  shows used/limit.
+- README: "Why it works" section with pedagogy wiki link; daily goal vs limit wording;
+  git-sync FAQ pointer. Wiki: `Typing-Pedagogy`, `Git-sync`, `Home` index pages.
+
 ## 1.1.0
 
 - Git-backed backup sync (CLI-only, opt-in): `keystrike sync init|pull|push|status`.

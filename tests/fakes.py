@@ -122,3 +122,24 @@ class FakeLanguageProvider:
     def transitions(self, lang: str) -> TransitionTable:
         _ = lang
         return self.table
+
+
+@dataclass(slots=True)
+class FakeWordListStore:
+    by_url: dict[str, list[str]] = field(default_factory=dict)
+    download_error: Exception | None = None
+
+    def load(self, url: str) -> list[str] | None:
+        words = self.by_url.get(url)
+        return list(words) if words is not None else None
+
+    def cached_word_count(self, url: str) -> int | None:
+        words = self.load(url)
+        return len(words) if words is not None else None
+
+    def download_and_cache(self, url: str) -> list[str]:
+        if self.download_error is not None:
+            raise self.download_error
+        if url in self.by_url:
+            return list(self.by_url[url])
+        raise ValueError("download failed")

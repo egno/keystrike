@@ -59,10 +59,11 @@ def test_format_daily_learn_display_shows_used_and_limit():
     assert "left" not in text
 
 
-def test_format_daily_learn_display_limit_reached():
+def test_format_daily_learn_display_goal_reached():
     budget = compute_daily_learn_budget(completed_ns=10 * 60 * 1_000_000_000, limit_minutes=10)
     text = format_daily_learn_display(budget, label="Learn today:")
-    assert "Daily learn limit reached" in text
+    assert "10.0" in text
+    assert "/10 min" in text
 
 
 def test_compute_daily_learn_budget_tracks_remaining_and_limit_reached():

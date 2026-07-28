@@ -90,7 +90,7 @@ On other screens, `Esc` / `q` goes back. Settings saves with `Ctrl+S`.
 Adaptive mode disables backspace — mistakes stay in the record so confidence scores
 stay honest. The HUD shows live accuracy, remaining daily learn time, and the current
 focus key. When a session ends, the next lesson starts automatically unless you go
-back or hit your daily limit.
+back. Hitting your daily goal is shown in the HUD only — practice continues.
 
 ### Stats
 
@@ -104,12 +104,14 @@ drill into that key's confidence trend; `Esc` / `q` returns to the overview.
 | Layout | `qwerty` | Any bundled or custom layout |
 | Target speed | 46 WPM | Or CPM — your unlock threshold |
 | Letters unlocked up front | 16 | Force-unlocked before confidence gating |
-| Daily learn limit | 10 min | `0` = unlimited |
+| Daily learn goal | 10 min | `0` = no goal |
 
 ## Backup sync
 
 Opt-in git sync for backing up or moving data between machines. Requires `git` on
 `PATH` and a **private** remote (sessions contain your typing history).
+
+Not Keystrike cloud sync — only runs when you invoke `keystrike sync`. Background and FAQ: [discussion #6](https://github.com/egno/keystrike/discussions/6).
 
 ```bash
 keystrike sync init git@github.com:you/keystrike-backup.git   # one-time

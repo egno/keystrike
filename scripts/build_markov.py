@@ -23,6 +23,8 @@ import json
 from collections import defaultdict
 from pathlib import Path
 
+from keystrike.domain.wordlist import parse_wordlist_text
+
 ORDER = 2
 DEFAULT_WORDLIST = Path("/usr/share/dict/words")
 DATA_DIR = Path(__file__).parent.parent / "src/keystrike/infrastructure/languages/data"
@@ -38,10 +40,9 @@ def build_transitions(words: list[str]) -> dict[str, dict[str, int]]:
 
 
 def load_words(wordlist_path: Path) -> list[str]:
-    raw_words = wordlist_path.read_text(encoding="utf-8", errors="ignore").splitlines()
-    # Keep common lowercase words only — this drops proper nouns (capitalized
-    # in most system word lists) and anything with punctuation/digits.
-    return [w for w in raw_words if w.isalpha() and w.islower()]
+    return parse_wordlist_text(
+        wordlist_path.read_text(encoding="utf-8", errors="ignore"),
+    )
 
 
 def main() -> None:

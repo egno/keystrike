@@ -37,8 +37,6 @@ class PreparePracticeSession:
     get_daily_learn_budget: DailyLearnBudgetProvider
 
     def __call__(self) -> SessionPrep | None:
-        if self.get_daily_learn_budget().limit_reached:
-            return None
         settings = self.settings_repo.load()
         lesson = self.build_lesson(settings.layout)
         return SessionPrep(

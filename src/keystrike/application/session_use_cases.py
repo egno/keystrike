@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from keystrike.domain.aggregate import aggregate_session, combine
 from keystrike.domain.confidence import compute_unlocked, confidence_of, target_ms_per_char
@@ -135,6 +135,16 @@ def _snapshot_unlock_state(
     return unlocked, {cp: confidence_of(cp, stats, target) for cp in unlocked}
 
 
+def _sync_alphabet_size(unlocked_keys: tuple[int, ...], settings_repo: SettingsRepository) -> None:
+    """Keep settings.alphabet_size at least as large as the current unlock set."""
+    if not unlocked_keys:
+        return
+    settings = settings_repo.load()
+    unlocked_count = len(unlocked_keys)
+    if unlocked_count > settings.alphabet_size:
+        settings_repo.save(replace(settings, alphabet_size=unlocked_count))
+
+
 @dataclass(slots=True)
 class FinishSession:
     clock: Clock
@@ -166,6 +176,7 @@ class FinishSession:
                 settings_repo=self.settings_repo,
                 layout_repo=self.layout_repo,
             )
+            _sync_alphabet_size(unlocked_keys, self.settings_repo)
 
         result = SessionResult(
             schema_version=3,

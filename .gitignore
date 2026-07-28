@@ -9,6 +9,7 @@ build/
 .ruff_cache/
 .pyright/
 htmlcov/
+snapshot_report.html
 .coverage
 .coverage.*
 *.log

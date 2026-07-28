@@ -28,6 +28,7 @@ def test_update_settings_persists_all_fields():
     assert result.target_speed_unit == TargetSpeedUnit.WPM
     assert result.alphabet_size == 20
     assert result.learn_daily_minutes == 15
+    assert result.wordlist_url == ""
     assert repo.settings == result
 
 

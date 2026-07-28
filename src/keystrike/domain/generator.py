@@ -9,9 +9,8 @@ from random import Random
 
 from .markov import TransitionTable
 from .models import Layout
+from .word_bounds import MAX_WORD_LEN, MIN_WORD_LEN
 
-MIN_WORD_LEN = 3
-MAX_WORD_LEN = 10
 MAX_RETRIES = 5
 DEFAULT_WORD_COUNT = 12
 
@@ -43,7 +42,17 @@ class AdaptiveGenerator:
         char_weights: Mapping[str, float] | None = None,
         layout: Layout | None = None,
         transition_weights: Mapping[str, float] | None = None,
+        *,
+        words: list[str] | None = None,
+        wordlist_weights: list[float] | None = None,
     ) -> str:
+        if words:
+            word = self._sample_from_wordlist(words, char_weights, wordlist_weights)
+            if (
+                MIN_WORD_LEN <= len(word) <= MAX_WORD_LEN
+                and set(word) <= alphabet
+            ):
+                return word
         word = ""
         for _ in range(MAX_RETRIES):
             word = self._sample_word(alphabet, char_weights, layout, transition_weights)
@@ -61,21 +70,49 @@ class AdaptiveGenerator:
         layout: Layout | None = None,
         transition_weights: Mapping[str, float] | None = None,
         focus_bigram: tuple[int, int] | None = None,
+        words: list[str] | None = None,
     ) -> str:
-        words = [
-            self.generate_word(alphabet, char_weights, layout, transition_weights)
+        wordlist_weights: list[float] | None = None
+        if words and char_weights:
+            wordlist_weights = [
+                sum(char_weights.get(ch, 1.0) for ch in w) for w in words
+            ]
+        lesson_words = [
+            self.generate_word(
+                alphabet,
+                char_weights,
+                layout,
+                transition_weights,
+                words=words,
+                wordlist_weights=wordlist_weights,
+            )
             for _ in range(word_count)
         ]
         if focus_bigram is not None:
             prev_char, next_char = chr(focus_bigram[0]), chr(focus_bigram[1])
             bigram = prev_char + next_char
-            if not any(bigram in w for w in words):
-                idx = self.rng.randrange(len(words))
-                words[idx] = self._inject_focus_bigram(words[idx], prev_char, next_char)
-        elif not any(focus_char in w for w in words):
-            idx = self.rng.randrange(len(words))
-            words[idx] = self._inject_focus(words[idx], focus_char)
-        return " ".join(words)
+            if not any(bigram in w for w in lesson_words):
+                idx = self.rng.randrange(len(lesson_words))
+                lesson_words[idx] = self._inject_focus_bigram(
+                    lesson_words[idx], prev_char, next_char,
+                )
+        elif not any(focus_char in w for w in lesson_words):
+            idx = self.rng.randrange(len(lesson_words))
+            lesson_words[idx] = self._inject_focus(lesson_words[idx], focus_char)
+        return " ".join(lesson_words)
+
+    def _sample_from_wordlist(
+        self,
+        words: list[str],
+        char_weights: Mapping[str, float] | None,
+        wordlist_weights: list[float] | None = None,
+    ) -> str:
+        if wordlist_weights is not None:
+            return self.rng.choices(words, weights=wordlist_weights, k=1)[0]
+        if not char_weights:
+            return self.rng.choice(words)
+        weights = [sum(char_weights.get(ch, 1.0) for ch in w) for w in words]
+        return self.rng.choices(words, weights=weights, k=1)[0]
 
     def _sample_word(
         self,

@@ -104,7 +104,8 @@ class Settings:
     target_speed_unit: TargetSpeedUnit = TargetSpeedUnit.WPM
     alphabet_size: int = 16             # letters force-unlocked from cold start
     lang: str = "en"
-    learn_daily_minutes: int = 10        # adaptive mode cap per calendar day; 0 = unlimited
+    learn_daily_minutes: int = 10        # adaptive mode daily goal (minutes); 0 = no goal
+    wordlist_url: str = ""               # non-empty + cached file → real words; else Markov
     updated_at: str | None = None          # ISO-8601 UTC; sync LWW
 
 

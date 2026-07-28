@@ -11,6 +11,11 @@ from keystrike.application.session_use_cases import (
 )
 from keystrike.application.settings_use_cases import CycleLayout, UpdateSettings
 from keystrike.application.stats_use_cases import GetHeatmap, GetHistory
+from keystrike.application.wordlist_use_cases import (
+    ClearWordList,
+    GetWordListCacheStatus,
+    ImportWordList,
+)
 from keystrike.domain.null_adapters import NULL_DAILY_LEARN_BUDGET
 from keystrike.domain.protocols import (
     Clock,
@@ -45,7 +50,11 @@ class KeystrikeApp(App[None]):
         get_history: GetHistory,
         cycle_layout: CycleLayout,
         update_settings: UpdateSettings,
+        import_wordlist: ImportWordList,
+        clear_wordlist: ClearWordList,
+        get_wordlist_cache_status: GetWordListCacheStatus,
         get_daily_learn_budget: DailyLearnBudgetProvider = NULL_DAILY_LEARN_BUDGET,
+        app_version: str = "",
     ) -> None:
         super().__init__()
         self._clock = clock
@@ -60,7 +69,11 @@ class KeystrikeApp(App[None]):
         self._get_history = get_history
         self._cycle_layout = cycle_layout
         self._update_settings = update_settings
+        self._import_wordlist = import_wordlist
+        self._clear_wordlist = clear_wordlist
+        self._get_wordlist_cache_status = get_wordlist_cache_status
         self._get_daily_learn_budget = get_daily_learn_budget
+        self._app_version = app_version
 
     def on_mount(self) -> None:
         self.install_screen(self._build_home(), name="home")
@@ -71,15 +84,12 @@ class KeystrikeApp(App[None]):
             settings_repo=self._settings_repo,
             cycle_layout=self._cycle_layout,
             get_daily_learn_budget=self._get_daily_learn_budget,
+            app_version=self._app_version,
         )
 
     def on_home_screen_start_practice(self, _: HomeScreen.StartPractice) -> None:
         initial = self._prepare_practice()
         if initial is None:
-            self.notify(
-                "Daily learn limit reached. Change learn_daily_minutes in Settings.",
-                severity="warning",
-            )
             return
 
         practice = PracticeScreen(
@@ -112,6 +122,9 @@ class KeystrikeApp(App[None]):
                 settings_repo=self._settings_repo,
                 layout_repo=self._layout_repo,
                 update_settings=self._update_settings,
+                import_wordlist=self._import_wordlist,
+                clear_wordlist=self._clear_wordlist,
+                get_wordlist_cache_status=self._get_wordlist_cache_status,
             )
         )
 

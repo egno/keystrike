@@ -13,6 +13,7 @@ from tests.fakes import (
     FakeLayoutRepository,
     FakeSessionRepository,
     FakeSettingsRepository,
+    FakeWordListStore,
 )
 
 
@@ -33,6 +34,7 @@ def _prepare(*, settings: Settings | None = None) -> PreparePracticeSession:
             aggregates_cache=cache,
             settings_repo=settings_repo,
             language_provider=FakeLanguageProvider(),
+            wordlist_store=FakeWordListStore(),
             rng=Random(0),
         ),
         get_daily_learn_budget=get_daily_learn_budget,
@@ -48,7 +50,7 @@ def test_prepare_adaptive_builds_lesson():
     assert prep.lesson_heatmap is not None
 
 
-def test_prepare_adaptive_returns_none_when_daily_limit_reached():
+def test_prepare_adaptive_still_builds_lesson_when_daily_goal_reached():
     clock = FakeClock(wall=1_700_000_000.0)
     session_repo = FakeSessionRepository()
     settings_repo = FakeSettingsRepository(Settings(learn_daily_minutes=10))
@@ -77,10 +79,13 @@ def test_prepare_adaptive_returns_none_when_daily_limit_reached():
             aggregates_cache=cache,
             settings_repo=settings_repo,
             language_provider=FakeLanguageProvider(),
+            wordlist_store=FakeWordListStore(),
             rng=Random(0),
         ),
         get_daily_learn_budget=GetDailyLearnBudget(
             clock=clock, repo=session_repo, settings_repo=settings_repo,
         ),
     )
-    assert prepare() is None
+    prep = prepare()
+    assert prep is not None
+    assert prep.mode is Mode.ADAPTIVE

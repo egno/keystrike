@@ -51,6 +51,7 @@ class TomlSettingsRepository:
             learn_daily_minutes=int(
                 raw.get("learn_daily_minutes", defaults.learn_daily_minutes),
             ),
+            wordlist_url=str(raw.get("wordlist_url", defaults.wordlist_url)),
             updated_at=(
                 str(raw["updated_at"]) if raw.get("updated_at") is not None else None
             ),
@@ -67,6 +68,8 @@ class TomlSettingsRepository:
             ("learn_daily_minutes", settings.learn_daily_minutes),
             ("lang", settings.lang),
         ]
+        if settings.wordlist_url:
+            fields.append(("wordlist_url", settings.wordlist_url))
         for key, value in fields:
             lines.append(f"{key} = {_fmt_scalar(value)}\n")
         lines.append(f"updated_at = {_fmt_scalar(datetime.now(UTC).isoformat())}\n")
