@@ -1,10 +1,10 @@
 from typing import ClassVar, cast
 
 from textual.app import ComposeResult
-from textual.binding import BindingType
-from textual.containers import Horizontal, Vertical
+from textual.binding import Binding, BindingType
+from textual.containers import Vertical
 from textual.screen import Screen
-from textual.widgets import Button, Footer, Input, Label, Select, Static
+from textual.widgets import Footer, Input, Label, Select, Static
 from textual.widgets.select import NoSelection
 
 from keystrike.application.settings_use_cases import SettingsValidationError, UpdateSettings
@@ -30,17 +30,12 @@ class SettingsScreen(Screen[None]):
     SettingsScreen Label {
         margin-top: 1;
     }
-    SettingsScreen #settings-wordlist-actions {
-        height: auto;
-        width: 100%;
-    }
-    SettingsScreen #settings-wordlist-actions Button {
-        width: 1fr;
-    }
     """
 
     BINDINGS: ClassVar[list[BindingType]] = [
         SAVE,
+        Binding("i", "import_wordlist", "Import"),
+        Binding("c", "clear_wordlist", "Clear"),
         *BACK_BINDINGS,
     ]
 
@@ -105,9 +100,6 @@ class SettingsScreen(Screen[None]):
                 value=self._display_wordlist_url(settings.wordlist_url),
                 id="settings-wordlist-url",
             )
-            with Horizontal(id="settings-wordlist-actions"):
-                yield Button("Import", id="settings-wordlist-import")
-                yield Button("Clear", id="settings-wordlist-clear")
             yield Static(
                 self._wordlist_status(settings.wordlist_url),
                 id="settings-wordlist-status",
@@ -118,11 +110,11 @@ class SettingsScreen(Screen[None]):
     def on_mount(self) -> None:
         self._refresh_wordlist_status()
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "settings-wordlist-import":
-            self._do_import()
-        elif event.button.id == "settings-wordlist-clear":
-            self._do_clear()
+    def action_import_wordlist(self) -> None:
+        self._do_import()
+
+    def action_clear_wordlist(self) -> None:
+        self._do_clear()
 
     def action_save(self) -> None:
         speed_raw = self.query_one("#settings-speed", Input).value
