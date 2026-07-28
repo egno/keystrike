@@ -98,6 +98,8 @@ dev = [
     { name = "pyright" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
+]
+lint = [
     { name = "ruff" },
 ]
 
@@ -114,8 +116,8 @@ dev = [
     { name = "pyright", specifier = ">=1.1.380" },
     { name = "pytest", specifier = ">=8" },
     { name = "pytest-asyncio", specifier = ">=0.24" },
-    { name = "ruff", specifier = ">=0.6" },
 ]
+lint = [{ name = "ruff", specifier = ">=0.6" }]
 
 [[package]]
 name = "linkify-it-py"

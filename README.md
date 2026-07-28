@@ -9,25 +9,50 @@ text files, per-layout stats — all locally on disk, no network.
 Pre-alpha (M1). The MVP runs a fixed-text typing session and reports WPM and
 accuracy at the end.
 
-## Install (dev)
+## Install
+
+Runtime deps live in `[project] dependencies`. Dev tools are uv
+`dependency-groups` — `dev` (pure Python, synced by default) and `lint`
+(Ruff; desktop only).
+
+### Runtime only
+
+```bash
+uv sync --no-dev
+uv run keystrike run
+```
+
+### Dev (tests + typecheck)
+
+Includes the `dev` group (pytest, pyright, …). Safe on Android/Termux — all
+pure-Python wheels, no Ruff/maturin:
 
 ```bash
 uv sync
 uv run keystrike run
+uv run pytest -q
 ```
 
-On Android (Termux, etc.), runtime deps are pure Python — no native wheels
-required. Avoid adding dev tools that pull `markupsafe` (e.g.
-`pytest-textual-snapshot`) until snapshot tests are implemented; MarkupSafe has
-no PyPI wheels for the Android platform tag on Python 3.12.
+### Full dev (desktop)
+
+Also installs the `lint` group (Ruff). Skip on Android — Ruff has no Android
+wheels and its sdist build pulls `maturin`, which also fails there:
+
+```bash
+uv sync --all-groups
+uv run ruff check
+```
+
+Keep native-wheel dev tools out of `dev` (e.g. `pytest-textual-snapshot` →
+`markupsafe`; Ruff → `maturin`).
 
 ## Development
 
 ```bash
 uv run pytest -q         # tests
-uv run ruff check        # lint
-uv run ruff format       # format
 uv run pyright           # type check
+uv run ruff check        # lint (requires `--all-groups` or `--group lint`)
+uv run ruff format       # format
 ```
 
 ## License

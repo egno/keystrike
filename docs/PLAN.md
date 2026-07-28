@@ -144,13 +144,17 @@ keystrike/
 
 ### Tooling
 
-- `uv sync` — install/lock deps.
+- `uv sync --no-dev` — runtime deps only (textual, typer, platformdirs).
+- `uv sync` — runtime + `dev` group (pytest, pyright, …; pure Python,
+  Android-safe).
+- `uv sync --all-groups` — also `lint` group (Ruff; desktop only).
 - `uv run keystrike run` — launch the TUI.
 - `uv run pytest -q` — tests.
-- `uv run ruff check` / `uv run ruff format` — lint + format.
 - `uv run pyright` — strict type check (relaxed for `tests/`).
+- `uv run ruff check` / `uv run ruff format` — lint + format (needs
+  `--all-groups` or `--group lint`).
 
-All three (ruff, pyright, pytest) must be green before commit.
+Ruff, pyright, and pytest must be green before commit (Ruff on desktop only).
 
 ## 5. Current status (as of this handoff)
 
@@ -319,6 +323,8 @@ each; not repeated here to keep this section from growing unbounded.
 - Snapshot test coverage (add `pytest-textual-snapshot` when implementing; it
   pulls `jinja2` → `markupsafe`, which has no PyPI wheels for Android on
   Python 3.12 — keep it out of default dev deps until snapshot tests land).
+  Ruff lives in the optional `lint` group for the same reason (sdist build →
+  `maturin`, no Android wheels).
 - PyPI publish (`uv tool install keystrike`); double check `pyproject.toml`
   metadata (author, URLs) before publishing.
 - README with a demo GIF; Windows Terminal setup docs (raw-mode input hasn't

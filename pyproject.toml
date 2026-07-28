@@ -29,13 +29,19 @@ keystrike = "keystrike.cli:app"
 [project.urls]
 Homepage = "https://github.com/anthropic/keystrike"
 
+# Runtime deps are in [project].dependencies above.
+# uv sync --no-dev  → runtime only
+# uv sync           → runtime + dev (default group; pure Python)
+# uv sync --all-groups → + lint (Ruff; desktop only)
 [dependency-groups]
 dev = [
   "pytest>=8",
   "pytest-asyncio>=0.24",
   "hypothesis>=6.100",
-  "ruff>=0.6",
   "pyright>=1.1.380",
+]
+lint = [
+  "ruff>=0.6",  # manylinux wheels only; sdist → maturin (no Android wheel)
 ]
 
 [build-system]
