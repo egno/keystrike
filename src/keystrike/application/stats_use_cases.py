@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 
 from keystrike.domain.aggregate import aggregate_session, combine, per_key_deltas
-from keystrike.domain.confidence import key_confidence, target_ms_per_char
+from keystrike.domain.confidence import accuracy_of, key_confidence, target_ms_per_char
 from keystrike.domain.models import KeyStats, SessionResult
 from keystrike.domain.protocols import AggregatesCache, SessionRepository, SettingsRepository
 from keystrike.domain.regression import estimate_sessions_to_goal
@@ -42,7 +42,7 @@ class RebuildAggregates:
 
 def _stamp_peak_confidence(stats: dict[int, KeyStats], target: float) -> dict[int, KeyStats]:
     return {
-        cp: replace(k, peak_confidence=key_confidence(target, k.mean_time_ns))
+        cp: replace(k, peak_confidence=key_confidence(target, k.mean_time_ns) * accuracy_of(k))
         for cp, k in stats.items()
     }
 
@@ -59,7 +59,9 @@ class GetHeatmap:
         if not stats:
             return {}
         target = target_ms_per_char(self.settings_repo.load().target_speed_cpm)
-        return {cp: key_confidence(target, k.mean_time_ns) for cp, k in stats.items()}
+        return {
+            cp: key_confidence(target, k.mean_time_ns) * accuracy_of(k) for cp, k in stats.items()
+        }
 
 
 @dataclass(slots=True)

@@ -16,10 +16,17 @@ def target_ms_per_char(target_speed_cpm: int) -> float:
 
 
 def key_confidence(target_ms_per_char: float, mean_time_ns: float) -> float:
-    """confidence = target / actual. > 1.0 is above target, < 1.0 is below."""
+    """Speed confidence = target / actual. > 1.0 is above target, < 1.0 is below."""
     if mean_time_ns <= 0:
         return 0.0
     return target_ms_per_char / (mean_time_ns / 1e6)
+
+
+def accuracy_of(key_stats: KeyStats) -> float:
+    """Fraction of attempts on this key that were correct. 0.0 for a key with
+    no correct attempts yet, including one that's been missed but never hit."""
+    total = key_stats.samples + key_stats.error_count
+    return key_stats.samples / total if total > 0 else 0.0
 
 
 def confidence_of(
@@ -27,13 +34,17 @@ def confidence_of(
 ) -> float:
     """Confidence for one key: historical peak (`recover_keys=True`, so a bad
     recent session doesn't un-recommend an already-mastered key) or live,
-    recomputed from the current target. 0.0 for a never-practiced key."""
+    recomputed from the current target. 0.0 for a never-practiced key.
+
+    Speed confidence is scaled by accuracy so a key typed fast but frequently
+    wrong doesn't read as mastered (accuracy-first: see docs/research/typing-pedagogy.md).
+    """
     key_stats = stats.get(codepoint)
     if key_stats is None:
         return 0.0
     if recover_keys:
         return key_stats.peak_confidence
-    return key_confidence(target, key_stats.mean_time_ns)
+    return key_confidence(target, key_stats.mean_time_ns) * accuracy_of(key_stats)
 
 
 def compute_unlocked(
