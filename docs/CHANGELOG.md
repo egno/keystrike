@@ -5,6 +5,15 @@ rationale lives in commit history/diffs — these are pointers, not narratives.
 Milestone-level feature work (what shipped in M1–M4, the keybr algorithm
 design) stays in `PLAN.md` §5/§6.
 
+## 1.0.0 — first stable release
+
+- Adaptive-only practice flow (keybr-style confidence engine, Markov drills,
+  per-layout stats, daily learn budget, four bundled layouts + custom TOML).
+- PyPI package (`uv tool install keystrike`); version and metadata finalized.
+- README with demo GIF, Windows Terminal setup notes, install/usage docs.
+- CI matrix on macOS, Linux, and Windows (Python 3.12/3.13); snapshot tests in
+  optional `snapshot` dependency group (`pytest-textual-snapshot`).
+
 ## ArjanCodes-lens architecture review — 6 findings fixed
 
 Full-codebase review after M4 (adaptive, code, daily learn budget, HUD): session

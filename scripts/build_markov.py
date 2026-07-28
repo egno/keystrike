@@ -12,7 +12,7 @@ Usage:
 
 Defaults to macOS's /usr/share/dict/words. Re-run whenever the corpus or
 `ORDER` changes; commit the resulting .json.gz, since it's bundled with the
-package (see pyproject.toml's wheel force-include for this data directory).
+package (see pyproject.toml wheel `packages` for this data directory).
 """
 
 from __future__ import annotations

@@ -3,8 +3,8 @@ from textual.app import App
 from textual.widgets import Input, Select
 
 from keystrike.application.settings_use_cases import UpdateSettings
-from keystrike.domain.generator import cpm_from_wpm, wpm_from_cpm
 from keystrike.domain.enums import TargetSpeedUnit
+from keystrike.domain.generator import cpm_from_wpm, wpm_from_cpm
 from keystrike.domain.models import Settings
 from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS
 from keystrike.presentation.screens.settings import SettingsScreen

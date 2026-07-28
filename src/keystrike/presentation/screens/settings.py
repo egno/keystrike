@@ -8,8 +8,8 @@ from textual.widgets import Footer, Input, Label, Select, Static
 from textual.widgets.select import NoSelection
 
 from keystrike.application.settings_use_cases import SettingsValidationError, UpdateSettings
-from keystrike.domain.generator import cpm_from_wpm, wpm_from_cpm
 from keystrike.domain.enums import TargetSpeedUnit
+from keystrike.domain.generator import cpm_from_wpm, wpm_from_cpm
 from keystrike.domain.protocols import LayoutRepository, SettingsRepository
 from keystrike.presentation.bindings import BACK_BINDINGS, SAVE
 

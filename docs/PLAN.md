@@ -318,22 +318,16 @@ Timer-doesn't-start-until-first-keystroke, backspace disabled in Adaptive
 mode, and the accuracy-aware confidence fix — see `docs/CHANGELOG.md` for
 each; not repeated here to keep this section from growing unbounded.
 
-### Start here next: M5 — Release (referenced from `~/.claude/plans/quiet-snuggling-aurora.md`)
+### M5 — Release: shipped (1.0.0)
 
-- Snapshot test coverage (add `pytest-textual-snapshot` when implementing; it
-  pulls `jinja2` → `markupsafe`, which has no PyPI wheels for Android on
-  Python 3.12 — keep it out of default dev deps until snapshot tests land).
-  Ruff lives in the optional `lint` group for the same reason (sdist build →
-  `maturin`, no Android wheels). `hypothesis` was removed from `dev` — it
-  shipped no Android wheel and was unused in tests.
-- PyPI publish (`uv tool install keystrike`); double check `pyproject.toml`
-  metadata (author, URLs) before publishing.
-- README with a demo GIF; Windows Terminal setup docs (raw-mode input hasn't
-  been verified outside macOS yet).
-- A Linux/Windows CI matrix — everything so far has only run on macOS.
-- Optional polish: `presentation/widgets/key_progress.py` (deferred since M2)
-  if a per-key learning-rate visualization is wanted alongside the heatmap —
-  `GetLearningRate` already exists and could back it directly.
+- Snapshot tests in optional `snapshot` group (`pytest-textual-snapshot`; kept
+  out of default `dev` — pulls `jinja2` → `markupsafe`, no Android wheels).
+- PyPI publish (`uv tool install keystrike`); `pyproject.toml` metadata updated
+  (author, `egno/keystrike` URLs, Production/Stable classifier).
+- README with demo GIF (`docs/assets/demo.gif`), Windows Terminal setup docs.
+- Linux/Windows/macOS CI matrix (Python 3.12/3.13) + snapshot job on macOS.
+- `presentation/widgets/key_progress.py` still deferred — heatmap covers the
+  per-key view for v1.
 
 ## 6. Keybr algorithm — cheat sheet
 
