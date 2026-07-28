@@ -18,7 +18,7 @@ from keystrike.domain.protocols import (
 )
 from keystrike.domain.session import BACKSPACE, Session
 
-_SPARK = "▁▂▃▄▅▆▇█"
+_SPARK = "01234567"
 
 
 @dataclass(slots=True)
@@ -238,7 +238,7 @@ def compute_accuracy(result: SessionResult) -> float:
 
 
 def value_sparkline(values: Sequence[float]) -> str:
-    """Unicode sparkline for numeric values, oldest→newest."""
+    """ASCII sparkline for numeric values, oldest->newest."""
     if not values:
         return ""
     lo, hi = min(values), max(values)
@@ -253,7 +253,7 @@ def value_sparkline(values: Sequence[float]) -> str:
 
 
 def wpm_sparkline(headers: Sequence[SessionResult], *, limit: int = 20) -> str:
-    """Unicode sparkline of WPM per session, oldest→newest."""
+    """ASCII sparkline of WPM per session, oldest->newest."""
     ordered = sorted(headers, key=lambda h: h.started_at)[-limit:]
     if not ordered:
         return ""
@@ -271,7 +271,7 @@ def focus_confidence_values(
 
 
 def focus_confidence_sparkline(headers: Sequence[SessionResult], *, limit: int = 20) -> str:
-    """Unicode sparkline of focus-key confidence per session, oldest→newest."""
+    """ASCII sparkline of focus-key confidence per session, oldest->newest."""
     values = focus_confidence_values(headers, limit=limit)
     if not values:
         return ""

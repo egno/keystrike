@@ -59,11 +59,11 @@ class StatsScreen(Screen[None]):
 
     def compose(self) -> ComposeResult:
         with Vertical():
-            yield Static(f"[bold]Stats — {self._layout_name}[/]", id="stats-title")
+            yield Static(f"[bold]Stats - {self._layout_name}[/]", id="stats-title")
             yield Static("", id="stats-wpm-trend")
             yield Static("", id="stats-focus-confidence")
             yield Static("", id="stats-key-detail")
-            yield Static("[dim]Loading…[/]", id="stats-history")
+            yield Static("[dim]Loading...[/]", id="stats-history")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -75,7 +75,7 @@ class StatsScreen(Screen[None]):
         self._heatmap_confidence = heatmap_view.confidence
         self._heatmap_urgency = heatmap_view.urgency
 
-        title = f"[bold]Stats — {self._layout_name}[/]"
+        title = f"[bold]Stats - {self._layout_name}[/]"
         if layout.ortholinear:
             title += "  [dim](ortholinear)[/]"
         self.query_one("#stats-title", Static).update(title)

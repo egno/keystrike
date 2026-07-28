@@ -29,7 +29,7 @@ def render_typing_text(session: Session) -> Text:
     last_was_wrong = last_ks is not None and not last_ks.correct and cursor < len(target)
 
     for i, ch in enumerate(target):
-        display = ch if ch != " " else "·"
+        display = ch if ch != " " else "."
         if i < cursor:
             style = STYLE_CORRECTED if i in session.error_positions else STYLE_CORRECT
             text.append(display, style)

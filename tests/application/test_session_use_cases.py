@@ -289,7 +289,7 @@ def test_focus_confidence_missing_key_defaults_zero():
     ]
     spark = focus_confidence_sparkline(headers)
     assert len(spark) == 1
-    assert spark[0] == "▁"
+    assert spark[0] == "0"
 
 
 def test_key_confidence_values_tracks_codepoint_across_sessions():
