@@ -46,9 +46,14 @@ jobs:
         with:
           python-version: "3.12"
       - run: uv sync --group snapshot
+      - run: uv run pytest -m snapshot --snapshot-update -q
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ci-snapshots
+          path: tests/presentation/__snapshots__/
       - run: uv run pytest -m snapshot -q
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
           name: snapshot-report
-          path: snapshot_report/
+          path: snapshot_report.html
