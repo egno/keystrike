@@ -329,6 +329,36 @@ each; not repeated here to keep this section from growing unbounded.
 - `presentation/widgets/key_progress.py` still deferred — heatmap covers the
   per-key view for v1.
 
+### Deferred → Git-backed backup
+
+Opt-in CLI power-user feature — **not** cloud sync, no background daemon, no
+auto-sync when a session finishes. Requires `git` on `PATH`.
+
+Commands: `keystrike sync init <repo-url>`, `pull`, `push`, `status`.
+
+**Synced paths** (authoritative only):
+
+- `settings.toml`
+- `layouts/*.toml`
+- `sessions/index.jsonl`
+- `sessions/**/*.jsonl`
+
+**Not synced:** `cache/` — after a successful pull, `RebuildAggregates` replays
+all layouts found in the merged session index.
+
+**Merge rules** (custom logic; JSONL is never left to git's native merge):
+
+- **Sessions:** union by `session_id` — copy missing session files, append
+  missing index entries; existing local IDs are never overwritten.
+- **Settings:** last-write-wins via optional `updated_at` ISO field in
+  `settings.toml` (written on every save); falls back to file mtime when absent.
+- **Layouts:** pull copies remote layouts missing locally; push copies all local
+  custom layouts into the clone.
+
+Config lives at `{config_dir}/sync.toml` (remote URL); clone at
+`{config_dir}/sync/repo`. Implementation: `domain/sync_merge.py`,
+`infrastructure/sync_git.py`, `application/sync_use_cases.py`.
+
 ## 6. Keybr algorithm — cheat sheet
 
 Pre-researched from `github.com/aradzie/keybr.com`. Reuse this — do not

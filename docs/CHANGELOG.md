@@ -5,6 +5,13 @@ rationale lives in commit history/diffs — these are pointers, not narratives.
 Milestone-level feature work (what shipped in M1–M4, the keybr algorithm
 design) stays in `PLAN.md` §5/§6.
 
+## Unreleased
+
+- Git-backed backup sync (CLI-only, opt-in): `keystrike sync init|pull|push|status`.
+  Union-merge sessions by `session_id`, settings last-write-wins via `updated_at`
+  (or mtime fallback), layouts copied on pull/push; `cache/` excluded — pull
+  triggers aggregate rebuild. See `PLAN.md` §5 "Deferred → Git-backed backup".
+
 ## 1.0.0 — first stable release
 
 - Adaptive-only practice flow (keybr-style confidence engine, Markov drills,

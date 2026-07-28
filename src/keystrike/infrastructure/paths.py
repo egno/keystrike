@@ -32,6 +32,14 @@ class Paths:
     def cache_dir(self) -> Path:
         return self.data_dir / "cache"
 
+    @property
+    def sync_config_file(self) -> Path:
+        return self.config_dir / "sync.toml"
+
+    @property
+    def sync_clone_dir(self) -> Path:
+        return self.config_dir / "sync" / "repo"
+
 
 def default_paths() -> Paths:
     dirs = PlatformDirs(appname=_APP_NAME, appauthor=False)

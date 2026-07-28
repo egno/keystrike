@@ -101,3 +101,15 @@ class Settings:
     alphabet_size: int = 16             # letters force-unlocked from cold start
     lang: str = "en"
     learn_daily_minutes: int = 10        # adaptive mode cap per calendar day; 0 = unlimited
+    updated_at: str | None = None          # ISO-8601 UTC; sync LWW
+
+
+@dataclass(frozen=True, slots=True)
+class SyncStatusReport:
+    configured: bool
+    remote_url: str | None
+    git_status: str
+    local_sessions: int
+    clone_sessions: int
+    only_local: int
+    only_clone: int

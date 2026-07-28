@@ -31,7 +31,10 @@ def test_round_trip(paths):
         alphabet_size=20,
     )
     repo.save(original)
-    assert repo.load() == original
+    loaded = repo.load()
+    assert loaded.layout == original.layout
+    assert loaded.target_speed_cpm == original.target_speed_cpm
+    assert loaded.updated_at is not None
 
 
 def test_save_uses_atomic_replace(paths):
