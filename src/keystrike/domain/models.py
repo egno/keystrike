@@ -31,6 +31,7 @@ class SessionResult:
     lang: str = "en"
     unlocked_keys: tuple[int, ...] = ()
     key_confidence: dict[int, float] = field(default_factory=_empty_key_confidence)
+    target_speed_cpm: int = 0  # goal active at finish; 0 = legacy sessions
 
 
 @dataclass(frozen=True, slots=True)

@@ -84,6 +84,7 @@ class Lesson:
     state: LessonState
     urgency: dict[int, float]
     focus_reason: str | None
+    focus_confidence: float | None = None
 
     @property
     def focus_key(self) -> int:
@@ -203,11 +204,16 @@ class BuildLesson:
         if focus_bigram is not None:
             prev_cp, next_cp = focus_bigram
             reason = _focus_reason_transition(prev_cp, next_cp, transitions, target, now)
+            focus_confidence = transition_confidence_of(
+                prev_cp, next_cp, transitions, target,
+            )
         else:
             reason = _focus_reason(focus, stats, target, now)
+            focus_confidence = confidence_of(focus, stats, target)
         return Lesson(
             text=text,
             state=state,
             urgency=urgency,
             focus_reason=reason,
+            focus_confidence=focus_confidence if reason else None,
         )

@@ -42,6 +42,7 @@ class StatsScreen(Screen[None]):
         rebuild_aggregates: StatsRebuilder,
         get_heatmap: GetHeatmap,
         get_history: GetHistory,
+        current_target_speed_cpm: int = 0,
     ) -> None:
         super().__init__()
         self._layout_name = layout
@@ -49,6 +50,7 @@ class StatsScreen(Screen[None]):
         self._rebuild_aggregates = rebuild_aggregates
         self._get_heatmap = get_heatmap
         self._get_history = get_history
+        self._current_target_speed_cpm = current_target_speed_cpm
         self._view: _View = "overview"
         self._selected_cp: int | None = None
         self._layout: Layout | None = None
@@ -83,7 +85,11 @@ class StatsScreen(Screen[None]):
         self._kb_heatmap = KbHeatmap(
             layout, heatmap_view.confidence, urgency=heatmap_view.urgency,
         )
-        self.query_one(Vertical).mount(self._kb_heatmap, before="#stats-history")
+        self.query_one(Vertical).mount(
+            Static("[dim]vs current goal[/]", id="stats-heatmap-caption"),
+            self._kb_heatmap,
+            before="#stats-history",
+        )
 
         self._trend_history = self._get_history(self._layout_name, limit=20)
         self._render_overview()
@@ -134,7 +140,10 @@ class StatsScreen(Screen[None]):
             wpm_line if wpm_line else "[dim]No sessions yet for WPM trend.[/]"
         )
 
-        focus_line = format_focus_confidence_trend_line(self._trend_history)
+        focus_line = format_focus_confidence_trend_line(
+            self._trend_history,
+            current_target_speed_cpm=self._current_target_speed_cpm,
+        )
         self.query_one("#stats-focus-confidence", Static).update(
             focus_line if focus_line else "[dim]No sessions yet for focus confidence.[/]"
         )
@@ -159,11 +168,10 @@ class StatsScreen(Screen[None]):
         self.query_one("#stats-wpm-trend", Static).display = False
         self.query_one("#stats-focus-confidence", Static).display = False
         self.query_one("#stats-history", Static).display = False
-        cumulative = self._heatmap_confidence.get(codepoint)
         detail_line = format_key_confidence_trend_line(
             self._trend_history,
             codepoint,
-            cumulative=cumulative,
+            current_target_speed_cpm=self._current_target_speed_cpm,
         )
         key_detail = self.query_one("#stats-key-detail", Static)
         key_detail.update(

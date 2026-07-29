@@ -113,6 +113,7 @@ class KeystrikeApp(App[None]):
                 rebuild_aggregates=self._rebuild_aggregates,
                 get_heatmap=self._get_heatmap,
                 get_history=self._get_history,
+                current_target_speed_cpm=settings.target_speed_cpm,
             )
         )
 

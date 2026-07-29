@@ -123,6 +123,35 @@ def test_legacy_header_without_unlocked_keys_defaults_empty(paths):
     assert headers[0].unlocked_keys == ()
 
 
+def test_legacy_header_without_target_speed_cpm_defaults_zero(paths):
+    repo = JsonlSessionRepository(paths)
+    repo.save_header(_header())
+
+    headers = list(JsonlSessionRepository(paths).iter_headers("qwerty"))
+    assert headers[0].target_speed_cpm == 0
+
+
+def test_round_trip_target_speed_cpm(paths):
+    repo = JsonlSessionRepository(paths)
+    header = SessionResult(
+        schema_version=3,
+        session_id="S5",
+        started_at=1_700_000_000.0,
+        duration_ns=1_000_000_000,
+        layout="qwerty",
+        mode=Mode.ADAPTIVE,
+        lesson_alphabet=(ord("a"),),
+        focus_key=ord("a"),
+        total_keystrokes=1,
+        correct_keystrokes=1,
+        target_speed_cpm=400,
+    )
+    repo.save_header(header)
+
+    headers = list(JsonlSessionRepository(paths).iter_headers("qwerty"))
+    assert headers[0].target_speed_cpm == 400
+
+
 def test_keystroke_before_header_still_recoverable(paths):
     # Real flow: append happens per keystroke (with started_at), save_header runs at end.
     repo = JsonlSessionRepository(paths)

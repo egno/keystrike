@@ -6,7 +6,7 @@ from textual.widgets import Static
 
 from keystrike.application.stats_use_cases import GetHeatmap, GetHistory, RebuildAggregates
 from keystrike.domain.enums import Mode
-from keystrike.domain.models import Keystroke, SessionResult
+from keystrike.domain.models import Keystroke, SessionResult, Settings
 from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS
 from keystrike.presentation.screens.stats import StatsScreen
 from tests.fakes import (
@@ -17,9 +17,14 @@ from tests.fakes import (
 )
 
 
-def _build_screen(repo: FakeSessionRepository, layout: str = "qwerty") -> StatsScreen:
+def _build_screen(
+    repo: FakeSessionRepository,
+    layout: str = "qwerty",
+    *,
+    settings: Settings | None = None,
+) -> StatsScreen:
     cache = FakeAggregatesCache()
-    settings_repo = FakeSettingsRepository()
+    settings_repo = FakeSettingsRepository(settings or Settings())
     layout_repo = FakeLayoutRepository(dict(BUNDLED_LAYOUTS))
     return StatsScreen(
         layout=layout,
@@ -27,6 +32,7 @@ def _build_screen(repo: FakeSessionRepository, layout: str = "qwerty") -> StatsS
         rebuild_aggregates=RebuildAggregates(repo=repo, cache=cache),
         get_heatmap=GetHeatmap(cache=cache, settings_repo=settings_repo),
         get_history=GetHistory(repo=repo),
+        current_target_speed_cpm=settings_repo.settings.target_speed_cpm,
     )
 
 
@@ -69,6 +75,8 @@ async def test_stats_screen_with_sessions_renders_history_and_heatmap():
         history_text = str(app.screen.query_one("#stats-history", Static).content)
         assert "wpm" in history_text
         assert app.screen.query_one("#kb-heatmap-text") is not None
+        caption = str(app.screen.query_one("#stats-heatmap-caption", Static).content)
+        assert "vs current goal" in caption
 
 
 @pytest.mark.asyncio
@@ -153,6 +161,7 @@ def _session_with_key_confidence(
     session_id: str,
     started_at: float,
     key_confidence: dict[int, float],
+    target_speed_cpm: int = 0,
 ) -> SessionResult:
     return SessionResult(
         schema_version=3,
@@ -166,6 +175,7 @@ def _session_with_key_confidence(
         total_keystrokes=50,
         correct_keystrokes=50,
         key_confidence=key_confidence,
+        target_speed_cpm=target_speed_cpm,
     )
 
 
@@ -190,6 +200,7 @@ async def test_stats_key_press_shows_key_detail():
         assert screen._selected_cp == ord("e")
         detail = str(screen.query_one("#stats-key-detail", Static).content)
         assert "'e' confidence" in detail
+        assert "cumulative" not in detail
         assert screen.query_one("#stats-wpm-trend", Static).display is False
         assert screen.query_one("#stats-history", Static).display is False
 
@@ -223,6 +234,56 @@ async def test_stats_key_detail_switches_key_without_overview():
         assert "'b' confidence" in detail
         assert "'a' confidence" not in detail
         assert screen.query_one("#stats-wpm-trend", Static).display is False
+
+
+@pytest.mark.asyncio
+async def test_stats_key_detail_normalizes_confidence_to_current_goal():
+    """Key-detail trend rescales stored snapshots to the current goal."""
+    app = App()
+    async with app.run_test() as pilot:
+        repo = FakeSessionRepository()
+        repo.save_header(_session_with_key_confidence(
+            session_id="s1",
+            started_at=1.0,
+            key_confidence={ord("e"): 1.0},
+            target_speed_cpm=300,
+        ))
+        await app.push_screen(_build_screen(
+            repo,
+            settings=Settings(target_speed_cpm=600),
+        ))
+        await pilot.pause()
+
+        await pilot.press("e")
+        await pilot.pause()
+
+        detail = str(app.screen.query_one("#stats-key-detail", Static).content)
+        assert "latest 0.50" in detail
+
+
+@pytest.mark.asyncio
+async def test_stats_key_detail_stable_when_goal_changes():
+    """Key-detail trend uses frozen snapshots, not live heatmap confidence."""
+    app = App()
+    async with app.run_test() as pilot:
+        repo = FakeSessionRepository()
+        repo.save_header(_session_with_key_confidence(
+            session_id="s1",
+            started_at=1.0,
+            key_confidence={ord("e"): 0.82},
+        ))
+        await app.push_screen(_build_screen(
+            repo,
+            settings=Settings(target_speed_cpm=600),
+        ))
+        await pilot.pause()
+
+        await pilot.press("e")
+        await pilot.pause()
+
+        detail = str(app.screen.query_one("#stats-key-detail", Static).content)
+        assert "latest 0.82" in detail
+        assert "cumulative" not in detail
 
 
 @pytest.mark.asyncio

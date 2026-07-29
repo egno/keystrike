@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 from keystrike.application.session_use_cases import (
     AbortSession,
     FinishSession,
@@ -245,6 +247,29 @@ def test_finish_session_persists_key_confidence(clock, id_gen):
     assert repo.headers[0].key_confidence == result.key_confidence
 
 
+def test_finish_session_persists_target_speed_cpm(clock, id_gen):
+    settings_repo = FakeSettingsRepository()
+    settings_repo.settings = replace(settings_repo.settings, target_speed_cpm=400)
+    layout_repo = FakeLayoutRepository(dict(BUNDLED_LAYOUTS))
+    repo = FakeSessionRepository()
+    finish = FinishSession(
+        clock=clock,
+        repo=repo,
+        aggregates_cache=FakeAggregatesCache(),
+        settings_repo=settings_repo,
+        layout_repo=layout_repo,
+    )
+    start = StartSession(clock=clock, id_gen=id_gen)
+    record = RecordKeystroke(clock=clock, repo=repo)
+    session = start("a", layout="qwerty", mode=Mode.ADAPTIVE, focus_key=ord("a"))
+    clock.advance(100_000_000)
+    record(session, "a")
+    result = finish(session)
+
+    assert result.target_speed_cpm == 400
+    assert repo.headers[0].target_speed_cpm == 400
+
+
 def test_focus_confidence_sparkline_uses_focus_key_per_session():
     headers = [
         SessionResult(
@@ -356,6 +381,70 @@ def test_key_confidence_values_tracks_codepoint_across_sessions():
     spark = key_confidence_sparkline(headers, ord("e"))
     assert len(spark) == 2
     assert spark[0] <= spark[1]
+
+
+def test_key_confidence_values_normalize_to_current_goal():
+    headers = [
+        SessionResult(
+            schema_version=3,
+            session_id="s1",
+            started_at=1.0,
+            duration_ns=60_000_000_000,
+            layout="qwerty",
+            mode=Mode.ADAPTIVE,
+            lesson_alphabet=(),
+            focus_key=ord("e"),
+            total_keystrokes=50,
+            correct_keystrokes=50,
+            key_confidence={ord("e"): 1.0},
+            target_speed_cpm=300,
+        ),
+    ]
+    values = key_confidence_values(headers, ord("e"), current_target_speed_cpm=600)
+    assert values == [0.5]
+
+
+def test_key_confidence_values_legacy_session_unnormalized():
+    headers = [
+        SessionResult(
+            schema_version=3,
+            session_id="s1",
+            started_at=1.0,
+            duration_ns=60_000_000_000,
+            layout="qwerty",
+            mode=Mode.ADAPTIVE,
+            lesson_alphabet=(),
+            focus_key=ord("e"),
+            total_keystrokes=50,
+            correct_keystrokes=50,
+            key_confidence={ord("e"): 0.82},
+            target_speed_cpm=0,
+        ),
+    ]
+    values = key_confidence_values(headers, ord("e"), current_target_speed_cpm=600)
+    assert values == [0.82]
+
+
+def test_format_focus_confidence_trend_line_normalizes_to_current_goal():
+    headers = [
+        SessionResult(
+            schema_version=3,
+            session_id="s1",
+            started_at=1.0,
+            duration_ns=60_000_000_000,
+            layout="qwerty",
+            mode=Mode.ADAPTIVE,
+            lesson_alphabet=(),
+            focus_key=ord("e"),
+            total_keystrokes=50,
+            correct_keystrokes=50,
+            key_confidence={ord("e"): 1.0},
+            target_speed_cpm=300,
+        ),
+    ]
+    line = format_focus_confidence_trend_line(headers, current_target_speed_cpm=600)
+    assert "latest 0.50" in line
+    assert "peak 0.50" in line
 
 
 def test_format_key_confidence_trend_line_includes_cumulative():

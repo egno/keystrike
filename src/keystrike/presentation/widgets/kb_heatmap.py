@@ -9,7 +9,9 @@ _ROWS = 3
 _COLS = 10
 _CONFIDENCE_GOOD = 1.0
 _CONFIDENCE_OK = 0.6
-_FOCUS_STYLE = "bold underline cyan"
+_CONFIDENCE_GOAL = _CONFIDENCE_GOOD
+_FOCUS_MASTERED_STYLE = "underline cyan"
+_FOCUS_STYLE = "underline"
 _REVIEW_STYLE = "underline magenta"
 
 
@@ -29,11 +31,16 @@ def _key_style(
     *,
     is_focus: bool,
 ) -> str:
-    if is_focus:
-        return _FOCUS_STYLE
     style = _confidence_style(confidence)
     if urgency > 0:
         style = f"{style} {_REVIEW_STYLE}"
+    if is_focus:
+        focus_style = (
+            _FOCUS_MASTERED_STYLE
+            if confidence is not None and confidence >= _CONFIDENCE_GOOD
+            else _FOCUS_STYLE
+        )
+        style = f"{style} {focus_style}"
     return style
 
 
@@ -49,9 +56,9 @@ def render_heatmap(
     the physical row-shift of a regular keyboard. Ortholinear layouts render
     with columns aligned instead — there's no physical stagger to show.
 
-    `focus`, if given, overrides that one key's style regardless of its
-    confidence — used by Practice to call out today's lesson's focus letter
-    among the (otherwise identically-styled) unlocked keys.
+    `focus`, if given, adds an underline on top of the key's confidence color —
+    cyan when mastered (confidence >= 1.0), plain underline when still weak.
+    Used by Practice to call out today's lesson focus without hiding yellow/red.
 
     Keys with review urgency > 0 get a magenta underline on top of their
     confidence color so stale-but-mastered keys stand apart from merely weak ones.
@@ -80,6 +87,42 @@ def render_heatmap(
                 text.append(f" {ch} ", style)
         text.append("\n")
     return text
+
+
+def format_focus_note(
+    focus_key: int | None,
+    focus_reason: str | None,
+    *,
+    confidence: float | None = None,
+    goal: float = _CONFIDENCE_GOAL,
+) -> str | None:
+    if focus_key is None or not focus_reason:
+        return None
+    actual = f"{confidence:.2f}" if confidence is not None else "0.00"
+    goal_s = f"{goal:.2f}"
+    metrics = f"confidence {actual} / {goal_s}"
+    key = chr(focus_key)
+
+    if focus_reason == "weak":
+        return f"[dim]Focus [bold]{key}[/] ({focus_reason}): {metrics}.[/]"
+    if focus_reason == "review":
+        return (
+            f"[dim]Focus [bold]{key}[/] ({focus_reason}): {metrics}. "
+            "Resurfacing before it fades.[/]"
+        )
+    if focus_reason.endswith(" weak transition"):
+        pair = focus_reason.removesuffix(" weak transition")
+        return (
+            f"[dim]Focus [bold]{pair}[/] ({focus_reason}): {metrics}. "
+            "Practice text favors this pair.[/]"
+        )
+    if focus_reason.endswith(" review transition"):
+        pair = focus_reason.removesuffix(" review transition")
+        return (
+            f"[dim]Focus [bold]{pair}[/] ({focus_reason}): {metrics}. "
+            "Transition due for review.[/]"
+        )
+    return None
 
 
 class KbHeatmap(Widget):
