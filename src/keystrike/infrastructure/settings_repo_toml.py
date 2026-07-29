@@ -47,6 +47,18 @@ class TomlSettingsRepository:
             target_speed_cpm=int(raw.get("target_speed_cpm", defaults.target_speed_cpm)),
             target_speed_unit=target_speed_unit,
             alphabet_size=int(raw.get("alphabet_size", defaults.alphabet_size)),
+            confidence_session_window=int(
+                raw.get("confidence_session_window", defaults.confidence_session_window),
+            ),
+            min_confidence_attempts=int(
+                raw.get("min_confidence_attempts", defaults.min_confidence_attempts),
+            ),
+            min_transition_confidence_attempts=int(
+                raw.get(
+                    "min_transition_confidence_attempts",
+                    defaults.min_transition_confidence_attempts,
+                ),
+            ),
             lang=str(raw.get("lang", defaults.lang)),
             learn_daily_minutes=int(
                 raw.get("learn_daily_minutes", defaults.learn_daily_minutes),
@@ -65,6 +77,12 @@ class TomlSettingsRepository:
             ("target_speed_cpm", settings.target_speed_cpm),
             ("target_speed_unit", settings.target_speed_unit),
             ("alphabet_size", settings.alphabet_size),
+            ("confidence_session_window", settings.confidence_session_window),
+            ("min_confidence_attempts", settings.min_confidence_attempts),
+            (
+                "min_transition_confidence_attempts",
+                settings.min_transition_confidence_attempts,
+            ),
             ("learn_daily_minutes", settings.learn_daily_minutes),
             ("lang", settings.lang),
         ]

@@ -10,6 +10,7 @@ from random import Random
 
 from keystrike.domain.aggregate import transition_key
 from keystrike.domain.confidence import (
+    FOCUS_CHAR_BOOST,
     compute_unlocked,
     confidence_of,
     focus_key_from_transition,
@@ -49,10 +50,12 @@ def _focus_reason(
     stats: dict[int, KeyStats],
     target: float,
     now: float,
+    *,
+    min_attempts: int,
 ) -> str | None:
     key_stats = stats.get(focus)
     urgency = review_urgency(key_stats.last_seen if key_stats else 0.0, now)
-    confidence = confidence_of(focus, stats, target)
+    confidence = confidence_of(focus, stats, target, min_attempts=min_attempts)
     if urgency > 0 and confidence >= _CONFIDENCE_GOOD:
         return "review"
     if confidence < _CONFIDENCE_GOOD:
@@ -66,11 +69,15 @@ def _focus_reason_transition(
     transitions: dict[str, TransitionStats],
     target: float,
     now: float,
+    *,
+    min_attempts: int,
 ) -> str | None:
     pair = chr(prev_cp) + chr(next_cp)
     t_stats = transitions.get(transition_key(prev_cp, next_cp))
     urgency = review_urgency(t_stats.last_seen if t_stats else 0.0, now)
-    confidence = transition_confidence_of(prev_cp, next_cp, transitions, target)
+    confidence = transition_confidence_of(
+        prev_cp, next_cp, transitions, target, min_attempts=min_attempts,
+    )
     if urgency > 0 and confidence >= _CONFIDENCE_GOOD:
         return f"{pair} review transition"
     if confidence < _CONFIDENCE_GOOD:
@@ -106,21 +113,41 @@ def _lesson_progress(
 ) -> tuple[tuple[int, ...], int, LessonState, tuple[int, int] | None]:
     target = target_ms_per_char(settings.target_speed_cpm)
     order = keyboard_order(layout)
-    unlocked = compute_unlocked(order, settings.alphabet_size, stats, target)
+    unlocked = compute_unlocked(
+        order,
+        settings.alphabet_size,
+        stats,
+        target,
+        min_attempts=settings.min_confidence_attempts,
+    )
     focus_bigram = (
-        select_focus_transition(unlocked, transitions, target, now)
+        select_focus_transition(
+            unlocked,
+            transitions,
+            target,
+            now,
+            min_attempts=settings.min_transition_confidence_attempts,
+        )
         if transitions else None
     )
     if focus_bigram is not None:
         focus = focus_key_from_transition(*focus_bigram)
     else:
-        focus = select_focus(unlocked, stats, target, now)
+        focus = select_focus(
+            unlocked,
+            stats,
+            target,
+            now,
+            min_attempts=settings.min_confidence_attempts,
+        )
 
     keys = tuple(
         LessonKey(
             codepoint=cp,
             unlocked=True,
-            confidence=confidence_of(cp, stats, target),
+            confidence=confidence_of(
+                cp, stats, target, min_attempts=settings.min_confidence_attempts,
+            ),
             is_focus=(cp == focus),
         )
         for cp in unlocked
@@ -167,9 +194,16 @@ class BuildLesson:
             )
             for k in state.keys
         }
+        char_weights[chr(focus)] *= FOCUS_CHAR_BOOST
         transition_weights = {
             transition_key(prev, nxt): transition_practice_weight(
-                transition_confidence_of(prev, nxt, transitions, target),
+                transition_confidence_of(
+                    prev,
+                    nxt,
+                    transitions,
+                    target,
+                    min_attempts=settings.min_transition_confidence_attempts,
+                ),
                 urgency=review_urgency(
                     transitions[transition_key(prev, nxt)].last_seen
                     if transition_key(prev, nxt) in transitions else 0.0,
@@ -203,13 +237,32 @@ class BuildLesson:
         }
         if focus_bigram is not None:
             prev_cp, next_cp = focus_bigram
-            reason = _focus_reason_transition(prev_cp, next_cp, transitions, target, now)
+            reason = _focus_reason_transition(
+                prev_cp,
+                next_cp,
+                transitions,
+                target,
+                now,
+                min_attempts=settings.min_transition_confidence_attempts,
+            )
             focus_confidence = transition_confidence_of(
-                prev_cp, next_cp, transitions, target,
+                prev_cp,
+                next_cp,
+                transitions,
+                target,
+                min_attempts=settings.min_transition_confidence_attempts,
             )
         else:
-            reason = _focus_reason(focus, stats, target, now)
-            focus_confidence = confidence_of(focus, stats, target)
+            reason = _focus_reason(
+                focus,
+                stats,
+                target,
+                now,
+                min_attempts=settings.min_confidence_attempts,
+            )
+            focus_confidence = confidence_of(
+                focus, stats, target, min_attempts=settings.min_confidence_attempts,
+            )
         return Lesson(
             text=text,
             state=state,

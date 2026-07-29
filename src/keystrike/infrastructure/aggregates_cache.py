@@ -36,6 +36,9 @@ class FileAggregatesCache:
                     mean_time_ns=float(entry["mean_time_ns"]),
                     error_count=int(entry["error_count"]),
                     last_seen=float(entry["last_seen"]),
+                    attempt_count=int(
+                        entry.get("attempt_count", entry["samples"] + entry["error_count"]),
+                    ),
                 )
                 for cp, entry in keys.items()
             },
@@ -47,6 +50,9 @@ class FileAggregatesCache:
                     mean_time_ns=float(entry["mean_time_ns"]),
                     error_count=int(entry["error_count"]),
                     last_seen=float(entry["last_seen"]),
+                    attempt_count=int(
+                        entry.get("attempt_count", entry["samples"] + entry["error_count"]),
+                    ),
                 )
                 for key, entry in transitions.items()
             },

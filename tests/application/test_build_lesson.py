@@ -93,10 +93,12 @@ def test_lesson_uses_transition_focus_when_transitions_weak():
     five_days = 5 * 86_400.0
     fast = 100_000_000.0
     transitions = {
-        transition_key(a, a): TransitionStats(a, a, 10, fast, 0, now),
-        transition_key(a, s): TransitionStats(a, s, 10, 400_000_000.0, 0, now - five_days),
-        transition_key(s, a): TransitionStats(s, a, 10, fast, 0, now),
-        transition_key(s, s): TransitionStats(s, s, 10, fast, 0, now),
+        transition_key(a, a): TransitionStats(a, a, 10, fast, 0, now, attempt_count=10),
+        transition_key(a, s): TransitionStats(
+            a, s, 10, 400_000_000.0, 0, now - five_days, attempt_count=10,
+        ),
+        transition_key(s, a): TransitionStats(s, a, 10, fast, 0, now, attempt_count=10),
+        transition_key(s, s): TransitionStats(s, s, 10, fast, 0, now, attempt_count=10),
     }
     cache = FakeAggregatesCache(
         by_layout={"qwerty": LayoutAggregates(keys={}, transitions=transitions)},

@@ -83,7 +83,9 @@ def _build_app(
         settings_repo=settings_repo,
         layout_repo=layout_repo,
         prepare_practice=prepare_practice,
-        rebuild_aggregates=RebuildAggregates(repo=session_repo, cache=cache),
+        rebuild_aggregates=RebuildAggregates(
+            repo=session_repo, cache=cache, settings_repo=settings_repo,
+        ),
         get_heatmap=GetHeatmap(cache=cache, settings_repo=settings_repo),
         get_history=GetHistory(repo=session_repo),
         get_daily_learn_budget=get_daily_learn_budget,

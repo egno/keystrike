@@ -7,16 +7,17 @@ keystrokes increment error_count for the codepoint they missed.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 
-from .models import KeyStats, Keystroke, SessionResult, TransitionStats
+from .models import KeyStats, Keystroke, LayoutAggregates, SessionResult, TransitionStats
 
 
 @dataclass(slots=True)
 class _Partial:
     time_samples: list[int] = field(default_factory=list[int])
     error_count: int = 0
+    attempt_count: int = 0
 
 
 def per_key_deltas(keystrokes: Iterable[Keystroke]) -> dict[int, list[int]]:
@@ -51,6 +52,7 @@ def aggregate_session(
 
     for k in all_keystrokes:
         entry = partial.setdefault(k.codepoint, _Partial())
+        entry.attempt_count += 1
         if not k.correct:
             entry.error_count += 1
 
@@ -67,9 +69,26 @@ def aggregate_session(
             if p.time_samples else 0.0,
             error_count=p.error_count,
             last_seen=session_end_wall,
+            attempt_count=p.attempt_count,
         )
         for cp, p in partial.items()
     }
+
+
+def combine_sessions(
+    sessions: Sequence[tuple[SessionResult, Iterable[Keystroke]]],
+) -> LayoutAggregates:
+    """Merge per-session stats into one layout aggregate."""
+    if not sessions:
+        return LayoutAggregates(keys={}, transitions={})
+    key_maps = [aggregate_session(header, keystrokes) for header, keystrokes in sessions]
+    transition_maps = [
+        aggregate_transitions(header, keystrokes) for header, keystrokes in sessions
+    ]
+    return LayoutAggregates(
+        keys=combine(*key_maps),
+        transitions=combine_transitions(*transition_maps),
+    )
 
 
 def merge_key_stats(a: KeyStats, b: KeyStats) -> KeyStats:
@@ -86,6 +105,7 @@ def merge_key_stats(a: KeyStats, b: KeyStats) -> KeyStats:
         mean_time_ns=mean,
         error_count=a.error_count + b.error_count,
         last_seen=max(a.last_seen, b.last_seen),
+        attempt_count=a.attempt_count + b.attempt_count,
     )
 
 
@@ -126,11 +146,20 @@ def aggregate_transitions(
 ) -> dict[str, TransitionStats]:
     partial: dict[str, _Partial] = {}
     all_keystrokes = list(keystrokes)
+    last_correct_cp: int | None = None
 
     for i, k in enumerate(all_keystrokes):
-        if not k.correct and i > 0:
-            key = transition_key(all_keystrokes[i - 1].codepoint, k.codepoint)
-            partial.setdefault(key, _Partial()).error_count += 1
+        if not k.correct:
+            if i > 0:
+                key = transition_key(all_keystrokes[i - 1].codepoint, k.codepoint)
+                entry = partial.setdefault(key, _Partial())
+                entry.attempt_count += 1
+                entry.error_count += 1
+            continue
+        if last_correct_cp is not None:
+            key = transition_key(last_correct_cp, k.codepoint)
+            partial.setdefault(key, _Partial()).attempt_count += 1
+        last_correct_cp = k.codepoint
 
     for key, samples in per_transition_deltas(all_keystrokes).items():
         partial.setdefault(key, _Partial()).time_samples.extend(samples)
@@ -146,6 +175,7 @@ def aggregate_transitions(
             if p.time_samples else 0.0,
             error_count=p.error_count,
             last_seen=session_end_wall,
+            attempt_count=p.attempt_count,
         )
         for key, p in partial.items()
     }
@@ -168,6 +198,7 @@ def merge_transition_stats(a: TransitionStats, b: TransitionStats) -> Transition
         mean_time_ns=mean,
         error_count=a.error_count + b.error_count,
         last_seen=max(a.last_seen, b.last_seen),
+        attempt_count=a.attempt_count + b.attempt_count,
     )
 
 

@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from random import Random
 
+from .confidence import FOCUS_WORD_BOOST
 from .markov import TransitionTable
 from .models import Layout
 from .word_bounds import MAX_WORD_LEN, MIN_WORD_LEN
@@ -75,7 +76,9 @@ class AdaptiveGenerator:
         wordlist_weights: list[float] | None = None
         if words and char_weights:
             wordlist_weights = [
-                sum(char_weights.get(ch, 1.0) for ch in w) for w in words
+                sum(char_weights.get(ch, 1.0) for ch in w)
+                * (FOCUS_WORD_BOOST if focus_char in w else 1.0)
+                for w in words
             ]
         lesson_words = [
             self.generate_word(

@@ -21,6 +21,9 @@ def test_update_settings_persists_all_fields():
         target_speed_unit=TargetSpeedUnit.WPM,
         alphabet_size=20,
         learn_daily_minutes=15,
+        confidence_session_window=10,
+        min_confidence_attempts=10,
+        min_transition_confidence_attempts=4,
     )
 
     assert result.layout == "dvorak"
@@ -28,6 +31,9 @@ def test_update_settings_persists_all_fields():
     assert result.target_speed_unit == TargetSpeedUnit.WPM
     assert result.alphabet_size == 20
     assert result.learn_daily_minutes == 15
+    assert result.confidence_session_window == 10
+    assert result.min_confidence_attempts == 10
+    assert result.min_transition_confidence_attempts == 4
     assert result.wordlist_url == ""
     assert repo.settings == result
 
@@ -43,6 +49,9 @@ def test_update_settings_rejects_non_positive_speed():
             target_speed_unit=TargetSpeedUnit.CPM,
             alphabet_size=16,
             learn_daily_minutes=10,
+            confidence_session_window=10,
+            min_confidence_attempts=10,
+            min_transition_confidence_attempts=4,
         )
 
     assert repo.settings == Settings()  # unchanged
@@ -59,6 +68,9 @@ def test_update_settings_rejects_negative_alphabet_size():
             target_speed_unit=TargetSpeedUnit.CPM,
             alphabet_size=-1,
             learn_daily_minutes=10,
+            confidence_session_window=10,
+            min_confidence_attempts=10,
+            min_transition_confidence_attempts=4,
         )
 
     assert repo.settings == Settings()  # unchanged
@@ -75,6 +87,47 @@ def test_update_settings_rejects_negative_learn_daily_minutes():
             target_speed_unit=TargetSpeedUnit.CPM,
             alphabet_size=16,
             learn_daily_minutes=-1,
+            confidence_session_window=10,
+            min_confidence_attempts=10,
+            min_transition_confidence_attempts=4,
+        )
+
+    assert repo.settings == Settings()
+
+
+def test_update_settings_rejects_invalid_confidence_session_window():
+    repo = FakeSettingsRepository(Settings())
+    update = UpdateSettings(repo=repo)
+
+    with pytest.raises(SettingsValidationError):
+        update(
+            layout="qwerty",
+            target_speed_cpm=300,
+            target_speed_unit=TargetSpeedUnit.CPM,
+            alphabet_size=16,
+            learn_daily_minutes=10,
+            confidence_session_window=0,
+            min_confidence_attempts=10,
+            min_transition_confidence_attempts=4,
+        )
+
+    assert repo.settings == Settings()
+
+
+def test_update_settings_rejects_invalid_min_confidence_attempts():
+    repo = FakeSettingsRepository(Settings())
+    update = UpdateSettings(repo=repo)
+
+    with pytest.raises(SettingsValidationError):
+        update(
+            layout="qwerty",
+            target_speed_cpm=300,
+            target_speed_unit=TargetSpeedUnit.CPM,
+            alphabet_size=16,
+            learn_daily_minutes=10,
+            confidence_session_window=10,
+            min_confidence_attempts=0,
+            min_transition_confidence_attempts=4,
         )
 
     assert repo.settings == Settings()

@@ -47,7 +47,11 @@ def build_sync() -> SyncServices:
     session_repo = JsonlSessionRepository(paths)
     aggregates_cache = FileAggregatesCache(paths)
     store = GitSyncGateway(paths)
-    rebuild = RebuildAggregates(repo=session_repo, cache=aggregates_cache)
+    rebuild = RebuildAggregates(
+        repo=session_repo,
+        cache=aggregates_cache,
+        settings_repo=TomlSettingsRepository(paths),
+    )
     return SyncServices(
         init=InitSync(gateway=store),
         pull=PullSync(gateway=store, rebuild=rebuild),
@@ -77,7 +81,11 @@ def build() -> KeystrikeApp:
         settings_repo=settings_repo,
         layout_repo=layout_repo,
     )
-    rebuild_aggregates = RebuildAggregates(repo=session_repo, cache=aggregates_cache)
+    rebuild_aggregates = RebuildAggregates(
+        repo=session_repo,
+        cache=aggregates_cache,
+        settings_repo=settings_repo,
+    )
     get_heatmap = GetHeatmap(cache=aggregates_cache, settings_repo=settings_repo)
     get_history = GetHistory(repo=session_repo)
     get_daily_learn_budget = GetDailyLearnBudget(

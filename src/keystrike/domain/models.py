@@ -41,6 +41,7 @@ class KeyStats:
     mean_time_ns: float
     error_count: int
     last_seen: float
+    attempt_count: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,6 +52,7 @@ class TransitionStats:
     mean_time_ns: float
     error_count: int
     last_seen: float
+    attempt_count: int = 0
 
 
 def _empty_transitions() -> dict[str, TransitionStats]:
@@ -104,6 +106,9 @@ class Settings:
     target_speed_cpm: int = 300         # ~46 wpm at typical generated word length
     target_speed_unit: TargetSpeedUnit = TargetSpeedUnit.WPM
     alphabet_size: int = 16             # letters force-unlocked from cold start
+    confidence_session_window: int = 10  # sessions in rolling stats for confidence
+    min_confidence_attempts: int = 10    # presses before key confidence reaches full weight
+    min_transition_confidence_attempts: int = 4  # lower floor — bigrams are sparser
     lang: str = "en"
     learn_daily_minutes: int = 10        # adaptive mode daily goal (minutes); 0 = no goal
     wordlist_url: str = ""               # non-empty + cached file → real words; else Markov

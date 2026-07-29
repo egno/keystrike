@@ -1,14 +1,17 @@
 from keystrike.domain.confidence import (
+    MIN_CONFIDENCE_ATTEMPTS,
     accuracy_of,
     compute_unlocked,
     confidence_of,
     focus_key_from_transition,
+    key_attempts,
     key_confidence,
     practice_weight,
     review_urgency,
     select_focus,
     select_focus_transition,
     target_ms_per_char,
+    transition_confidence_of,
 )
 from keystrike.domain.models import KeyStats, TransitionStats
 
@@ -46,6 +49,7 @@ def _stats(
         mean_time_ns=mean_time_ns,
         error_count=error_count,
         last_seen=last_seen,
+        attempt_count=10 + error_count,
     )
 
 
@@ -61,6 +65,58 @@ def test_accuracy_of_mixes_samples_and_errors():
 def test_accuracy_of_never_correct_is_zero():
     stats = KeyStats(codepoint=ord("a"), samples=0, mean_time_ns=0.0, error_count=3, last_seen=0.0)
     assert accuracy_of(stats) == 0.0
+
+
+def test_confidence_of_scales_down_with_few_attempts():
+    stats = {
+        ord("a"): KeyStats(
+            codepoint=ord("a"),
+            samples=1,
+            mean_time_ns=100_000_000.0,
+            error_count=1,
+            last_seen=0.0,
+            attempt_count=2,
+        ),
+    }
+    # raw speed×accuracy = 2.0 × 0.5 = 1.0; only 2 attempts → ×0.2
+    assert confidence_of(ord("a"), stats, target=200.0) == 0.2
+
+
+def test_confidence_of_reaches_full_value_at_minimum_attempts():
+    stats = {ord("a"): _stats(ord("a"), mean_time_ns=200_000_000.0, error_count=0)}
+    assert key_attempts(stats[ord("a")]) == MIN_CONFIDENCE_ATTEMPTS
+    assert confidence_of(ord("a"), stats, target=200.0) == 1.0
+
+
+def test_compute_unlocked_stalls_when_sparse_key_looks_fast():
+    learn_order = (1, 2, 3)
+    stats = {
+        1: _stats(1, mean_time_ns=100_000_000.0),
+        2: KeyStats(
+            2, samples=1, mean_time_ns=100_000_000.0, error_count=1, last_seen=0.0,
+            attempt_count=2,
+        ),
+    }
+    unlocked = compute_unlocked(learn_order, alphabet_size=2, stats=stats, target=200.0)
+    assert unlocked == (1, 2)
+
+
+def test_transition_confidence_scales_down_with_few_attempts():
+    stats = {
+        "ab": TransitionStats(
+            ord("a"), ord("b"), samples=3, mean_time_ns=200_000_000.0,
+            error_count=0, last_seen=0.0, attempt_count=2,
+        ),
+    }
+    # raw 1.0 × (2/4) = 0.5
+    assert transition_confidence_of(ord("a"), ord("b"), stats, target=200.0) == 0.5
+
+
+def test_transition_confidence_reaches_full_at_minimum_attempts():
+    stats = {
+        "ab": _transition(ord("a"), ord("b"), 200_000_000.0, attempt_count=4),
+    }
+    assert transition_confidence_of(ord("a"), ord("b"), stats, target=200.0) == 1.0
 
 
 def test_confidence_of_penalizes_frequent_errors():
@@ -85,6 +141,12 @@ def test_confidence_of_unseen_key_is_zero():
 def test_confidence_of_uses_mean_time():
     stats = {ord("a"): _stats(ord("a"), mean_time_ns=200_000_000.0)}
     assert confidence_of(ord("a"), stats, target=200.0) == 1.0
+
+
+def test_confidence_of_rounds_near_goal_to_mastery_threshold():
+    # Raw ~0.996 reads as 1.00 everywhere — no "weak" label vs 1.00 display mismatch.
+    stats = {ord("i"): _stats(ord("i"), mean_time_ns=200_000_000.0 / 0.996)}
+    assert confidence_of(ord("i"), stats, target=200.0) == 1.0
 
 
 def test_compute_unlocked_force_includes_alphabet_size():
@@ -180,7 +242,9 @@ def _transition(
     *,
     last_seen: float = 0.0,
     error_count: int = 0,
+    attempt_count: int | None = None,
 ) -> TransitionStats:
+    attempts = attempt_count if attempt_count is not None else 10 + error_count
     return TransitionStats(
         prev_cp=prev_cp,
         next_cp=next_cp,
@@ -188,6 +252,7 @@ def _transition(
         mean_time_ns=mean_time_ns,
         error_count=error_count,
         last_seen=last_seen,
+        attempt_count=attempts,
     )
 
 

@@ -14,6 +14,8 @@ from keystrike.domain.models import Settings
 from keystrike.domain.protocols import LayoutRepository, SettingsRepository
 
 _MIN_LAYOUTS_TO_CYCLE = 2
+_MAX_CONFIDENCE_SESSION_WINDOW = 100
+_MAX_CONFIDENCE_ATTEMPTS = 100
 
 
 class SettingsValidationError(ValueError):
@@ -32,6 +34,9 @@ class UpdateSettings:
         target_speed_unit: TargetSpeedUnit,
         alphabet_size: int,
         learn_daily_minutes: int,
+        confidence_session_window: int,
+        min_confidence_attempts: int,
+        min_transition_confidence_attempts: int,
     ) -> Settings:
         if target_speed_cpm <= 0:
             raise SettingsValidationError("Target speed must be a positive integer.")
@@ -41,6 +46,19 @@ class UpdateSettings:
             raise SettingsValidationError("Number of letters must be zero or more.")
         if learn_daily_minutes < 0:
             raise SettingsValidationError("Daily learn minutes must be zero or more.")
+        if not 1 <= confidence_session_window <= _MAX_CONFIDENCE_SESSION_WINDOW:
+            raise SettingsValidationError(
+                f"Confidence session window must be 1–{_MAX_CONFIDENCE_SESSION_WINDOW}.",
+            )
+        if not 1 <= min_confidence_attempts <= _MAX_CONFIDENCE_ATTEMPTS:
+            raise SettingsValidationError(
+                f"Min confidence attempts must be 1–{_MAX_CONFIDENCE_ATTEMPTS}.",
+            )
+        if not 1 <= min_transition_confidence_attempts <= _MAX_CONFIDENCE_ATTEMPTS:
+            raise SettingsValidationError(
+                "Min transition confidence attempts must be "
+                f"1–{_MAX_CONFIDENCE_ATTEMPTS}.",
+            )
         updated = replace(
             self.repo.load(),
             layout=layout,
@@ -48,6 +66,9 @@ class UpdateSettings:
             target_speed_unit=target_speed_unit,
             alphabet_size=alphabet_size,
             learn_daily_minutes=learn_daily_minutes,
+            confidence_session_window=confidence_session_window,
+            min_confidence_attempts=min_confidence_attempts,
+            min_transition_confidence_attempts=min_transition_confidence_attempts,
         )
         self.repo.save(updated)
         return updated
