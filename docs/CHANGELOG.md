@@ -5,6 +5,15 @@ rationale lives in commit history/diffs — these are pointers, not narratives.
 Milestone-level feature work (what shipped in M1–M4, the keybr algorithm
 design) stays in `PLAN.md` §5/§6.
 
+## 1.2.1
+
+- Stats confidence trends normalize stored snapshots to the current goal speed;
+  persist `target_speed_cpm` on session finish; heatmap caption clarifies live
+  vs historical goal.
+- Practice focus UX: weak keys keep yellow/red on the heatmap (not cyan); focus
+  note below keyboard shows actual vs goal confidence.
+- CI: pin `NO_COLOR=1` for snapshot tests so baselines match across environments.
+
 ## 1.2.0
 
 - Optional word-list import: Settings URL field + Import button; cached lists drive
