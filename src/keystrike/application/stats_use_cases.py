@@ -5,20 +5,13 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 
-from keystrike.domain.aggregate import (
-    aggregate_session,
-    aggregate_transitions,
-    combine,
-    combine_transitions,
-    per_key_deltas,
-)
+from keystrike.domain.aggregate import combine_sessions, per_key_deltas
 from keystrike.domain.confidence import (
-    accuracy_of,
-    key_confidence,
+    confidence_of,
     review_urgency,
     target_ms_per_char,
 )
-from keystrike.domain.models import KeyStats, LayoutAggregates, SessionResult, TransitionStats
+from keystrike.domain.models import KeyStats, SessionResult
 from keystrike.domain.protocols import AggregatesCache, SessionRepository, SettingsRepository
 from keystrike.domain.regression import estimate_sessions_to_goal
 
@@ -27,22 +20,23 @@ _NS_PER_MS = 1e6
 
 @dataclass(slots=True)
 class RebuildAggregates:
-    """Replay every stored session for a layout into a fresh KeyStats cache entry."""
+    """Replay the last N sessions (from settings) into the cache."""
 
     repo: SessionRepository
     cache: AggregatesCache
+    settings_repo: SettingsRepository
 
     def __call__(self, layout: str) -> dict[int, KeyStats]:
-        key_maps: list[dict[int, KeyStats]] = []
-        transition_maps: list[dict[str, TransitionStats]] = []
-        for header in self.repo.iter_headers(layout):
-            keystrokes = self.repo.load_keystrokes(header.session_id)
-            key_maps.append(aggregate_session(header, keystrokes))
-            transition_maps.append(aggregate_transitions(header, keystrokes))
-        combined = combine(*key_maps)
-        combined_transitions = combine_transitions(*transition_maps)
-        self.cache.put(layout, LayoutAggregates(keys=combined, transitions=combined_transitions))
-        return combined
+        window = self.settings_repo.load().confidence_session_window
+        headers = sorted(
+            self.repo.iter_headers(layout),
+            key=lambda h: h.started_at,
+        )[-window:]
+        combined = combine_sessions(
+            [(header, self.repo.load_keystrokes(header.session_id)) for header in headers],
+        )
+        self.cache.put(layout, combined)
+        return combined.keys
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,12 +57,18 @@ class GetHeatmap:
         if not aggregates:
             return HeatmapView(confidence={}, urgency={})
         stats = aggregates.keys
-        target = target_ms_per_char(self.settings_repo.load().target_speed_cpm)
+        settings = self.settings_repo.load()
+        target = target_ms_per_char(settings.target_speed_cpm)
         now = time.time()
         return HeatmapView(
             confidence={
-                cp: key_confidence(target, k.mean_time_ns) * accuracy_of(k)
-                for cp, k in stats.items()
+                cp: confidence_of(
+                    cp,
+                    stats,
+                    target,
+                    min_attempts=settings.min_confidence_attempts,
+                )
+                for cp in stats
             },
             urgency={cp: review_urgency(k.last_seen, now) for cp, k in stats.items()},
         )

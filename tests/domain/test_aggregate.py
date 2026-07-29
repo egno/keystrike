@@ -2,6 +2,7 @@ from keystrike.domain.aggregate import (
     aggregate_session,
     aggregate_transitions,
     combine,
+    combine_sessions,
     combine_transitions,
     merge_key_stats,
     merge_transition_stats,
@@ -27,6 +28,17 @@ def _session(session_id: str = "s1", started_at: float = 1000.0,
         total_keystrokes=0,
         correct_keystrokes=0,
     )
+
+
+def test_aggregate_counts_attempts_per_key():
+    keys = [
+        Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
+        Keystroke(codepoint=ord("a"), typed=ord("x"), t_ns=50_000_000, correct=False),
+        Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=100_000_000, correct=True),
+    ]
+    stats = aggregate_session(_session(), keys)
+    assert stats[ord("a")].attempt_count == 3
+    assert stats[ord("a")].samples == 1
 
 
 def test_aggregate_single_session_mean_time():
@@ -117,6 +129,22 @@ def test_combine_multiple_maps():
     assert out[ord("x")].samples == 2
     assert abs(out[ord("x")].mean_time_ns - 200.0) < 1e-9
     assert out[ord("y")].samples == 2
+
+
+def test_combine_sessions_merges_multiple_sessions():
+    s1 = _session("s1", started_at=1.0)
+    s2 = _session("s2", started_at=2.0)
+    keys1 = [
+        Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
+        Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=100_000_000, correct=True),
+    ]
+    keys2 = [
+        Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
+        Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=300_000_000, correct=True),
+    ]
+    out = combine_sessions([(s1, keys1), (s2, keys2)])
+    assert out.keys[ord("a")].samples == 2
+    assert abs(out.keys[ord("a")].mean_time_ns - 200_000_000) < 1
 
 
 def test_per_transition_deltas_tracks_prev_to_next_pair():

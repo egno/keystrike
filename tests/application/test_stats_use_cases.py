@@ -4,6 +4,7 @@ from keystrike.application.stats_use_cases import (
     GetLearningRate,
     RebuildAggregates,
 )
+from keystrike.domain.confidence import CONFIDENCE_SESSION_WINDOW, MIN_CONFIDENCE_ATTEMPTS
 from keystrike.domain.enums import Mode
 from keystrike.domain.models import KeyStats, Keystroke, LayoutAggregates, SessionResult, Settings
 from tests.fakes import FakeAggregatesCache, FakeSessionRepository, FakeSettingsRepository
@@ -24,7 +25,7 @@ def _header(session_id: str, started_at: float, layout: str = "qwerty") -> Sessi
     )
 
 
-def test_rebuild_aggregates_combines_all_sessions_for_layout():
+def test_rebuild_aggregates_uses_confidence_session_window():
     repo = FakeSessionRepository()
     cache = FakeAggregatesCache()
 
@@ -47,7 +48,7 @@ def test_rebuild_aggregates_combines_all_sessions_for_layout():
         Keystroke(codepoint=ord("z"), typed=ord("z"), t_ns=0, correct=True),
     ]
 
-    rebuild = RebuildAggregates(repo=repo, cache=cache)
+    rebuild = RebuildAggregates(repo=repo, cache=cache, settings_repo=FakeSettingsRepository())
     result = rebuild("qwerty")
 
     assert set(result) == {ord("a")}
@@ -56,6 +57,64 @@ def test_rebuild_aggregates_combines_all_sessions_for_layout():
     assert cached is not None
     assert cached.keys == result
     assert cache.get("dvorak") is None
+
+
+def test_rebuild_aggregates_drops_sessions_outside_window():
+    repo = FakeSessionRepository()
+    cache = FakeAggregatesCache()
+
+    for i in range(CONFIDENCE_SESSION_WINDOW + 1):
+        session_id = f"s{i}"
+        repo.save_header(_header(session_id, started_at=float(i)))
+        repo.keystrokes[session_id] = [
+            Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
+            Keystroke(
+                codepoint=ord("a"),
+                typed=ord("a"),
+                t_ns=(100 + i * 10) * 1_000_000,
+                correct=True,
+            ),
+        ]
+    # Only session 0 typed "z" — outside the window once s{N} exists.
+    repo.keystrokes["s0"].append(
+        Keystroke(codepoint=ord("z"), typed=ord("z"), t_ns=300_000_000, correct=True),
+    )
+
+    result = RebuildAggregates(
+        repo=repo, cache=cache, settings_repo=FakeSettingsRepository(),
+    )("qwerty")
+
+    assert ord("a") in result
+    assert ord("z") not in result
+    assert result[ord("a")].samples == CONFIDENCE_SESSION_WINDOW
+
+
+def test_rebuild_aggregates_respects_settings_window():
+    repo = FakeSessionRepository()
+    cache = FakeAggregatesCache()
+    window = 3
+    settings_repo = FakeSettingsRepository(Settings(confidence_session_window=window))
+
+    for i in range(window + 2):
+        session_id = f"s{i}"
+        repo.save_header(_header(session_id, started_at=float(i)))
+        repo.keystrokes[session_id] = [
+            Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
+            Keystroke(
+                codepoint=ord("a"),
+                typed=ord("a"),
+                t_ns=100_000_000,
+                correct=True,
+            ),
+        ]
+    repo.keystrokes["s0"].append(
+        Keystroke(codepoint=ord("z"), typed=ord("z"), t_ns=100_000_000, correct=True),
+    )
+
+    result = RebuildAggregates(repo=repo, cache=cache, settings_repo=settings_repo)("qwerty")
+
+    assert ord("z") not in result
+    assert result[ord("a")].samples == window
 
 
 def test_get_heatmap_empty_cache_returns_empty_view():
@@ -77,9 +136,19 @@ def test_get_heatmap_confidence_ratio(monkeypatch):
     repo.save_header(header)
     repo.keystrokes["s1"] = [
         Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
-        Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=200_000_000, correct=True),
+        *[
+            Keystroke(
+                codepoint=ord("a"),
+                typed=ord("a"),
+                t_ns=i * 200_000_000,
+                correct=True,
+            )
+            for i in range(1, MIN_CONFIDENCE_ATTEMPTS)
+        ],
     ]
-    RebuildAggregates(repo=repo, cache=cache)("qwerty")
+    RebuildAggregates(
+        repo=repo, cache=cache, settings_repo=FakeSettingsRepository(),
+    )("qwerty")
 
     get_heatmap = GetHeatmap(cache=cache, settings_repo=settings_repo)
     view = get_heatmap("qwerty")

@@ -29,11 +29,17 @@ def test_round_trip(paths):
         target_speed_cpm=400,
         target_speed_unit=TargetSpeedUnit.WPM,
         alphabet_size=20,
+        confidence_session_window=8,
+        min_confidence_attempts=12,
+        min_transition_confidence_attempts=5,
     )
     repo.save(original)
     loaded = repo.load()
     assert loaded.layout == original.layout
     assert loaded.target_speed_cpm == original.target_speed_cpm
+    assert loaded.confidence_session_window == 8
+    assert loaded.min_confidence_attempts == 12
+    assert loaded.min_transition_confidence_attempts == 5
     assert loaded.updated_at is not None
 
 

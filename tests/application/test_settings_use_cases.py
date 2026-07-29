@@ -28,8 +28,36 @@ def test_update_settings_persists_all_fields():
     assert result.target_speed_unit == TargetSpeedUnit.WPM
     assert result.alphabet_size == 20
     assert result.learn_daily_minutes == 15
+    assert result.confidence_session_window == Settings().confidence_session_window
+    assert result.min_confidence_attempts == Settings().min_confidence_attempts
+    assert result.min_transition_confidence_attempts == (
+        Settings().min_transition_confidence_attempts
+    )
     assert result.wordlist_url == ""
     assert repo.settings == result
+
+
+def test_update_settings_preserves_confidence_fields_from_repo():
+    repo = FakeSettingsRepository(
+        Settings(
+            confidence_session_window=8,
+            min_confidence_attempts=12,
+            min_transition_confidence_attempts=5,
+        ),
+    )
+    update = UpdateSettings(repo=repo)
+
+    result = update(
+        layout="qwerty",
+        target_speed_cpm=300,
+        target_speed_unit=TargetSpeedUnit.CPM,
+        alphabet_size=16,
+        learn_daily_minutes=10,
+    )
+
+    assert result.confidence_session_window == 8
+    assert result.min_confidence_attempts == 12
+    assert result.min_transition_confidence_attempts == 5
 
 
 def test_update_settings_rejects_non_positive_speed():

@@ -83,6 +83,40 @@ def test_generate_wordlist_char_weights_bias():
     assert counts["a"] > counts["b"]
 
 
+def test_generate_lesson_focus_wordlist_overweights_focus_char():
+    generator = AdaptiveGenerator(table=_uniform_table("ab"), rng=Random(0))
+    words = ["aaa", "bbb"]
+    focus_counts = 0
+    for seed in range(40):
+        generator.rng = Random(seed)
+        lesson = generator.generate_lesson(
+            frozenset("ab"),
+            focus_char="a",
+            word_count=8,
+            char_weights={"a": 1.75, "b": 1.0},
+            words=words,
+        )
+        if lesson.count("a") > lesson.count("b"):
+            focus_counts += 1
+    assert focus_counts >= 35
+
+
+def test_generate_lesson_markov_overweights_focus_char():
+    generator = AdaptiveGenerator(table=_uniform_table("ab"), rng=Random(0))
+    focus_counts = 0
+    for seed in range(40):
+        generator.rng = Random(seed)
+        lesson = generator.generate_lesson(
+            frozenset("ab"),
+            focus_char="a",
+            word_count=12,
+            char_weights={"a": 5.25, "b": 1.0},
+        )
+        if lesson.count("a") > lesson.count("b"):
+            focus_counts += 1
+    assert focus_counts >= 30
+
+
 def test_generate_lesson_injects_focus_bigram():
     generator = AdaptiveGenerator(table=_uniform_table("abc"), rng=Random(0))
     for seed in range(10):

@@ -19,11 +19,16 @@ from keystrike.application.session_use_cases import (
     key_confidence_values,
     wpm_sparkline,
 )
-from keystrike.domain.aggregate import aggregate_session, combine
-from keystrike.domain.confidence import compute_unlocked, confidence_of, target_ms_per_char
+from keystrike.domain.aggregate import combine_sessions
+from keystrike.domain.confidence import (
+    CONFIDENCE_SESSION_WINDOW,
+    compute_unlocked,
+    confidence_of,
+    target_ms_per_char,
+)
 from keystrike.domain.enums import Mode, SessionState
 from keystrike.domain.learn_order import keyboard_order
-from keystrike.domain.models import KeyStats, LayoutAggregates, SessionResult, Settings
+from keystrike.domain.models import SessionResult, Settings
 from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS
 from tests.fakes import (
     FakeAggregatesCache,
@@ -183,23 +188,27 @@ def test_finish_session_persists_unlocked_keys(clock, id_gen):
 def test_finish_session_bumps_alphabet_size_when_unlocked_set_grows(clock, id_gen):
     layout = BUNDLED_LAYOUTS["qwerty"]
     order = keyboard_order(layout)
-    fast = 50_000_000.0
-    stats = {cp: KeyStats(cp, 50, fast, 0, 1_700_000_000.0) for cp in order[:5]}
-    cache = FakeAggregatesCache(
-        by_layout={"qwerty": LayoutAggregates(keys=stats, transitions={})},
-    )
     settings_repo = FakeSettingsRepository(Settings(alphabet_size=5))
     layout_repo = FakeLayoutRepository(dict(BUNDLED_LAYOUTS))
     repo = FakeSessionRepository()
     finish = FinishSession(
         clock=clock,
         repo=repo,
-        aggregates_cache=cache,
         settings_repo=settings_repo,
         layout_repo=layout_repo,
     )
     start = StartSession(clock=clock, id_gen=id_gen)
     record = RecordKeystroke(clock=clock, repo=repo)
+
+    warmup = "".join(chr(cp) for cp in order[:5] for _ in range(10))
+    warmup_session = start(
+        warmup, layout="qwerty", mode=Mode.ADAPTIVE, focus_key=order[0],
+    )
+    for ch in warmup:
+        clock.advance(50_000_000)
+        record(warmup_session, ch)
+    finish(warmup_session)
+
     session = start("as", layout="qwerty", mode=Mode.ADAPTIVE, focus_key=order[0])
     for ch in "as":
         clock.advance(100_000_000)
@@ -241,10 +250,44 @@ def test_finish_session_persists_key_confidence(clock, id_gen):
     )
     assert result.schema_version == 3
     assert set(result.key_confidence.keys()) == set(expected_unlocked)
-    stats = combine({}, aggregate_session(result, session.keystrokes))
+    stats = combine_sessions([(result, session.keystrokes)]).keys
     for cp in expected_unlocked:
         assert result.key_confidence[cp] == confidence_of(cp, stats, target)
     assert repo.headers[0].key_confidence == result.key_confidence
+
+
+def test_finish_session_key_confidence_uses_confidence_session_window(clock, id_gen):
+    settings_repo = FakeSettingsRepository()
+    layout_repo = FakeLayoutRepository(dict(BUNDLED_LAYOUTS))
+    repo = FakeSessionRepository()
+    finish = FinishSession(
+        clock=clock,
+        repo=repo,
+        settings_repo=settings_repo,
+        layout_repo=layout_repo,
+    )
+    start = StartSession(clock=clock, id_gen=id_gen)
+    record = RecordKeystroke(clock=clock, repo=repo)
+
+    for _ in range(CONFIDENCE_SESSION_WINDOW - 1):
+        session = start("a", layout="qwerty", mode=Mode.ADAPTIVE, focus_key=ord("a"))
+        clock.advance(400_000_000)
+        record(session, "a")
+        finish(session)
+
+    session = start("a", layout="qwerty", mode=Mode.ADAPTIVE, focus_key=ord("a"))
+    clock.advance(100_000_000)
+    record(session, "a")
+    result = finish(session)
+
+    settings = settings_repo.load()
+    target = target_ms_per_char(settings.target_speed_cpm)
+    prior = sorted(repo.headers, key=lambda h: h.started_at)[-(CONFIDENCE_SESSION_WINDOW - 1):]
+    stats = combine_sessions(
+        [(header, repo.keystrokes[header.session_id]) for header in prior]
+        + [(result, session.keystrokes)],
+    ).keys
+    assert result.key_confidence[ord("a")] == confidence_of(ord("a"), stats, target)
 
 
 def test_finish_session_persists_target_speed_cpm(clock, id_gen):

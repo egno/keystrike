@@ -209,4 +209,5 @@ Pull rebuilds aggregates from the session index. If something still looks wrong,
 ## See also
 
 - [Keystrike README — Backup sync](https://github.com/egno/keystrike#backup-sync)
+- [Confidence tuning](Confidence-Tuning) — advanced fields in `settings.toml` (not the Settings screen)
 - [Home](Home)

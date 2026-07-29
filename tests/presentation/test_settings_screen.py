@@ -74,6 +74,9 @@ async def test_save_persists_changes_and_pops_screen():
         assert settings_repo.settings.layout == "dvorak"
         assert settings_repo.settings.alphabet_size == 20
         assert settings_repo.settings.learn_daily_minutes == 15
+        assert settings_repo.settings.confidence_session_window == (
+            Settings().confidence_session_window
+        )
         assert app.screen_stack[-1] is not screen
 
 

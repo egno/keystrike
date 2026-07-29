@@ -5,6 +5,13 @@ rationale lives in commit history/diffs — these are pointers, not narratives.
 Milestone-level feature work (what shipped in M1–M4, the keybr algorithm
 design) stays in `PLAN.md` §5/§6.
 
+## 1.2.2
+
+- Confidence tuning settings: session window, min key attempts, and min bigram
+  attempts in `settings.toml` only; wiki page `Confidence-Tuning`.
+- Round confidence scores to two decimals so unlocks, focus labels, heatmap, and
+  practice focus notes stay aligned.
+
 ## 1.2.1
 
 - Stats confidence trends normalize stored snapshots to the current goal speed;

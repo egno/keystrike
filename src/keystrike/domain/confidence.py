@@ -12,6 +12,22 @@ from .models import KeyStats, TransitionStats
 
 _SECONDS_PER_DAY = 86_400.0
 _REVIEW_URGENCY_FULL_DAYS = 3.0
+# Confidence, unlocks, focus, and heatmap use aggregates from this many sessions.
+CONFIDENCE_SESSION_WINDOW = 10
+# Raw speed x accuracy confidence ramps linearly until this many attempts per key.
+MIN_CONFIDENCE_ATTEMPTS = 10
+# Bigrams are sparser — lower floor so transition focus reflects measured weakness.
+MIN_TRANSITION_CONFIDENCE_ATTEMPTS = 4
+# Confidence scores are rounded before thresholds, focus, heatmap, and UI.
+CONFIDENCE_DECIMALS = 2
+# ponytail: fixed multipliers; upgrade to settings if users want tunable focus intensity
+FOCUS_CHAR_BOOST = 3.0
+FOCUS_WORD_BOOST = 2.0
+
+
+def round_confidence(value: float) -> float:
+    """Round confidence for comparisons and display so they stay aligned."""
+    return round(value, CONFIDENCE_DECIMALS)
 
 
 def target_ms_per_char(target_speed_cpm: int) -> float:
@@ -32,20 +48,51 @@ def accuracy_of(key_stats: KeyStats) -> float:
     return key_stats.samples / total if total > 0 else 0.0
 
 
-def confidence_of(codepoint: int, stats: Mapping[int, KeyStats], target: float) -> float:
-    """Live confidence for one key, recomputed from the current target so a
-    stale historical best can't vouch for a key that isn't actually being
-    typed accurately/quickly right now (Keybr gates unlock on clearing
-    thresholds "on the current set"; see docs/research/typing-pedagogy.md).
+def key_attempts(key_stats: KeyStats) -> int:
+    return key_stats.attempt_count
+
+
+def transition_attempts(transition_stats: TransitionStats) -> int:
+    return transition_stats.attempt_count
+
+
+def confidence_sample_factor(
+    attempts: int,
+    *,
+    minimum: int = MIN_CONFIDENCE_ATTEMPTS,
+) -> float:
+    """Ramp toward full confidence as attempts accumulate (ponytail: linear;
+    upgrade to Wilson interval or similar if sparse keys still feel jumpy)."""
+    if minimum <= 0:
+        return 1.0
+    if attempts <= 0:
+        return 0.0
+    return min(1.0, attempts / minimum)
+
+
+def confidence_of(
+    codepoint: int,
+    stats: Mapping[int, KeyStats],
+    target: float,
+    *,
+    min_attempts: int = MIN_CONFIDENCE_ATTEMPTS,
+) -> float:
+    """Live confidence for one key from aggregated stats (typically the last
+    `CONFIDENCE_SESSION_WINDOW` sessions), recomputed from the current target.
     0.0 for a never-practiced key.
 
     Speed confidence is scaled by accuracy so a key typed fast but frequently
-    wrong doesn't read as mastered (accuracy-first: see docs/research/typing-pedagogy.md).
+    wrong doesn't read as mastered. Both are scaled down until
+    `MIN_CONFIDENCE_ATTEMPTS` presses on the key so a lucky first session
+    can't read as mastered (see docs/research/typing-pedagogy.md).
     """
     key_stats = stats.get(codepoint)
     if key_stats is None:
         return 0.0
-    return key_confidence(target, key_stats.mean_time_ns) * accuracy_of(key_stats)
+    raw = key_confidence(target, key_stats.mean_time_ns) * accuracy_of(key_stats)
+    return round_confidence(
+        raw * confidence_sample_factor(key_attempts(key_stats), minimum=min_attempts),
+    )
 
 
 def compute_unlocked(
@@ -55,6 +102,7 @@ def compute_unlocked(
     target: float,
     *,
     threshold: float = 1.0,
+    min_attempts: int = MIN_CONFIDENCE_ATTEMPTS,
 ) -> tuple[int, ...]:
     """The first `alphabet_size` keys are always unlocked; each further key in
     `learn_order` unlocks only once every currently-unlocked key meets
@@ -62,7 +110,10 @@ def compute_unlocked(
     forced_count = min(alphabet_size, len(learn_order))
     unlocked = list(learn_order[:forced_count])
     for codepoint in learn_order[forced_count:]:
-        if not all(confidence_of(k, stats, target) >= threshold for k in unlocked):
+        if not all(
+            confidence_of(k, stats, target, min_attempts=min_attempts) >= threshold
+            for k in unlocked
+        ):
             break
         unlocked.append(codepoint)
     return tuple(unlocked)
@@ -100,14 +151,22 @@ def transition_confidence_of(
     next_cp: int,
     stats: Mapping[str, TransitionStats],
     target: float,
+    *,
+    min_attempts: int = MIN_TRANSITION_CONFIDENCE_ATTEMPTS,
 ) -> float:
     """Live confidence for one bigram transition. 0.0 when never practiced."""
     transition_stats = stats.get(chr(prev_cp) + chr(next_cp))
     if transition_stats is None:
         return 0.0
-    return (
+    raw = (
         transition_confidence(target, transition_stats.mean_time_ns)
         * transition_accuracy_of(transition_stats)
+    )
+    return round_confidence(
+        raw * confidence_sample_factor(
+            transition_attempts(transition_stats),
+            minimum=min_attempts,
+        ),
     )
 
 
@@ -155,10 +214,14 @@ def _focus_score(
     now: float,
     *,
     review_penalty: float,
+    min_attempts: int = MIN_CONFIDENCE_ATTEMPTS,
 ) -> float:
     key_stats = stats.get(codepoint)
     urgency = review_urgency(key_stats.last_seen if key_stats else 0.0, now)
-    return confidence_of(codepoint, stats, target) * (1.0 - review_penalty * urgency)
+    return (
+        confidence_of(codepoint, stats, target, min_attempts=min_attempts)
+        * (1.0 - review_penalty * urgency)
+    )
 
 
 def select_focus(
@@ -168,13 +231,16 @@ def select_focus(
     now: float,
     *,
     review_penalty: float = 0.5,
+    min_attempts: int = MIN_CONFIDENCE_ATTEMPTS,
 ) -> int:
     """The unlocked key a lesson should emphasize — weakest by confidence, but
     stale keys are treated as weaker so high-confidence keys due for review
     still surface (SlimStampen-style spacing; see typing-pedagogy.md)."""
     return min(
         unlocked,
-        key=lambda cp: _focus_score(cp, stats, target, now, review_penalty=review_penalty),
+        key=lambda cp: _focus_score(
+            cp, stats, target, now, review_penalty=review_penalty, min_attempts=min_attempts,
+        ),
     )
 
 
@@ -186,11 +252,14 @@ def _transition_focus_score(
     now: float,
     *,
     review_penalty: float,
+    min_attempts: int = MIN_TRANSITION_CONFIDENCE_ATTEMPTS,
 ) -> float:
     key = chr(prev_cp) + chr(next_cp)
     t_stats = stats.get(key)
     urgency = review_urgency(t_stats.last_seen if t_stats else 0.0, now)
-    confidence = transition_confidence_of(prev_cp, next_cp, stats, target)
+    confidence = transition_confidence_of(
+        prev_cp, next_cp, stats, target, min_attempts=min_attempts,
+    )
     return confidence * (1.0 - review_penalty * urgency)
 
 
@@ -201,6 +270,7 @@ def select_focus_transition(
     now: float,
     *,
     review_penalty: float = 0.5,
+    min_attempts: int = MIN_TRANSITION_CONFIDENCE_ATTEMPTS,
 ) -> tuple[int, int] | None:
     """Weakest unlocked bigram by transition confidence; None when no transition data."""
     if not transitions:
@@ -211,7 +281,13 @@ def select_focus_transition(
     return min(
         pairs,
         key=lambda p: _transition_focus_score(
-            p[0], p[1], transitions, target, now, review_penalty=review_penalty,
+            p[0],
+            p[1],
+            transitions,
+            target,
+            now,
+            review_penalty=review_penalty,
+            min_attempts=min_attempts,
         ),
     )
 

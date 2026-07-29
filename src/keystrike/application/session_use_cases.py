@@ -1,8 +1,12 @@
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field, replace
 
-from keystrike.domain.aggregate import aggregate_session, combine
-from keystrike.domain.confidence import compute_unlocked, confidence_of, target_ms_per_char
+from keystrike.domain.aggregate import combine_sessions
+from keystrike.domain.confidence import (
+    compute_unlocked,
+    confidence_of,
+    target_ms_per_char,
+)
 from keystrike.domain.enums import Mode, SessionState
 from keystrike.domain.generator import typical_chars_per_word
 from keystrike.domain.learn_order import keyboard_order
@@ -103,14 +107,12 @@ def _snapshot_unlock_state(
     session: Session,
     duration_ns: int,
     *,
-    aggregates_cache: AggregatesCache,
+    repo: SessionRepository,
     settings_repo: SettingsRepository,
     layout_repo: LayoutRepository,
 ) -> tuple[tuple[int, ...], dict[int, float]]:
     settings = settings_repo.load()
     layout = layout_repo.get(session.layout)
-    aggregates = aggregates_cache.get(session.layout)
-    prior = aggregates.keys if aggregates else {}
     draft = SessionResult(
         schema_version=3,
         session_id=session.id,
@@ -124,15 +126,27 @@ def _snapshot_unlock_state(
         correct_keystrokes=session.correct_count,
         lang=session.lang,
     )
-    stats = combine(prior, aggregate_session(draft, session.keystrokes))
+    prior_headers = sorted(
+        repo.iter_headers(session.layout),
+        key=lambda h: h.started_at,
+    )[-(settings.confidence_session_window - 1):]
+    sessions: list[tuple[SessionResult, Iterable[Keystroke]]] = [
+        (header, repo.load_keystrokes(header.session_id)) for header in prior_headers
+    ]
+    sessions.append((draft, session.keystrokes))
+    stats = combine_sessions(sessions).keys
     target = target_ms_per_char(settings.target_speed_cpm)
     unlocked = compute_unlocked(
         keyboard_order(layout),
         settings.alphabet_size,
         stats,
         target,
+        min_attempts=settings.min_confidence_attempts,
     )
-    return unlocked, {cp: confidence_of(cp, stats, target) for cp in unlocked}
+    return unlocked, {
+        cp: confidence_of(cp, stats, target, min_attempts=settings.min_confidence_attempts)
+        for cp in unlocked
+    }
 
 
 def _sync_alphabet_size(unlocked_keys: tuple[int, ...], settings_repo: SettingsRepository) -> None:
@@ -166,8 +180,7 @@ class FinishSession:
         unlocked_keys: tuple[int, ...] = ()
         key_confidence: dict[int, float] = {}
         if (
-            self.aggregates_cache is not None
-            and self.settings_repo is not None
+            self.settings_repo is not None
             and self.layout_repo is not None
         ):
             settings = self.settings_repo.load()
@@ -175,7 +188,7 @@ class FinishSession:
             unlocked_keys, key_confidence = _snapshot_unlock_state(
                 session,
                 duration_ns,
-                aggregates_cache=self.aggregates_cache,
+                repo=self.repo,
                 settings_repo=self.settings_repo,
                 layout_repo=self.layout_repo,
             )
