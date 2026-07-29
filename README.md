@@ -170,11 +170,38 @@ Dependency groups: `dev` (default, pure Python — safe on Termux), `lint` (Ruff
 `snapshot` (`pytest-textual-snapshot`). Keep native-wheel tools out of `dev`; see
 `pyproject.toml` for why.
 
-Regenerate the demo GIF after UI snapshot changes:
+### Before you push (CI parity)
+
+Pre-commit runs **ruff** and **pyright** only. GitHub Actions also runs the full
+test matrix and a separate **snapshot (macos)** job that default pytest skips.
+
+| Check | Command | When |
+| --- | --- | --- |
+| Lint (also in pre-commit) | `uv run ruff check && uv run pyright` | every commit |
+| Unit tests | `uv run pytest -q` | every push |
+| UI snapshots | see below | after presentation/UI changes |
+
+On **macOS**, match the snapshot CI job before pushing UI work:
 
 ```bash
 uv sync --group snapshot
-uv run pytest tests/presentation/test_snapshots.py --snapshot-update
+NO_COLOR=1 TERM=xterm-256color LC_ALL=C.UTF-8 uv run pytest -m snapshot -q
+```
+
+Snapshots are not in pre-commit (macOS-only, extra deps). Linux/Windows devs can
+rely on CI for snapshot coverage.
+
+Regenerate baselines after intentional UI changes:
+
+```bash
+uv sync --group snapshot
+NO_COLOR=1 TERM=xterm-256color LC_ALL=C.UTF-8 \
+  uv run pytest tests/presentation/test_snapshots.py -m snapshot --snapshot-update
+```
+
+Regenerate the demo GIF after updating snapshots:
+
+```bash
 uv pip install pillow cairosvg   # one-off; system cairo on macOS/Linux
 uv run python scripts/generate_demo_gif.py
 ```
