@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from typing import TypedDict
 
 from keystrike.application.session_use_cases import (
     AbortSession,
@@ -43,6 +44,30 @@ from tests.fakes import (
     FakeSessionRepository,
     FakeSettingsRepository,
 )
+
+
+class _SessionStatsCommon(TypedDict):
+    schema_version: int
+    started_at: float
+    duration_ns: int
+    layout: str
+    mode: Mode
+    lesson_alphabet: tuple[()]
+    focus_key: None
+    words_completed: int
+
+
+def _session_stats_common(*, duration_ns: int = 60_000_000_000) -> _SessionStatsCommon:
+    return _SessionStatsCommon(
+        schema_version=3,
+        started_at=1.0,
+        duration_ns=duration_ns,
+        layout="qwerty",
+        mode=Mode.ADAPTIVE,
+        lesson_alphabet=(),
+        focus_key=None,
+        words_completed=1,
+    )
 
 
 def _drive(text: str, keys: str, clock: FakeClock, id_gen: FakeIdGenerator,
@@ -241,33 +266,23 @@ def test_format_session_stats_line_shows_deltas_vs_confidence_baseline(clock, id
 
 
 def test_format_session_stats_line_uses_window_not_previous_only():
-    common = dict(
-        schema_version=3,
-        started_at=1.0,
-        duration_ns=60_000_000_000,
-        layout="qwerty",
-        mode=Mode.ADAPTIVE,
-        lesson_alphabet=(),
-        focus_key=None,
-        words_completed=1,
-    )
     slow = SessionResult(
         session_id="s1",
         total_keystrokes=10,
         correct_keystrokes=10,
-        **common,
+        **_session_stats_common(),
     )
     fast = SessionResult(
         session_id="s2",
         total_keystrokes=10,
         correct_keystrokes=10,
-        **{**common, "duration_ns": 30_000_000_000},
+        **_session_stats_common(duration_ns=30_000_000_000),
     )
     medium = SessionResult(
         session_id="s3",
         total_keystrokes=10,
         correct_keystrokes=10,
-        **{**common, "duration_ns": 33_333_333_333},
+        **_session_stats_common(duration_ns=33_333_333_333),
     )
     repo = FakeSessionRepository(headers=[slow, fast, medium])
 
@@ -288,27 +303,17 @@ def test_format_session_stats_line_uses_window_not_previous_only():
 
 
 def test_format_session_stats_line_shows_accuracy_regression():
-    common = dict(
-        schema_version=3,
-        started_at=1.0,
-        duration_ns=60_000_000_000,
-        layout="qwerty",
-        mode=Mode.ADAPTIVE,
-        lesson_alphabet=(),
-        focus_key=None,
-        words_completed=1,
-    )
     previous = SessionResult(
         session_id="s1",
         total_keystrokes=10,
         correct_keystrokes=10,
-        **common,
+        **_session_stats_common(),
     )
     current = SessionResult(
         session_id="s2",
         total_keystrokes=10,
         correct_keystrokes=8,
-        **common,
+        **_session_stats_common(),
     )
     line = format_session_stats_line(
         current,

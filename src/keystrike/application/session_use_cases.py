@@ -580,7 +580,8 @@ def format_metric_trend_block(
     current_target_speed_cpm: int = 0,
     cumulative: float | None = None,
 ) -> str:
-    grid_kwargs = {"grid": True, "spark_width": limit}
+    grid = True
+    spark_width = limit
     if headers is not None and codepoint is not None:
         ordered = sorted(headers, key=lambda h: h.started_at)[-limit:]
         session_count = len(ordered) if ordered else max(
@@ -593,7 +594,8 @@ def format_metric_trend_block(
             current_target_speed_cpm=current_target_speed_cpm,
             cumulative=cumulative,
             include_key_name=False,
-            **grid_kwargs,
+            grid=grid,
+            spark_width=spark_width,
         )
     else:
         session_count = max(
@@ -603,7 +605,9 @@ def format_metric_trend_block(
             0,
         )
         conf_line = format_confidence_trend_line(
-            confidence_values or [], **grid_kwargs,
+            confidence_values or [],
+            grid=grid,
+            spark_width=spark_width,
         )
     header = f"[bold]{title}[/]"
     if session_count:
@@ -613,8 +617,12 @@ def format_metric_trend_block(
     lines = [
         header,
         conf_line,
-        format_key_speed_trend_line(speed_values, **grid_kwargs),
-        format_key_accuracy_trend_line(accuracy_values, **grid_kwargs),
+        format_key_speed_trend_line(
+            speed_values, grid=grid, spark_width=spark_width,
+        ),
+        format_key_accuracy_trend_line(
+            accuracy_values, grid=grid, spark_width=spark_width,
+        ),
     ]
     return "\n".join(line for line in lines if line)
 
