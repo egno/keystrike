@@ -41,8 +41,9 @@ for sources and how each maps to the code.
 
 - **Adaptive engine** — row-weighted key unlock order, speed+accuracy confidence
   gates, Markov word drills with a guaranteed focus letter.
-- **Per-layout stats** — heatmap with per-key confidence and urgency; WPM/accuracy
-  trends; press a key on the heatmap for that key's history.
+- **Per-layout stats** — heatmap with per-key confidence and urgency; layout-wide
+  and focus-key trend grids (confidence, speed, accuracy); press a heatmap key for
+  per-letter drill-down.
 - **Daily learn budget** — optional cap on adaptive minutes per calendar day.
 - **Custom layouts** — drop `*.toml` files into your config layouts directory; no
   restart needed.
@@ -94,8 +95,9 @@ back. Hitting your daily goal is shown in the HUD only — practice continues.
 
 ### Stats
 
-Recent sessions are listed below the heatmap. **Press any key on the heatmap** to
-drill into that key's confidence trend; `Esc` / `q` returns to the overview.
+Layout and focus trend grids (confidence, speed, accuracy) sit above the heatmap.
+**Press any key on the heatmap** for letter stats; `Esc` / `q` returns to the
+overview.
 
 ### Settings
 
@@ -156,7 +158,8 @@ not cmd.exe. Raw mode is not verified on every Windows build; please
 ## Development
 
 ```bash
-uv sync                  # runtime + dev (pytest, pyright)
+uv sync                  # runtime + dev (pytest, pyright, pre-commit)
+uv run pre-commit install  # optional: ruff + pyright hooks on commit
 uv run pytest -q
 uv run pyright
 uv sync --all-groups      # + ruff + snapshot tests (desktop only)
