@@ -1,7 +1,7 @@
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field, replace
 
-from keystrike.domain.aggregate import combine_sessions
+from keystrike.domain.aggregate import combine_sessions, session_recency_weights
 from keystrike.domain.confidence import (
     compute_unlocked,
     confidence_of,
@@ -20,7 +20,7 @@ from keystrike.domain.protocols import (
     SessionRepository,
     SettingsRepository,
 )
-from keystrike.domain.session import BACKSPACE, Session
+from keystrike.domain.session import BACKSPACE, Session, active_typing_duration_ns, note_keystroke_for_timer
 
 _SPARK = "▁▂▃▄▅▆▇█"
 
@@ -56,7 +56,6 @@ class RecordKeystroke:
     """Ingest one keystroke. Returns True if the session is now finished."""
 
     clock: Clock
-    repo: SessionRepository = field(default_factory=NullSessionRepository)
 
     def backspace(self, session: Session) -> bool:
         return self(session, BACKSPACE)
@@ -83,7 +82,8 @@ class RecordKeystroke:
         now_ns = self.clock.now_ns()
         if session.typing_started_at_ns is None:
             session.typing_started_at_ns = now_ns
-        t_ns = now_ns - session.typing_started_at_ns
+        note_keystroke_for_timer(session, now_ns)
+        t_ns = active_typing_duration_ns(session, now_ns)
 
         target_cp = ord(session.target_text[session.position])
         typed_cp = ord(char)
@@ -97,8 +97,6 @@ class RecordKeystroke:
             session.position += 1
         else:
             session.error_positions.add(session.position)
-
-        self.repo.append_keystroke(session.id, session.started_at_wall, k)
 
         return session.finished
 
@@ -169,12 +167,11 @@ class FinishSession:
 
     def __call__(self, session: Session) -> SessionResult:
         session.state = SessionState.COMPLETE
-        started_ns = (
-            session.typing_started_at_ns
+        duration_ns = (
+            active_typing_duration_ns(session, self.clock.now_ns())
             if session.typing_started_at_ns is not None
-            else session.started_at_ns
+            else 0
         )
-        duration_ns = self.clock.now_ns() - started_ns
 
         target_speed_cpm = 0
         unlocked_keys: tuple[int, ...] = ()
@@ -211,6 +208,8 @@ class FinishSession:
             key_confidence=key_confidence,
             target_speed_cpm=target_speed_cpm,
         )
+        for k in session.keystrokes:
+            self.repo.append_keystroke(session.id, session.started_at_wall, k)
         self.repo.save_header(result)
         return result
 
@@ -398,16 +397,96 @@ def format_focus_confidence_trend_line(
     ordered = sorted(headers, key=lambda h: h.started_at)[-limit:]
     if not ordered:
         return ""
-    values = focus_confidence_values(
-        headers, limit=limit, current_target_speed_cpm=current_target_speed_cpm,
+    focus_key = ordered[-1].focus_key
+    if focus_key is None:
+        return ""
+    values = key_confidence_values(
+        headers,
+        focus_key,
+        limit=limit,
+        current_target_speed_cpm=current_target_speed_cpm,
     )
-    spark = focus_confidence_sparkline(
-        headers, limit=limit, current_target_speed_cpm=current_target_speed_cpm,
+    label = _focus_char_label(focus_key)
+    return format_metric_trend_block(
+        title=f"Focus '{label}'",
+        confidence_values=values,
+        speed_values=[],
+        accuracy_values=[],
+        limit=limit,
     )
-    label = _focus_char_label(ordered[-1].focus_key)
-    return (
-        f"[bold]Focus '{label}' confidence[/] ({len(values)} sessions)  {spark}  "
-        f"[dim]latest {values[-1]:.2f}  peak {max(values):.2f}[/]"
+
+
+# Keep in sync with presentation/theme.py STYLE_TREND_* / STYLE_DELTA_*.
+_TREND_CONFIDENCE_COLOR = "cyan"
+_TREND_SPEED_COLOR = "green"
+_TREND_ACCURACY_COLOR = "yellow"
+_DELTA_IMPROVE_COLOR = "green"
+_DELTA_REGRESS_COLOR = "red"
+
+
+def _colored_sparkline(spark: str, color: str) -> str:
+    return f"[{color}]{spark}[/]" if spark else ""
+
+
+def _default_metric_value(value: float) -> str:
+    return f"{value:.2f}"
+
+
+_GRID_LABEL_WIDTH = 10
+_GRID_VALUE_WIDTH = 8
+
+
+def _format_metric_trend_line(
+    label: str,
+    color: str,
+    values: Sequence[float],
+    spark: str,
+    *,
+    format_value: Callable[[float], str] | None = None,
+    suffix: str = "",
+    show_sessions: bool = True,
+    grid: bool = False,
+    spark_width: int = 20,
+) -> str:
+    if not values:
+        return ""
+    fmt = format_value or _default_metric_value
+    label_text = label.ljust(_GRID_LABEL_WIDTH) if grid else label
+    spark_text = spark.ljust(spark_width) if grid else spark
+    session_part = f" ({len(values)} sessions)  " if show_sessions else "  "
+    latest_str = fmt(values[-1])
+    peak_str = fmt(max(values))
+    if grid:
+        values_part = (
+            f"latest {latest_str:>{_GRID_VALUE_WIDTH}}  "
+            f"peak {peak_str:>{_GRID_VALUE_WIDTH}}"
+        )
+    else:
+        values_part = f"latest {latest_str}  peak {peak_str}"
+    line = (
+        f"[bold {color}]{label_text}[/]{session_part}"
+        f"{_colored_sparkline(spark_text, color)}  "
+        f"[dim {color}]{values_part}[/]"
+    )
+    if suffix:
+        line += f"  {suffix}"
+    return line
+
+
+def format_confidence_trend_line(
+    values: Sequence[float],
+    *,
+    grid: bool = False,
+    spark_width: int = 20,
+) -> str:
+    return _format_metric_trend_line(
+        "confidence",
+        _TREND_CONFIDENCE_COLOR,
+        values,
+        value_sparkline(values),
+        show_sessions=not grid,
+        grid=grid,
+        spark_width=spark_width,
     )
 
 
@@ -418,6 +497,9 @@ def format_key_confidence_trend_line(
     limit: int = 20,
     current_target_speed_cpm: int = 0,
     cumulative: float | None = None,
+    include_key_name: bool = True,
+    grid: bool = False,
+    spark_width: int = 20,
 ) -> str:
     ordered = sorted(headers, key=lambda h: h.started_at)[-limit:]
     if not ordered:
@@ -428,23 +510,190 @@ def format_key_confidence_trend_line(
     spark = key_confidence_sparkline(
         headers, codepoint, limit=limit, current_target_speed_cpm=current_target_speed_cpm,
     )
-    label = _char_label(codepoint)
-    line = (
-        f"[bold]'{label}' confidence[/] ({len(values)} sessions)  {spark}  "
-        f"[dim]latest {values[-1]:.2f}  peak {max(values):.2f}[/]"
-    )
+    char = _char_label(codepoint)
+    label = f"'{char}' confidence" if include_key_name else "confidence"
+    suffix = ""
     if cumulative is not None:
-        line += f"  [dim]cumulative {cumulative:.2f}[/]"
-    return line
+        suffix = f"[dim {_TREND_CONFIDENCE_COLOR}]cumulative {cumulative:.2f}[/]"
+    return _format_metric_trend_line(
+        label,
+        _TREND_CONFIDENCE_COLOR,
+        values,
+        spark,
+        suffix=suffix,
+        show_sessions=not grid,
+        grid=grid,
+        spark_width=spark_width,
+    )
 
 
-def format_session_stats_line(result: SessionResult) -> str:
+def format_key_speed_trend_line(
+    values: Sequence[float],
+    *,
+    grid: bool = False,
+    spark_width: int = 20,
+) -> str:
+    return _format_metric_trend_line(
+        "speed",
+        _TREND_SPEED_COLOR,
+        values,
+        value_sparkline(values),
+        show_sessions=not grid,
+        grid=grid,
+        spark_width=spark_width,
+    )
+
+
+def format_key_accuracy_trend_line(
+    values: Sequence[float],
+    *,
+    grid: bool = False,
+    spark_width: int = 20,
+) -> str:
+    pct_values = [v * 100 for v in values]
+    return _format_metric_trend_line(
+        "accuracy",
+        _TREND_ACCURACY_COLOR,
+        pct_values,
+        value_sparkline(pct_values),
+        format_value=lambda v: f"{v:.1f}%",
+        show_sessions=not grid,
+        grid=grid,
+        spark_width=spark_width,
+    )
+
+
+def format_metric_trend_block(
+    title: str,
+    *,
+    speed_values: Sequence[float],
+    accuracy_values: Sequence[float],
+    limit: int = 20,
+    confidence_values: Sequence[float] | None = None,
+    headers: Sequence[SessionResult] | None = None,
+    codepoint: int | None = None,
+    current_target_speed_cpm: int = 0,
+    cumulative: float | None = None,
+) -> str:
+    grid_kwargs = {"grid": True, "spark_width": limit}
+    if headers is not None and codepoint is not None:
+        ordered = sorted(headers, key=lambda h: h.started_at)[-limit:]
+        session_count = len(ordered) if ordered else max(
+            len(speed_values), len(accuracy_values), 0,
+        )
+        conf_line = format_key_confidence_trend_line(
+            headers,
+            codepoint,
+            limit=limit,
+            current_target_speed_cpm=current_target_speed_cpm,
+            cumulative=cumulative,
+            include_key_name=False,
+            **grid_kwargs,
+        )
+    else:
+        session_count = max(
+            len(confidence_values or []),
+            len(speed_values),
+            len(accuracy_values),
+            0,
+        )
+        conf_line = format_confidence_trend_line(
+            confidence_values or [], **grid_kwargs,
+        )
+    header = f"[bold]{title}[/]"
+    if session_count:
+        header += f" ({session_count} sessions)"
+    else:
+        return ""
+    lines = [
+        header,
+        conf_line,
+        format_key_speed_trend_line(speed_values, **grid_kwargs),
+        format_key_accuracy_trend_line(accuracy_values, **grid_kwargs),
+    ]
+    return "\n".join(line for line in lines if line)
+
+
+def previous_session_header(
+    repo: SessionRepository,
+    result: SessionResult,
+) -> SessionResult | None:
+    """Session immediately before ``result`` for the same layout, if any."""
+    ordered = sorted(repo.iter_headers(result.layout), key=lambda h: h.started_at)
+    for i, header in enumerate(ordered):
+        if header.session_id == result.session_id:
+            return ordered[i - 1] if i > 0 else None
+    return None
+
+
+@dataclass(frozen=True, slots=True)
+class SessionStatsBaseline:
+    wpm: float
+    accuracy_pct: float
+
+
+def confidence_window_session_baseline(
+    repo: SessionRepository,
+    result: SessionResult,
+    *,
+    window: int,
+) -> SessionStatsBaseline | None:
+    """Recency-weighted WPM/accuracy from prior sessions in the confidence window.
+
+    Uses the same sliding window as ``GetKeyMetricTrends`` and
+    ``_snapshot_unlock_state``, excluding ``result`` itself.
+    """
+    ordered = sorted(repo.iter_headers(result.layout), key=lambda h: h.started_at)
+    for i, header in enumerate(ordered):
+        if header.session_id != result.session_id:
+            continue
+        prior = ordered[max(0, i - window + 1):i]
+        if not prior:
+            return None
+        weights = session_recency_weights(len(prior))
+        total = sum(weights)
+        wpm = sum(compute_wpm(h) * w for h, w in zip(prior, weights, strict=True)) / total
+        acc = sum(
+            compute_accuracy(h) * 100 * w
+            for h, w in zip(prior, weights, strict=True)
+        ) / total
+        return SessionStatsBaseline(wpm=wpm, accuracy_pct=acc)
+    return None
+
+
+def _format_metric_delta(
+    current: float,
+    previous: float,
+    *,
+    higher_is_better: bool = True,
+    suffix: str = "",
+) -> str:
+    delta = current - previous
+    if round(abs(delta), 1) == 0:
+        return ""
+    improved = delta > 0 if higher_is_better else delta < 0
+    color = _DELTA_IMPROVE_COLOR if improved else _DELTA_REGRESS_COLOR
+    arrow = "↑" if delta > 0 else "↓"
+    return f" [{color}]{arrow}{abs(delta):.1f}{suffix}[/]"
+
+
+def format_session_stats_line(
+    result: SessionResult,
+    *,
+    baseline: SessionStatsBaseline | None = None,
+) -> str:
     wpm = compute_wpm(result)
     acc = compute_accuracy(result) * 100
     duration = result.duration_ns / 1e9
+    wpm_delta = ""
+    acc_delta = ""
+    if baseline is not None:
+        wpm_delta = _format_metric_delta(wpm, baseline.wpm)
+        acc_delta = _format_metric_delta(
+            acc, baseline.accuracy_pct, suffix="%",
+        )
     return (
-        f"Last: WPM [bold]{wpm:5.1f}[/]  "
-        f"Acc [bold]{acc:5.1f}%[/]  "
-        f"Time [bold]{duration:5.1f}s[/]  "
-        f"Keys [bold]{result.total_keystrokes}[/]"
+        f"Last: WPM [bold]{wpm:5.1f}[/]{wpm_delta}  "
+        f"Acc [bold]{acc:5.1f}%[/]{acc_delta}  "
+        f"Time [bold]{duration:5.1f}s[/]"
     )

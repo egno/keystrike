@@ -25,6 +25,8 @@ class SessionPrep:
     focus_key: int | None
     focus_reason: str | None
     focus_confidence: float | None
+    focus_speed: float | None
+    focus_accuracy: float | None
     layout_obj: Layout | None
     lesson_heatmap: dict[int, float] | None
     lesson_urgency: dict[int, float] | None
@@ -47,6 +49,8 @@ class PreparePracticeSession:
             focus_key=lesson.focus_key,
             focus_reason=lesson.focus_reason,
             focus_confidence=lesson.focus_confidence,
+            focus_speed=lesson.focus_speed,
+            focus_accuracy=lesson.focus_accuracy,
             layout_obj=self.layout_repo.get(settings.layout),
             lesson_heatmap=lesson.heatmap,
             lesson_urgency=lesson.urgency,

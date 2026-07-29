@@ -11,14 +11,19 @@ from random import Random
 from keystrike.domain.aggregate import transition_key
 from keystrike.domain.confidence import (
     FOCUS_CHAR_BOOST,
+    accuracy_of,
     compute_unlocked,
     confidence_of,
     focus_key_from_transition,
+    key_confidence,
     practice_weight,
     review_urgency,
+    round_confidence,
     select_focus,
     select_focus_transition,
     target_ms_per_char,
+    transition_accuracy_of,
+    transition_confidence,
     transition_confidence_of,
     transition_practice_weight,
 )
@@ -43,6 +48,35 @@ from keystrike.domain.wordlist import words_for_alphabet
 
 WORD_COUNT = 12
 _CONFIDENCE_GOOD = 1.0
+
+
+def _key_focus_metrics(
+    focus: int,
+    stats: dict[int, KeyStats],
+    target: float,
+) -> tuple[float, float]:
+    key_stats = stats.get(focus)
+    if key_stats is None:
+        return 0.0, 0.0
+    return (
+        round_confidence(key_confidence(target, key_stats.mean_time_ns)),
+        round_confidence(accuracy_of(key_stats)),
+    )
+
+
+def _transition_focus_metrics(
+    prev_cp: int,
+    next_cp: int,
+    transitions: dict[str, TransitionStats],
+    target: float,
+) -> tuple[float, float]:
+    t_stats = transitions.get(transition_key(prev_cp, next_cp))
+    if t_stats is None:
+        return 0.0, 0.0
+    return (
+        round_confidence(transition_confidence(target, t_stats.mean_time_ns)),
+        round_confidence(transition_accuracy_of(t_stats)),
+    )
 
 
 def _focus_reason(
@@ -92,6 +126,8 @@ class Lesson:
     urgency: dict[int, float]
     focus_reason: str | None
     focus_confidence: float | None = None
+    focus_speed: float | None = None
+    focus_accuracy: float | None = None
 
     @property
     def focus_key(self) -> int:
@@ -235,6 +271,8 @@ class BuildLesson:
             cp: review_urgency(stats[cp].last_seen if cp in stats else 0.0, now)
             for cp in unlocked
         }
+        focus_speed: float | None = None
+        focus_accuracy: float | None = None
         if focus_bigram is not None:
             prev_cp, next_cp = focus_bigram
             reason = _focus_reason_transition(
@@ -252,6 +290,10 @@ class BuildLesson:
                 target,
                 min_attempts=settings.min_transition_confidence_attempts,
             )
+            if reason:
+                focus_speed, focus_accuracy = _transition_focus_metrics(
+                    prev_cp, next_cp, transitions, target,
+                )
         else:
             reason = _focus_reason(
                 focus,
@@ -263,10 +305,14 @@ class BuildLesson:
             focus_confidence = confidence_of(
                 focus, stats, target, min_attempts=settings.min_confidence_attempts,
             )
+            if reason:
+                focus_speed, focus_accuracy = _key_focus_metrics(focus, stats, target)
         return Lesson(
             text=text,
             state=state,
             urgency=urgency,
             focus_reason=reason,
             focus_confidence=focus_confidence if reason else None,
+            focus_speed=focus_speed,
+            focus_accuracy=focus_accuracy,
         )

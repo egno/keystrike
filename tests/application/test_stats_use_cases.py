@@ -1,10 +1,17 @@
 from keystrike.application.stats_use_cases import (
+    GetAggregateMetricTrends,
     GetHeatmap,
     GetHistory,
+    GetKeyMetricTrends,
     GetLearningRate,
     RebuildAggregates,
 )
-from keystrike.domain.confidence import CONFIDENCE_SESSION_WINDOW, MIN_CONFIDENCE_ATTEMPTS
+from keystrike.domain.confidence import (
+    CONFIDENCE_SESSION_WINDOW,
+    MIN_CONFIDENCE_ATTEMPTS,
+    SESSION_RECENCY_DECAY,
+)
+from keystrike.domain.aggregate import session_recency_weights
 from keystrike.domain.enums import Mode
 from keystrike.domain.models import KeyStats, Keystroke, LayoutAggregates, SessionResult, Settings
 from tests.fakes import FakeAggregatesCache, FakeSessionRepository, FakeSettingsRepository
@@ -86,7 +93,8 @@ def test_rebuild_aggregates_drops_sessions_outside_window():
 
     assert ord("a") in result
     assert ord("z") not in result
-    assert result[ord("a")].samples == CONFIDENCE_SESSION_WINDOW
+    weights = session_recency_weights(CONFIDENCE_SESSION_WINDOW, decay=SESSION_RECENCY_DECAY)
+    assert result[ord("a")].attempt_count == round(2 * sum(weights))
 
 
 def test_rebuild_aggregates_respects_settings_window():
@@ -114,7 +122,8 @@ def test_rebuild_aggregates_respects_settings_window():
     result = RebuildAggregates(repo=repo, cache=cache, settings_repo=settings_repo)("qwerty")
 
     assert ord("z") not in result
-    assert result[ord("a")].samples == window
+    weights = session_recency_weights(window, decay=SESSION_RECENCY_DECAY)
+    assert result[ord("a")].attempt_count == round(2 * sum(weights))
 
 
 def test_get_heatmap_empty_cache_returns_empty_view():
@@ -238,3 +247,130 @@ def test_get_history_sorted_newest_first_and_limited():
     history = get_history("qwerty", limit=3)
 
     assert [h.session_id for h in history] == ["s4", "s3", "s2"]
+
+
+def test_get_key_metric_trends_tracks_speed_and_accuracy():
+    repo = FakeSessionRepository()
+    settings_repo = FakeSettingsRepository(Settings(target_speed_cpm=300))  # target 200ms
+
+    repo.save_header(_header("s1", 1.0))
+    repo.keystrokes["s1"] = [
+        Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
+        Keystroke(
+            codepoint=ord("a"), typed=ord("a"), t_ns=400_000_000, correct=True,
+        ),
+    ]
+    repo.save_header(_header("s2", 2.0))
+    repo.keystrokes["s2"] = [
+        Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
+        Keystroke(
+            codepoint=ord("a"), typed=ord("a"), t_ns=200_000_000, correct=True,
+        ),
+    ]
+
+    get_trends = GetKeyMetricTrends(repo=repo, settings_repo=settings_repo)
+    speeds, accuracies = get_trends("qwerty", ord("a"))
+
+    assert len(speeds) == 2
+    assert len(accuracies) == 2
+    assert speeds[0] < speeds[1]  # 400ms then 200ms vs 200ms target
+    assert accuracies == [1.0, 1.0]
+
+
+def test_get_key_metric_trends_reflects_errors_in_accuracy():
+    repo = FakeSessionRepository()
+    settings_repo = FakeSettingsRepository(Settings(target_speed_cpm=300))
+
+    repo.save_header(_header("s1", 1.0))
+    repo.keystrokes["s1"] = [
+        Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
+        Keystroke(codepoint=ord("a"), typed=ord("x"), t_ns=100_000_000, correct=False),
+        Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=200_000_000, correct=True),
+    ]
+
+    get_trends = GetKeyMetricTrends(repo=repo, settings_repo=settings_repo)
+    _, accuracies = get_trends("qwerty", ord("a"))
+
+    assert accuracies == [0.5]
+
+
+def test_get_key_metric_trends_normalizes_speed_to_current_goal():
+    repo = FakeSessionRepository()
+    settings_repo = FakeSettingsRepository(Settings(target_speed_cpm=600))
+
+    header = SessionResult(
+        schema_version=3,
+        session_id="s1",
+        started_at=1.0,
+        duration_ns=1_000_000_000,
+        layout="qwerty",
+        mode=Mode.ADAPTIVE,
+        lesson_alphabet=(ord("a"),),
+        focus_key=None,
+        total_keystrokes=2,
+        correct_keystrokes=2,
+        target_speed_cpm=300,
+    )
+    repo.save_header(header)
+    repo.keystrokes["s1"] = [
+        Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
+        Keystroke(
+            codepoint=ord("a"), typed=ord("a"), t_ns=200_000_000, correct=True,
+        ),
+    ]
+
+    get_trends = GetKeyMetricTrends(repo=repo, settings_repo=settings_repo)
+    speeds, _ = get_trends("qwerty", ord("a"), current_target_speed_cpm=600)
+
+    assert speeds == [0.5]  # 1.0 at 300 cpm → 0.5 at 600 cpm
+
+
+def test_get_key_metric_trends_limits_to_confidence_session_window():
+    window = 3
+    settings_repo = FakeSettingsRepository(
+        Settings(confidence_session_window=window, target_speed_cpm=300),
+    )
+    repo = FakeSessionRepository()
+
+    for i in range(window + 5):
+        session_id = f"s{i}"
+        repo.save_header(_header(session_id, float(i)))
+        repo.keystrokes[session_id] = [
+            Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
+            Keystroke(
+                codepoint=ord("a"), typed=ord("a"), t_ns=200_000_000, correct=True,
+            ),
+        ]
+
+    get_trends = GetKeyMetricTrends(repo=repo, settings_repo=settings_repo)
+    speeds, accuracies = get_trends("qwerty", ord("a"))
+
+    assert len(speeds) == window
+    assert len(accuracies) == window
+
+
+def test_get_aggregate_metric_trends_aggregates_all_keys():
+    repo = FakeSessionRepository()
+    settings_repo = FakeSettingsRepository(Settings(target_speed_cpm=300))
+
+    repo.save_header(_header("s1", 1.0))
+    repo.keystrokes["s1"] = [
+        Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
+        Keystroke(
+            codepoint=ord("a"), typed=ord("a"), t_ns=400_000_000, correct=True,
+        ),
+        Keystroke(codepoint=ord("b"), typed=ord("b"), t_ns=500_000_000, correct=True),
+        Keystroke(
+            codepoint=ord("b"), typed=ord("x"), t_ns=600_000_000, correct=False,
+        ),
+    ]
+
+    get_trends = GetAggregateMetricTrends(repo=repo, settings_repo=settings_repo)
+    confidences, speeds, accuracies = get_trends("qwerty")
+
+    assert len(confidences) == 1
+    assert len(speeds) == 1
+    assert len(accuracies) == 1
+    assert speeds[0] > 0
+    assert confidences[0] > 0
+    assert accuracies == [0.67]  # 2 timing samples, 1 error across keys

@@ -4,8 +4,8 @@ from textual.widgets import Static
 
 from keystrike.domain.daily_learn import compute_daily_learn_budget
 from keystrike.domain.enums import Mode
-from keystrike.domain.session import Session
-from keystrike.presentation.widgets.hud import HUD, _format_hud
+from keystrike.domain.session import LEARN_IDLE_PAUSE_NS, Session, active_typing_duration_ns, is_typing_idle
+from keystrike.presentation.widgets.hud import HUD, _format_hud, learn_timer_dimmed
 from tests.fakes import FakeClock
 
 _UNLIMITED = compute_daily_learn_budget(completed_ns=0, limit_minutes=0)
@@ -30,6 +30,12 @@ def _session(
     )
     session.correct_count = correct
     session.total_count = total
+    return session
+
+
+def _active_session(**kwargs) -> Session:
+    session = _session(typing_started_at_ns=0, **kwargs)
+    session.last_keystroke_at_ns = 0
     return session
 
 
@@ -82,10 +88,21 @@ def test_hud_shows_daily_learn_goal_reached():
         completed_ns=10 * 60 * 1_000_000_000,
         limit_minutes=10,
     )
-    text = _format_hud(_session(), budget)
+    text = _format_hud(_active_session(), budget, dim_learn=False)
     assert "Learn:" in text
     assert "10.0" in text
     assert "/10 min" in text
+    assert "[green]   Learn: [bold]10.0[/]/10 min[/]" in text
+
+
+def test_hud_learn_segment_green_when_goal_reached_and_active():
+    budget = compute_daily_learn_budget(
+        completed_ns=10 * 60 * 1_000_000_000,
+        limit_minutes=10,
+    )
+    text = _format_hud(_active_session(), budget, dim_learn=False)
+    assert "[green]   Learn: [bold]10.0[/]/10 min[/]" in text
+    assert "[dim]   Learn:" not in text
 
 
 def test_hud_distinct_labels_for_daily_budget_and_focus():
@@ -121,3 +138,60 @@ async def test_hud_accuracy_updates_on_refresh():
         text = str(app.screen.query_one("#hud-text", Static).content)
         assert "50.0%" in text
         assert "WPM" not in text
+
+
+def test_hud_learn_timer_excludes_idle_beyond_pause():
+    clock = FakeClock()
+    session = _session(typing_started_at_ns=0)
+    session.last_keystroke_at_ns = 2_000_000_000
+    session.active_duration_ns = 2_000_000_000
+    clock.advance(12_000_000_000)  # 10s since last key; only 5s grace counts
+
+    assert active_typing_duration_ns(session, clock.now_ns()) == 7_000_000_000
+    assert LEARN_IDLE_PAUSE_NS == 5_000_000_000
+
+
+def test_hud_learn_segment_dimmed_before_first_keystroke():
+    budget = compute_daily_learn_budget(
+        completed_ns=6 * 60 * 1_000_000_000,
+        limit_minutes=10,
+    )
+    text = _format_hud(_session(), budget)
+    assert "[dim]   Learn: [bold]6.0[/]/10 min[/]" in text
+
+
+def test_hud_learn_segment_undimmed_while_actively_typing():
+    budget = compute_daily_learn_budget(
+        completed_ns=6 * 60 * 1_000_000_000,
+        limit_minutes=10,
+    )
+    text = _format_hud(_active_session(), budget, dim_learn=False)
+    assert "[dim]   Learn:" not in text
+    assert "   Learn: [bold]6.0[/]/10 min" in text
+
+
+def test_hud_learn_segment_dimmed_while_idle():
+    budget = compute_daily_learn_budget(
+        completed_ns=6 * 60 * 1_000_000_000,
+        limit_minutes=10,
+    )
+    session = _active_session()
+    session.last_keystroke_at_ns = 0
+    clock = FakeClock()
+    clock.advance(LEARN_IDLE_PAUSE_NS)
+    assert is_typing_idle(session, clock.now_ns())
+    text = _format_hud(session, budget, dim_learn=learn_timer_dimmed(session, clock.now_ns()))
+    assert "[dim]   Learn: [bold]6.0[/]/10 min[/]" in text
+
+
+def test_hud_learn_segment_dim_green_when_goal_reached_but_idle():
+    budget = compute_daily_learn_budget(
+        completed_ns=10 * 60 * 1_000_000_000,
+        limit_minutes=10,
+    )
+    session = _active_session()
+    session.last_keystroke_at_ns = 0
+    clock = FakeClock()
+    clock.advance(LEARN_IDLE_PAUSE_NS)
+    text = _format_hud(session, budget, dim_learn=learn_timer_dimmed(session, clock.now_ns()))
+    assert "[dim][green]   Learn: [bold]10.0[/]/10 min[/][/]" in text

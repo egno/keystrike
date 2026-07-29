@@ -13,6 +13,7 @@ from keystrike.application.session_use_cases import (
     FinishSession,
     RecordKeystroke,
     StartSession,
+    confidence_window_session_baseline,
     format_session_stats_line,
 )
 from keystrike.domain.models import Layout, SessionResult
@@ -70,6 +71,8 @@ class PracticeScreen(Screen[None]):
         self._focus_key = initial.focus_key
         self._focus_reason = initial.focus_reason
         self._focus_confidence = initial.focus_confidence
+        self._focus_speed = initial.focus_speed
+        self._focus_accuracy = initial.focus_accuracy
         self._kb_heatmap: KbHeatmap | None = None
         self._session = self._start(
             initial.target_text,
@@ -109,6 +112,8 @@ class PracticeScreen(Screen[None]):
             self._focus_key,
             self._focus_reason,
             confidence=self._focus_confidence,
+            speed=self._focus_speed,
+            accuracy=self._focus_accuracy,
         ) or ""
 
     def on_mount(self) -> None:
@@ -130,6 +135,7 @@ class PracticeScreen(Screen[None]):
 
         event.stop()
         self._typing_area.refresh_display()
+        self._hud.refresh_display()
 
         if self._session.finished:
             self._finish_session()
@@ -146,7 +152,15 @@ class PracticeScreen(Screen[None]):
         self._begin_session(prep)
 
     def _show_last_session_stats(self, result: SessionResult) -> None:
-        self.query_one("#last-session-stats", Static).update(format_session_stats_line(result))
+        baseline = None
+        if self._finish.settings_repo is not None:
+            window = self._finish.settings_repo.load().confidence_session_window
+            baseline = confidence_window_session_baseline(
+                self._finish.repo, result, window=window,
+            )
+        self.query_one("#last-session-stats", Static).update(
+            format_session_stats_line(result, baseline=baseline),
+        )
 
     def _refresh_focus_note(self) -> None:
         note = self.query_one("#focus-note", Static)
@@ -160,6 +174,8 @@ class PracticeScreen(Screen[None]):
         self._focus_key = prep.focus_key
         self._focus_reason = prep.focus_reason
         self._focus_confidence = prep.focus_confidence
+        self._focus_speed = prep.focus_speed
+        self._focus_accuracy = prep.focus_accuracy
         self._session = self._start(
             prep.target_text,
             layout=prep.layout,

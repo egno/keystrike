@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 
+from .confidence import SESSION_RECENCY_DECAY
 from .models import KeyStats, Keystroke, LayoutAggregates, SessionResult, TransitionStats
 
 
@@ -75,19 +76,106 @@ def aggregate_session(
     }
 
 
+def session_recency_weights(
+    session_count: int,
+    *,
+    decay: float = SESSION_RECENCY_DECAY,
+) -> list[float]:
+    """Newest session (last in chronological order) gets weight 1.0; each older
+    session is multiplied by `decay`."""
+    if session_count <= 0:
+        return []
+    return [decay ** (session_count - 1 - i) for i in range(session_count)]
+
+
+def _combine_key_maps_weighted(
+    maps: Sequence[dict[int, KeyStats]],
+    weights: Sequence[float],
+) -> dict[int, KeyStats]:
+    """Merge key stats with recency weights on speed, accuracy, and attempts."""
+    by_cp: dict[int, list[tuple[KeyStats, float]]] = {}
+    for m, weight in zip(maps, weights, strict=True):
+        for cp, stats in m.items():
+            by_cp.setdefault(cp, []).append((stats, weight))
+
+    out: dict[int, KeyStats] = {}
+    for cp, entries in by_cp.items():
+        weighted_samples = sum(weight * stats.samples for stats, weight in entries)
+        weighted_errors = sum(weight * stats.error_count for stats, weight in entries)
+        weighted_attempts = sum(weight * stats.attempt_count for stats, weight in entries)
+        if weighted_samples > 0:
+            mean = sum(
+                stats.mean_time_ns * weight * stats.samples
+                for stats, weight in entries
+            ) / weighted_samples
+        else:
+            mean = 0.0
+        out[cp] = KeyStats(
+            codepoint=cp,
+            samples=int(round(weighted_samples)),
+            mean_time_ns=mean,
+            error_count=int(round(weighted_errors)),
+            last_seen=max(stats.last_seen for stats, _ in entries),
+            attempt_count=int(round(weighted_attempts)),
+        )
+    return out
+
+
+def _combine_transition_maps_weighted(
+    maps: Sequence[dict[str, TransitionStats]],
+    weights: Sequence[float],
+) -> dict[str, TransitionStats]:
+    by_key: dict[str, list[tuple[TransitionStats, float]]] = {}
+    for m, weight in zip(maps, weights, strict=True):
+        for key, stats in m.items():
+            by_key.setdefault(key, []).append((stats, weight))
+
+    out: dict[str, TransitionStats] = {}
+    for key, entries in by_key.items():
+        weighted_samples = sum(weight * stats.samples for stats, weight in entries)
+        weighted_errors = sum(weight * stats.error_count for stats, weight in entries)
+        weighted_attempts = sum(weight * stats.attempt_count for stats, weight in entries)
+        if weighted_samples > 0:
+            mean = sum(
+                stats.mean_time_ns * weight * stats.samples
+                for stats, weight in entries
+            ) / weighted_samples
+        else:
+            mean = 0.0
+        prev_cp, next_cp = entries[0][0].prev_cp, entries[0][0].next_cp
+        out[key] = TransitionStats(
+            prev_cp=prev_cp,
+            next_cp=next_cp,
+            samples=int(round(weighted_samples)),
+            mean_time_ns=mean,
+            error_count=int(round(weighted_errors)),
+            last_seen=max(stats.last_seen for stats, _ in entries),
+            attempt_count=int(round(weighted_attempts)),
+        )
+    return out
+
+
 def combine_sessions(
     sessions: Sequence[tuple[SessionResult, Iterable[Keystroke]]],
+    *,
+    recency_decay: float = SESSION_RECENCY_DECAY,
 ) -> LayoutAggregates:
-    """Merge per-session stats into one layout aggregate."""
+    """Merge per-session stats into one layout aggregate.
+
+    Sessions must be in chronological order. Recent sessions weigh more on
+    mean time, accuracy, and attempt counts so the sample ramp tracks recent
+    practice, not stale volume alone.
+    """
     if not sessions:
         return LayoutAggregates(keys={}, transitions={})
+    weights = session_recency_weights(len(sessions), decay=recency_decay)
     key_maps = [aggregate_session(header, keystrokes) for header, keystrokes in sessions]
     transition_maps = [
         aggregate_transitions(header, keystrokes) for header, keystrokes in sessions
     ]
     return LayoutAggregates(
-        keys=combine(*key_maps),
-        transitions=combine_transitions(*transition_maps),
+        keys=_combine_key_maps_weighted(key_maps, weights),
+        transitions=_combine_transition_maps_weighted(transition_maps, weights),
     )
 
 

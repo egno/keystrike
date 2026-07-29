@@ -8,8 +8,10 @@ from keystrike.domain.aggregate import (
     merge_transition_stats,
     per_key_deltas,
     per_transition_deltas,
+    session_recency_weights,
     transition_key,
 )
+from keystrike.domain.confidence import SESSION_RECENCY_DECAY, confidence_of, target_ms_per_char
 from keystrike.domain.enums import Mode
 from keystrike.domain.models import KeyStats, Keystroke, SessionResult, TransitionStats
 
@@ -131,7 +133,16 @@ def test_combine_multiple_maps():
     assert out[ord("y")].samples == 2
 
 
-def test_combine_sessions_merges_multiple_sessions():
+def test_session_recency_weights_newest_is_one():
+    assert session_recency_weights(1) == [1.0]
+    assert session_recency_weights(3) == [
+        SESSION_RECENCY_DECAY ** 2,
+        SESSION_RECENCY_DECAY,
+        1.0,
+    ]
+
+
+def test_combine_sessions_favors_recent_session():
     s1 = _session("s1", started_at=1.0)
     s2 = _session("s2", started_at=2.0)
     keys1 = [
@@ -143,8 +154,51 @@ def test_combine_sessions_merges_multiple_sessions():
         Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=300_000_000, correct=True),
     ]
     out = combine_sessions([(s1, keys1), (s2, keys2)])
-    assert out.keys[ord("a")].samples == 2
-    assert abs(out.keys[ord("a")].mean_time_ns - 200_000_000) < 1
+    w_old, w_new = session_recency_weights(2)
+    expected = (100_000_000 * w_old + 300_000_000 * w_new) / (w_old + w_new)
+    assert abs(out.keys[ord("a")].mean_time_ns - expected) < 1
+    assert out.keys[ord("a")].mean_time_ns > 200_000_000
+
+
+def test_combine_sessions_weights_recent_attempts_more():
+    s1 = _session("s1", started_at=1.0)
+    s2 = _session("s2", started_at=2.0)
+    keys1 = [
+        Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
+        Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=100_000_000, correct=True),
+    ]
+    keys2 = [
+        Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
+    ]
+    out = combine_sessions([(s1, keys1), (s2, keys2)])
+    w_old, w_new = session_recency_weights(2)
+    expected_attempts = round(2 * w_old + 1 * w_new)
+    assert out.keys[ord("a")].attempt_count == expected_attempts
+    assert out.keys[ord("a")].attempt_count < 3
+
+
+def test_combine_sessions_recent_errors_weigh_more_on_confidence():
+    s1 = _session("s1", started_at=1.0)
+    s2 = _session("s2", started_at=2.0)
+    # Old session: fast and clean. Recent session: fast but half wrong.
+    keys1 = [
+        Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
+        Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=100_000_000, correct=True),
+        Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=200_000_000, correct=True),
+    ]
+    keys2 = [
+        Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
+        Keystroke(codepoint=ord("a"), typed=ord("x"), t_ns=50_000_000, correct=False),
+        Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=150_000_000, correct=True),
+    ]
+    stats = combine_sessions([(s1, keys1), (s2, keys2)]).keys
+    equal_weight = combine(
+        {ord("a"): aggregate_session(s1, keys1)[ord("a")]},
+        {ord("a"): aggregate_session(s2, keys2)[ord("a")]},
+    )
+    assert confidence_of(ord("a"), stats, target=200.0) < confidence_of(
+        ord("a"), equal_weight, target=200.0,
+    )
 
 
 def test_per_transition_deltas_tracks_prev_to_next_pair():

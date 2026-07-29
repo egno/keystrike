@@ -14,7 +14,10 @@ _SECONDS_PER_DAY = 86_400.0
 _REVIEW_URGENCY_FULL_DAYS = 3.0
 # Confidence, unlocks, focus, and heatmap use aggregates from this many sessions.
 CONFIDENCE_SESSION_WINDOW = 10
-# Raw speed x accuracy confidence ramps linearly until this many attempts per key.
+# Exponential decay per session step when merging windowed stats (most recent = 1.0).
+# ponytail: fixed constant; upgrade to settings if users want tunable recency bias.
+SESSION_RECENCY_DECAY = 0.7
+# Raw min(speed, accuracy) confidence ramps linearly until this many attempts per key.
 MIN_CONFIDENCE_ATTEMPTS = 10
 # Bigrams are sparser — lower floor so transition focus reflects measured weakness.
 MIN_TRANSITION_CONFIDENCE_ATTEMPTS = 4
@@ -78,18 +81,22 @@ def confidence_of(
     min_attempts: int = MIN_CONFIDENCE_ATTEMPTS,
 ) -> float:
     """Live confidence for one key from aggregated stats (typically the last
-    `CONFIDENCE_SESSION_WINDOW` sessions), recomputed from the current target.
+    `CONFIDENCE_SESSION_WINDOW` sessions, recency-weighted), recomputed from the
+    current target.
     0.0 for a never-practiced key.
 
-    Speed confidence is scaled by accuracy so a key typed fast but frequently
-    wrong doesn't read as mastered. Both are scaled down until
+    Confidence is min(speed, accuracy) so fast-but-sloppy or slow-but-accurate
+    cannot read as mastered. Both must clear the bar. Scaled down until
     `MIN_CONFIDENCE_ATTEMPTS` presses on the key so a lucky first session
     can't read as mastered (see docs/research/typing-pedagogy.md).
     """
     key_stats = stats.get(codepoint)
     if key_stats is None:
         return 0.0
-    raw = key_confidence(target, key_stats.mean_time_ns) * accuracy_of(key_stats)
+    raw = min(
+        key_confidence(target, key_stats.mean_time_ns),
+        accuracy_of(key_stats),
+    )
     return round_confidence(
         raw * confidence_sample_factor(key_attempts(key_stats), minimum=min_attempts),
     )
@@ -158,9 +165,9 @@ def transition_confidence_of(
     transition_stats = stats.get(chr(prev_cp) + chr(next_cp))
     if transition_stats is None:
         return 0.0
-    raw = (
-        transition_confidence(target, transition_stats.mean_time_ns)
-        * transition_accuracy_of(transition_stats)
+    raw = min(
+        transition_confidence(target, transition_stats.mean_time_ns),
+        transition_accuracy_of(transition_stats),
     )
     return round_confidence(
         raw * confidence_sample_factor(

@@ -152,12 +152,11 @@ def test_round_trip_target_speed_cpm(paths):
     assert headers[0].target_speed_cpm == 400
 
 
-def test_keystroke_before_header_still_recoverable(paths):
-    # Real flow: append happens per keystroke (with started_at), save_header runs at end.
+def test_keystrokes_persisted_with_header_at_finish(paths):
     repo = JsonlSessionRepository(paths)
     header = _header(sid="S2")
-    repo.append_keystroke(header.session_id, header.started_at,
-                           Keystroke(codepoint=ord("x"), typed=ord("x"), t_ns=0, correct=True))
+    k = Keystroke(codepoint=ord("x"), typed=ord("x"), t_ns=0, correct=True)
+    repo.append_keystroke(header.session_id, header.started_at, k)
     repo.save_header(header)
 
     repo2 = JsonlSessionRepository(paths)

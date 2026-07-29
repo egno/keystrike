@@ -1,6 +1,6 @@
 # Confidence tuning
 
-Keystrike's adaptive engine uses **confidence** — speed × accuracy, scaled by how
+Keystrike's adaptive engine uses **confidence** — min(speed, accuracy), scaled by how
 much you've practiced — to decide which keys unlock, which key or bigram gets
 focus, and how the stats heatmap colors each key. Three settings control how
 aggressively the engine trusts your recent performance.
@@ -19,6 +19,10 @@ layout, speed, or other UI settings will not change them.
 
 Valid ranges: window and both attempt floors are **1–100**.
 
+Confidence uses **min(speed, accuracy)**, not their product: a key must be both
+fast enough and accurate enough to read as mastered. Speed is `target_ms /
+actual_ms`; accuracy is correct attempts ÷ total attempts.
+
 Example (defaults shown):
 
 ```toml
@@ -30,9 +34,12 @@ min_transition_confidence_attempts = 4
 ## What each setting affects
 
 **Session window** — Confidence is computed from aggregates over your last *N*
-sessions (per layout), not your entire history. A longer window smooths noise but
-reacts slowly; a shorter window tracks recent form but can under-sample rare keys
-and block unlocks until those keys appear often enough in recent drills.
+sessions (per layout), not your entire history. Within that window, **recent
+sessions count more** than older ones (exponential decay, default 0.7 per step
+back), so a bad or good last session moves confidence faster than the flat
+average of all window sessions. A longer window smooths noise but reacts slowly;
+a shorter window tracks recent form but can under-sample rare keys and block
+unlocks until those keys appear often enough in recent drills.
 
 **Min key attempts** — Prevents a lucky fast streak from reading as mastery.
 Until you've pressed a key at least this many times (within the windowed
