@@ -306,7 +306,7 @@ async def test_escape_returns_to_home_and_cancels_session():
 
 @pytest.mark.asyncio
 async def test_learn_timer_pauses_while_idle_on_practice_screen():
-    app, clock, _repo, settings_repo = _build_app(
+    app, clock, _repo, _settings_repo = _build_app(
         settings=Settings(learn_daily_minutes=10),
     )
     async with app.run_test() as pilot:

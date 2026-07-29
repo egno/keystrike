@@ -112,11 +112,11 @@ def _combine_key_maps_weighted(
             mean = 0.0
         out[cp] = KeyStats(
             codepoint=cp,
-            samples=int(round(weighted_samples)),
+            samples=round(weighted_samples),
             mean_time_ns=mean,
-            error_count=int(round(weighted_errors)),
+            error_count=round(weighted_errors),
             last_seen=max(stats.last_seen for stats, _ in entries),
-            attempt_count=int(round(weighted_attempts)),
+            attempt_count=round(weighted_attempts),
         )
     return out
 
@@ -146,11 +146,11 @@ def _combine_transition_maps_weighted(
         out[key] = TransitionStats(
             prev_cp=prev_cp,
             next_cp=next_cp,
-            samples=int(round(weighted_samples)),
+            samples=round(weighted_samples),
             mean_time_ns=mean,
-            error_count=int(round(weighted_errors)),
+            error_count=round(weighted_errors),
             last_seen=max(stats.last_seen for stats, _ in entries),
-            attempt_count=int(round(weighted_attempts)),
+            attempt_count=round(weighted_attempts),
         )
     return out
 

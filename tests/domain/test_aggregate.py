@@ -11,7 +11,7 @@ from keystrike.domain.aggregate import (
     session_recency_weights,
     transition_key,
 )
-from keystrike.domain.confidence import SESSION_RECENCY_DECAY, confidence_of, target_ms_per_char
+from keystrike.domain.confidence import SESSION_RECENCY_DECAY, confidence_of
 from keystrike.domain.enums import Mode
 from keystrike.domain.models import KeyStats, Keystroke, SessionResult, TransitionStats
 

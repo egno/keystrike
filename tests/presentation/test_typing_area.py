@@ -1,3 +1,5 @@
+from textual.content import Content
+
 from keystrike.domain.enums import Mode
 from keystrike.domain.models import Keystroke
 from keystrike.domain.session import Session
@@ -97,8 +99,6 @@ def test_wrap_breaks_at_word_boundaries():
 
 
 def test_textual_render_path_avoids_midword_breaks():
-    from textual.content import Content
-
     session = _session(target_text="st series seasons cnasa kterrorist", position=0)
     wrapped = wrap_typing_text(render_typing_text(session), 26)
     content = Content.from_rich_text(wrapped)

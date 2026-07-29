@@ -4,7 +4,12 @@ from textual.widgets import Static
 
 from keystrike.domain.daily_learn import compute_daily_learn_budget
 from keystrike.domain.enums import Mode
-from keystrike.domain.session import LEARN_IDLE_PAUSE_NS, Session, active_typing_duration_ns, is_typing_idle
+from keystrike.domain.session import (
+    LEARN_IDLE_PAUSE_NS,
+    Session,
+    active_typing_duration_ns,
+    is_typing_idle,
+)
 from keystrike.presentation.widgets.hud import HUD, _format_hud, learn_timer_dimmed
 from tests.fakes import FakeClock
 

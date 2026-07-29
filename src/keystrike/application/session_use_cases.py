@@ -20,7 +20,12 @@ from keystrike.domain.protocols import (
     SessionRepository,
     SettingsRepository,
 )
-from keystrike.domain.session import BACKSPACE, Session, active_typing_duration_ns, note_keystroke_for_timer
+from keystrike.domain.session import (
+    BACKSPACE,
+    Session,
+    active_typing_duration_ns,
+    note_keystroke_for_timer,
+)
 
 _SPARK = "▁▂▃▄▅▆▇█"
 

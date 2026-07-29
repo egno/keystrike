@@ -10,7 +10,6 @@ from keystrike.presentation.theme import (
     STYLE_CORRECTED,
     STYLE_CURRENT,
     STYLE_PENDING,
-    STYLE_WRONG,
     STYLE_WRONG_CURRENT,
 )
 

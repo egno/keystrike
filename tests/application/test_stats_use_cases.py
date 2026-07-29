@@ -6,12 +6,12 @@ from keystrike.application.stats_use_cases import (
     GetLearningRate,
     RebuildAggregates,
 )
+from keystrike.domain.aggregate import session_recency_weights
 from keystrike.domain.confidence import (
     CONFIDENCE_SESSION_WINDOW,
     MIN_CONFIDENCE_ATTEMPTS,
     SESSION_RECENCY_DECAY,
 )
-from keystrike.domain.aggregate import session_recency_weights
 from keystrike.domain.enums import Mode
 from keystrike.domain.models import KeyStats, Keystroke, LayoutAggregates, SessionResult, Settings
 from tests.fakes import FakeAggregatesCache, FakeSessionRepository, FakeSettingsRepository
