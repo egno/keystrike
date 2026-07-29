@@ -78,8 +78,8 @@ def test_confidence_of_scales_down_with_few_attempts():
             attempt_count=2,
         ),
     }
-    # raw speed x accuracy = 2.0 x 0.5 = 1.0; only 2 attempts -> x0.2
-    assert confidence_of(ord("a"), stats, target=200.0) == 0.2
+    # raw min(speed, accuracy) = min(2.0, 0.5) = 0.5; only 2 attempts -> x0.2
+    assert confidence_of(ord("a"), stats, target=200.0) == 0.1
 
 
 def test_confidence_of_reaches_full_value_at_minimum_attempts():
@@ -120,14 +120,14 @@ def test_transition_confidence_reaches_full_at_minimum_attempts():
 
 
 def test_confidence_of_penalizes_frequent_errors():
-    # Fast (2.0 speed-confidence) but wrong half the time -> 1.0, not "mastered".
+    # Fast (2.0 speed) but wrong half the time -> min(2.0, 0.5) = 0.5, not mastered.
     stats = {ord("a"): _stats(ord("a"), mean_time_ns=100_000_000.0, error_count=10)}
-    assert confidence_of(ord("a"), stats, target=200.0) == 1.0
+    assert confidence_of(ord("a"), stats, target=200.0) == 0.5
 
 
 def test_compute_unlocked_stalls_on_high_error_rate_despite_fast_speed():
     learn_order = (1, 2, 3, 4)
-    # speed-confidence 2.0, but only 50% accuracy -> combined 1.0 < threshold
+    # speed 2.0, but only 50% accuracy -> min(2.0, 0.5) = 0.5 < threshold
     stats = {1: _stats(1, mean_time_ns=100_000_000.0, error_count=10)}
     unlocked = compute_unlocked(learn_order, alphabet_size=1, stats=stats, target=200.0,
                                  threshold=1.5)

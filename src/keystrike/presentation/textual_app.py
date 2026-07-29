@@ -10,7 +10,12 @@ from keystrike.application.session_use_cases import (
     StartSession,
 )
 from keystrike.application.settings_use_cases import CycleLayout, UpdateSettings
-from keystrike.application.stats_use_cases import GetHeatmap, GetHistory
+from keystrike.application.stats_use_cases import (
+    GetAggregateMetricTrends,
+    GetHeatmap,
+    GetHistory,
+    GetKeyMetricTrends,
+)
 from keystrike.application.wordlist_use_cases import (
     ClearWordList,
     GetWordListCacheStatus,
@@ -48,6 +53,8 @@ class KeystrikeApp(App[None]):
         rebuild_aggregates: StatsRebuilder,
         get_heatmap: GetHeatmap,
         get_history: GetHistory,
+        get_key_metric_trends: GetKeyMetricTrends,
+        get_aggregate_metric_trends: GetAggregateMetricTrends,
         cycle_layout: CycleLayout,
         update_settings: UpdateSettings,
         import_wordlist: ImportWordList,
@@ -67,6 +74,8 @@ class KeystrikeApp(App[None]):
         self._rebuild_aggregates = rebuild_aggregates
         self._get_heatmap = get_heatmap
         self._get_history = get_history
+        self._get_key_metric_trends = get_key_metric_trends
+        self._get_aggregate_metric_trends = get_aggregate_metric_trends
         self._cycle_layout = cycle_layout
         self._update_settings = update_settings
         self._import_wordlist = import_wordlist
@@ -113,7 +122,10 @@ class KeystrikeApp(App[None]):
                 rebuild_aggregates=self._rebuild_aggregates,
                 get_heatmap=self._get_heatmap,
                 get_history=self._get_history,
+                get_key_metric_trends=self._get_key_metric_trends,
+                get_aggregate_metric_trends=self._get_aggregate_metric_trends,
                 current_target_speed_cpm=settings.target_speed_cpm,
+                confidence_session_window=settings.confidence_session_window,
             )
         )
 

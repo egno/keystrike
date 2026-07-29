@@ -94,13 +94,21 @@ def format_focus_note(
     focus_reason: str | None,
     *,
     confidence: float | None = None,
+    speed: float | None = None,
+    accuracy: float | None = None,
     goal: float = _CONFIDENCE_GOAL,
 ) -> str | None:
     if focus_key is None or not focus_reason:
         return None
     actual = f"{confidence:.2f}" if confidence is not None else "0.00"
     goal_s = f"{goal:.2f}"
-    metrics = f"confidence {actual} / {goal_s}"
+    parts: list[str] = []
+    if speed is not None:
+        parts.append(f"speed {speed:.2f}")
+    if accuracy is not None:
+        parts.append(f"accuracy {accuracy * 100:.1f}%")
+    parts.append(f"confidence {actual} / {goal_s}")
+    metrics = ", ".join(parts)
     key = chr(focus_key)
 
     if focus_reason == "weak":

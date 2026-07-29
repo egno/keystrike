@@ -12,7 +12,13 @@ from keystrike.application.session_use_cases import (
     StartSession,
 )
 from keystrike.application.settings_use_cases import CycleLayout, UpdateSettings
-from keystrike.application.stats_use_cases import GetHeatmap, GetHistory, RebuildAggregates
+from keystrike.application.stats_use_cases import (
+    GetAggregateMetricTrends,
+    GetHeatmap,
+    GetHistory,
+    GetKeyMetricTrends,
+    RebuildAggregates,
+)
 from keystrike.application.sync_use_cases import GetSyncStatus, InitSync, PullSync, PushSync
 from keystrike.application.wordlist_use_cases import (
     ClearWordList,
@@ -73,7 +79,7 @@ def build() -> KeystrikeApp:
     language_provider = BundledLanguageProvider()
 
     start = StartSession(clock=clock, id_gen=id_gen)
-    record = RecordKeystroke(clock=clock, repo=session_repo)
+    record = RecordKeystroke(clock=clock)
     finish = FinishSession(
         clock=clock,
         repo=session_repo,
@@ -88,6 +94,14 @@ def build() -> KeystrikeApp:
     )
     get_heatmap = GetHeatmap(cache=aggregates_cache, settings_repo=settings_repo)
     get_history = GetHistory(repo=session_repo)
+    get_key_metric_trends = GetKeyMetricTrends(
+        repo=session_repo,
+        settings_repo=settings_repo,
+    )
+    get_aggregate_metric_trends = GetAggregateMetricTrends(
+        repo=session_repo,
+        settings_repo=settings_repo,
+    )
     get_daily_learn_budget = GetDailyLearnBudget(
         clock=clock,
         repo=session_repo,
@@ -126,6 +140,8 @@ def build() -> KeystrikeApp:
         rebuild_aggregates=rebuild_aggregates,
         get_heatmap=get_heatmap,
         get_history=get_history,
+        get_key_metric_trends=get_key_metric_trends,
+        get_aggregate_metric_trends=get_aggregate_metric_trends,
         cycle_layout=cycle_layout,
         update_settings=update_settings,
         import_wordlist=import_wordlist,

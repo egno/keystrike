@@ -41,8 +41,9 @@ for sources and how each maps to the code.
 
 - **Adaptive engine** — row-weighted key unlock order, speed+accuracy confidence
   gates, Markov word drills with a guaranteed focus letter.
-- **Per-layout stats** — heatmap with per-key confidence and urgency; WPM/accuracy
-  trends; press a key on the heatmap for that key's history.
+- **Per-layout stats** — heatmap with per-key confidence and urgency; layout-wide
+  and focus-key trend grids (confidence, speed, accuracy); press a heatmap key for
+  per-letter drill-down.
 - **Daily learn budget** — optional cap on adaptive minutes per calendar day.
 - **Custom layouts** — drop `*.toml` files into your config layouts directory; no
   restart needed.
@@ -94,8 +95,9 @@ back. Hitting your daily goal is shown in the HUD only — practice continues.
 
 ### Stats
 
-Recent sessions are listed below the heatmap. **Press any key on the heatmap** to
-drill into that key's confidence trend; `Esc` / `q` returns to the overview.
+Layout and focus trend grids (confidence, speed, accuracy) sit above the heatmap.
+**Press any key on the heatmap** for letter stats; `Esc` / `q` returns to the
+overview.
 
 ### Settings
 
@@ -156,7 +158,8 @@ not cmd.exe. Raw mode is not verified on every Windows build; please
 ## Development
 
 ```bash
-uv sync                  # runtime + dev (pytest, pyright)
+uv sync                  # runtime + dev (pytest, pyright, pre-commit)
+uv run pre-commit install  # optional: ruff + pyright hooks on commit
 uv run pytest -q
 uv run pyright
 uv sync --all-groups      # + ruff + snapshot tests (desktop only)
@@ -167,11 +170,38 @@ Dependency groups: `dev` (default, pure Python — safe on Termux), `lint` (Ruff
 `snapshot` (`pytest-textual-snapshot`). Keep native-wheel tools out of `dev`; see
 `pyproject.toml` for why.
 
-Regenerate the demo GIF after UI snapshot changes:
+### Before you push (CI parity)
+
+Pre-commit runs **ruff** and **pyright** only. GitHub Actions also runs the full
+test matrix and a separate **snapshot (macos)** job that default pytest skips.
+
+| Check | Command | When |
+| --- | --- | --- |
+| Lint (also in pre-commit) | `uv run ruff check && uv run pyright` | every commit |
+| Unit tests | `uv run pytest -q` | every push |
+| UI snapshots | see below | after presentation/UI changes |
+
+On **macOS**, match the snapshot CI job before pushing UI work:
 
 ```bash
 uv sync --group snapshot
-uv run pytest tests/presentation/test_snapshots.py --snapshot-update
+NO_COLOR=1 TERM=xterm-256color LC_ALL=C.UTF-8 uv run pytest -m snapshot -q
+```
+
+Snapshots are not in pre-commit (macOS-only, extra deps). Linux/Windows devs can
+rely on CI for snapshot coverage.
+
+Regenerate baselines after intentional UI changes:
+
+```bash
+uv sync --group snapshot
+NO_COLOR=1 TERM=xterm-256color LC_ALL=C.UTF-8 \
+  uv run pytest tests/presentation/test_snapshots.py -m snapshot --snapshot-update
+```
+
+Regenerate the demo GIF after updating snapshots:
+
+```bash
 uv pip install pillow cairosvg   # one-off; system cairo on macOS/Linux
 uv run python scripts/generate_demo_gif.py
 ```

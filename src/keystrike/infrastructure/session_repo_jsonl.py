@@ -27,9 +27,9 @@ def _session_file(paths: Paths, header: SessionResult) -> Path:
 class JsonlSessionRepository:
     def __init__(self, paths: Paths) -> None:
         self._paths = paths
-        # An in-memory index maps session_id → header so append_keystroke can
-        # locate the correct file without re-reading index.jsonl. Populated by
-        # save_header and (lazily) by iter_headers.
+        # In-memory index maps session_id → header so load_keystrokes can locate
+        # the file without re-reading index.jsonl. Populated by save_header and
+        # (lazily) by iter_headers.
         self._session_index: dict[str, SessionResult] = {}
 
     def append_keystroke(self, session_id: str, started_at: float, k: Keystroke) -> None:

@@ -1,4 +1,5 @@
 from rich.text import Text
+from textual._cells import cell_len
 from textual.app import ComposeResult
 from textual.widget import Widget
 from textual.widgets import Static
@@ -9,8 +10,10 @@ from keystrike.presentation.theme import (
     STYLE_CORRECTED,
     STYLE_CURRENT,
     STYLE_PENDING,
-    STYLE_WRONG,
+    STYLE_WRONG_CURRENT,
 )
+
+WORD_DIVIDER = "·"
 
 
 def render_typing_text(session: Session) -> Text:
@@ -29,19 +32,75 @@ def render_typing_text(session: Session) -> Text:
     last_was_wrong = last_ks is not None and not last_ks.correct and cursor < len(target)
 
     for i, ch in enumerate(target):
-        display = ch if ch != " " else "·"
         if i < cursor:
             style = STYLE_CORRECTED if i in session.error_positions else STYLE_CORRECT
-            text.append(display, style)
         elif i == cursor:
-            if last_was_wrong:
-                text.append(display, STYLE_WRONG)
-            else:
-                text.append(display, STYLE_CURRENT)
+            style = STYLE_WRONG_CURRENT if last_was_wrong else STYLE_CURRENT
         else:
-            text.append(display, STYLE_PENDING)
+            style = STYLE_PENDING
+        text.append(WORD_DIVIDER if ch == " " else ch, style)
 
     return text
+
+
+def _word_chunks(plain: str) -> list[str]:
+    """Split display plain text into word· chunks."""
+    chunks: list[str] = []
+    start = 0
+    while start < len(plain):
+        dot = plain.find(WORD_DIVIDER, start)
+        if dot == -1:
+            chunks.append(plain[start:])
+            break
+        chunks.append(plain[start : dot + 1])
+        start = dot + 1
+    return chunks
+
+
+def wrap_typing_text(text: Text, width: int) -> Text:
+    """Insert hard newlines at · word boundaries for Textual display width."""
+    if width <= 0 or "\n" in text.plain:
+        return text
+
+    chunks = _word_chunks(text.plain)
+    if len(chunks) <= 1:
+        return text
+
+    lines: list[list[str]] = [[]]
+    line_len = 0
+    for chunk in chunks:
+        chunk_len = cell_len(chunk)
+        if chunk_len > width:
+            if lines[-1]:
+                lines.append([])
+                line_len = 0
+            lines[-1].append(chunk)
+            lines.append([])
+            line_len = 0
+            continue
+        if line_len and line_len + chunk_len > width:
+            lines.append([])
+            line_len = 0
+        lines[-1].append(chunk)
+        line_len += chunk_len
+
+    if lines and not lines[-1]:
+        lines.pop()
+    if len(lines) <= 1:
+        return text
+
+    breaks: list[int] = []
+    offset = 0
+    for line_chunks in lines[:-1]:
+        offset += sum(len(chunk) for chunk in line_chunks)
+        breaks.append(offset)
+
+    wrapped = Text()
+    for index, part in enumerate(text.divide(breaks)):
+        if index:
+            wrapped.append("\n")
+        wrapped.append(part)
+    return wrapped
 
 
 class TypingArea(Widget):
@@ -62,9 +121,23 @@ class TypingArea(Widget):
     def compose(self) -> ComposeResult:
         yield Static(render_typing_text(self._session), id="typing-text")
 
+    def on_mount(self) -> None:
+        self.call_after_refresh(self.refresh_display)
+
+    def on_resize(self) -> None:
+        self.refresh_display()
+
+    def _render_text(self) -> Text:
+        text = render_typing_text(self._session)
+        static = self.query_one("#typing-text", Static)
+        width = static.content_region.width
+        if width > 0:
+            text = wrap_typing_text(text, width)
+        return text
+
     def refresh_display(self) -> None:
         static = self.query_one("#typing-text", Static)
-        static.update(render_typing_text(self._session))
+        static.update(self._render_text())
 
     def set_session(self, session: Session) -> None:
         self._session = session

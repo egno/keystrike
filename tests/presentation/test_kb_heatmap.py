@@ -92,24 +92,32 @@ def test_render_heatmap_focus_style_layers_on_review_underline():
 
 
 def test_format_focus_note_weak_includes_confidence_numbers():
-    note = format_focus_note(ord("a"), "weak", confidence=0.89)
+    note = format_focus_note(ord("a"), "weak", confidence=0.89, speed=0.95, accuracy=0.92)
     assert note is not None
+    assert "speed 0.95" in note
+    assert "accuracy 92.0%" in note
     assert "0.89" in note
     assert "1.00" in note
     assert "weak" in note
 
 
 def test_format_focus_note_review_includes_confidence_numbers():
-    note = format_focus_note(ord("e"), "review", confidence=1.12)
+    note = format_focus_note(ord("e"), "review", confidence=1.12, speed=1.15, accuracy=0.98)
     assert note is not None
+    assert "speed 1.15" in note
+    assert "accuracy 98.0%" in note
     assert "1.12" in note
     assert "1.00" in note
 
 
 def test_format_focus_note_weak_transition():
-    note = format_focus_note(ord("t"), "at weak transition", confidence=0.45)
+    note = format_focus_note(
+        ord("t"), "at weak transition", confidence=0.45, speed=0.50, accuracy=0.80,
+    )
     assert note is not None
     assert "at" in note
+    assert "speed 0.50" in note
+    assert "accuracy 80.0%" in note
     assert "0.45" in note
 
 

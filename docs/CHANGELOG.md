@@ -5,6 +5,33 @@ rationale lives in commit history/diffs — these are pointers, not narratives.
 Milestone-level feature work (what shipped in M1–M4, the keybr algorithm
 design) stays in `PLAN.md` §5/§6.
 
+## 1.2.3
+
+- HUD Learn segment: activity (dim when paused or not started) and goal (green when
+  daily limit reached) are independent — e.g. dim green when goal reached but idle.
+- Lesson text colors: untyped white, typed grey42; wrong key bold red; tripped keys dim yellow.
+- Practice "Last" row: WPM, accuracy, and time only (removed redundant Keys count).
+- Typing cursor uses bold underline on the target character instead of a block.
+- Practice "Last" row shows WPM and accuracy deltas vs the recency-weighted
+  `confidence_session_window` baseline (green ↑ / red ↓), not just the prior session.
+- Stats screen: single `#stats-trends` widget with unified `format_metric_trend_block`
+  (overview: Layout + Focus blocks; key drill-down: per-key grid — same format as letter stats).
+- Stats overview shows layout-wide confidence, speed, and accuracy in a titled grid block;
+  focus-key confidence in the same grid format below (tracks the current focus
+  letter across sessions, matching letter drill-down); WPM trend row and session history removed.
+- Stats screen layout: title → trends → heatmap caption → heatmap.
+- Stats heatmap hint: press a key for letter stats, Esc to return.
+- Practice text wraps at word boundaries (`·` dividers, no visible gap); lines break
+  at words, not mid-word, using the widget width.
+- Learn timer pauses after 5s idle (no keystrokes) and resumes on the next key;
+  idle time does not count toward the daily learn goal.
+- Practice focus note shows speed ratio and accuracy % alongside confidence
+  (e.g. `speed 0.85, accuracy 92.0%, confidence 0.45 / 1.00`).
+- Confidence uses min(speed, accuracy) instead of their product — fast-but-sloppy
+  or slow-but-accurate keys no longer compensate each other for unlocks/focus.
+- Windowed aggregates recency-weight speed, accuracy, and attempt counts (decay
+  0.7 per session back); recent sessions move confidence faster than older ones.
+
 ## 1.2.2
 
 - Confidence tuning settings: session window, min key attempts, and min bigram
