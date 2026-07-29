@@ -64,9 +64,6 @@ async def test_save_persists_changes_and_pops_screen():
         app.screen.query_one("#settings-layout", Select).value = "dvorak"
         app.screen.query_one("#settings-alphabet-size", Input).value = "20"
         app.screen.query_one("#settings-learn-daily-minutes", Input).value = "15"
-        app.screen.query_one("#settings-confidence-session-window", Input).value = "8"
-        app.screen.query_one("#settings-min-confidence-attempts", Input).value = "12"
-        app.screen.query_one("#settings-min-transition-confidence-attempts", Input).value = "5"
         await pilot.pause()
 
         await pilot.press("ctrl+s")
@@ -77,9 +74,9 @@ async def test_save_persists_changes_and_pops_screen():
         assert settings_repo.settings.layout == "dvorak"
         assert settings_repo.settings.alphabet_size == 20
         assert settings_repo.settings.learn_daily_minutes == 15
-        assert settings_repo.settings.confidence_session_window == 8
-        assert settings_repo.settings.min_confidence_attempts == 12
-        assert settings_repo.settings.min_transition_confidence_attempts == 5
+        assert settings_repo.settings.confidence_session_window == (
+            Settings().confidence_session_window
+        )
         assert app.screen_stack[-1] is not screen
 
 

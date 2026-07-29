@@ -104,5 +104,6 @@ Paste your URL into the Settings field, then **Ctrl+I**. Invalid URLs or empty d
 ## See also
 
 - [Home](Home)
+- [Confidence tuning](Confidence-Tuning) — same adaptive engine; advanced knobs in `settings.toml`
 - [Git sync](Git-sync) — what syncs with `keystrike sync`
 - [Keystrike README — Settings](https://github.com/egno/keystrike#settings)

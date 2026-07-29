@@ -96,24 +96,6 @@ class SettingsScreen(Screen[None]):
                 id="settings-learn-daily-minutes",
                 type="integer",
             )
-            yield Label("Confidence session window (sessions)")
-            yield Input(
-                value=str(settings.confidence_session_window),
-                id="settings-confidence-session-window",
-                type="integer",
-            )
-            yield Label("Min key attempts before full confidence")
-            yield Input(
-                value=str(settings.min_confidence_attempts),
-                id="settings-min-confidence-attempts",
-                type="integer",
-            )
-            yield Label("Min bigram attempts before full transition confidence")
-            yield Input(
-                value=str(settings.min_transition_confidence_attempts),
-                id="settings-min-transition-confidence-attempts",
-                type="integer",
-            )
             yield Static(
                 "Word list  [dim](Ctrl+I import, Ctrl+X clear)[/]",
                 id="settings-wordlist-label",
@@ -177,31 +159,6 @@ class SettingsScreen(Screen[None]):
             self._show_error("Daily learn minutes must be an integer.")
             return
 
-        confidence_window_raw = self.query_one(
-            "#settings-confidence-session-window", Input,
-        ).value
-        try:
-            confidence_session_window = int(confidence_window_raw)
-        except ValueError:
-            self._show_error("Confidence session window must be an integer.")
-            return
-
-        min_confidence_raw = self.query_one("#settings-min-confidence-attempts", Input).value
-        try:
-            min_confidence_attempts = int(min_confidence_raw)
-        except ValueError:
-            self._show_error("Min confidence attempts must be an integer.")
-            return
-
-        min_transition_raw = self.query_one(
-            "#settings-min-transition-confidence-attempts", Input,
-        ).value
-        try:
-            min_transition_confidence_attempts = int(min_transition_raw)
-        except ValueError:
-            self._show_error("Min transition confidence attempts must be an integer.")
-            return
-
         layout_select = cast("Select[str]", self.query_one("#settings-layout", Select))
         layout = layout_select.value
         if isinstance(layout, NoSelection):
@@ -215,9 +172,6 @@ class SettingsScreen(Screen[None]):
                 target_speed_unit=target_speed_unit,
                 alphabet_size=alphabet_size,
                 learn_daily_minutes=learn_daily_minutes,
-                confidence_session_window=confidence_session_window,
-                min_confidence_attempts=min_confidence_attempts,
-                min_transition_confidence_attempts=min_transition_confidence_attempts,
             )
         except SettingsValidationError as exc:
             self._show_error(str(exc))

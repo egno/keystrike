@@ -8,7 +8,7 @@ design) stays in `PLAN.md` §5/§6.
 ## 1.2.2
 
 - Confidence tuning settings: session window, min key attempts, and min bigram
-  attempts in Settings / `settings.toml`; wiki page `Confidence-Tuning`.
+  attempts in `settings.toml` only; wiki page `Confidence-Tuning`.
 - Round confidence scores to two decimals so unlocks, focus labels, heatmap, and
   practice focus notes stay aligned.
 

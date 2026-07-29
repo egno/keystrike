@@ -106,6 +106,10 @@ drill into that key's confidence trend; `Esc` / `q` returns to the overview.
 | Letters unlocked up front | 16 | Force-unlocked before confidence gating |
 | Daily learn goal | 10 min | `0` = no goal |
 
+Advanced confidence tuning (session window, min key/bigram attempts) is
+**config-file only** — edit `settings.toml` directly; see the
+[Confidence tuning wiki](https://github.com/egno/keystrike/wiki/Confidence-Tuning).
+
 ## Backup sync
 
 Opt-in git sync for backing up or moving data between machines. Requires `git` on

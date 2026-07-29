@@ -5,8 +5,9 @@ much you've practiced — to decide which keys unlock, which key or bigram gets
 focus, and how the stats heatmap colors each key. Three settings control how
 aggressively the engine trusts your recent performance.
 
-Open **Settings** from the home screen (`o`), edit the values, then **Ctrl+S** to
-save. They are also stored in `settings.toml` under your config directory.
+Edit `{config_dir}/settings.toml` directly (see [Git sync](Git-sync) for the
+path on your OS). These three fields are **not** on the Settings screen — saving
+layout, speed, or other UI settings will not change them.
 
 ## Settings
 
@@ -17,6 +18,14 @@ save. They are also stored in `settings.toml` under your config directory.
 | Min bigram attempts | `min_transition_confidence_attempts` | `4` | Same ramp for letter-pair (transition) confidence. Default is lower because bigrams are practiced less often than single keys. |
 
 Valid ranges: window and both attempt floors are **1–100**.
+
+Example (defaults shown):
+
+```toml
+confidence_session_window = 10
+min_confidence_attempts = 10
+min_transition_confidence_attempts = 4
+```
 
 ## What each setting affects
 
