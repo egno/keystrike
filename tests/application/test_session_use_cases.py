@@ -19,11 +19,16 @@ from keystrike.application.session_use_cases import (
     key_confidence_values,
     wpm_sparkline,
 )
-from keystrike.domain.aggregate import aggregate_session, combine_sessions
-from keystrike.domain.confidence import CONFIDENCE_SESSION_WINDOW, compute_unlocked, confidence_of, target_ms_per_char
+from keystrike.domain.aggregate import combine_sessions
+from keystrike.domain.confidence import (
+    CONFIDENCE_SESSION_WINDOW,
+    compute_unlocked,
+    confidence_of,
+    target_ms_per_char,
+)
 from keystrike.domain.enums import Mode, SessionState
 from keystrike.domain.learn_order import keyboard_order
-from keystrike.domain.models import KeyStats, LayoutAggregates, SessionResult, Settings
+from keystrike.domain.models import SessionResult, Settings
 from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS
 from tests.fakes import (
     FakeAggregatesCache,

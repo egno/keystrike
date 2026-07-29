@@ -78,7 +78,7 @@ def test_confidence_of_scales_down_with_few_attempts():
             attempt_count=2,
         ),
     }
-    # raw speed×accuracy = 2.0 × 0.5 = 1.0; only 2 attempts → ×0.2
+    # raw speed x accuracy = 2.0 x 0.5 = 1.0; only 2 attempts -> x0.2
     assert confidence_of(ord("a"), stats, target=200.0) == 0.2
 
 
@@ -108,7 +108,7 @@ def test_transition_confidence_scales_down_with_few_attempts():
             error_count=0, last_seen=0.0, attempt_count=2,
         ),
     }
-    # raw 1.0 × (2/4) = 0.5
+    # raw 1.0 x (2/4) = 0.5
     assert transition_confidence_of(ord("a"), ord("b"), stats, target=200.0) == 0.5
 
 

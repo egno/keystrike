@@ -14,7 +14,7 @@ _SECONDS_PER_DAY = 86_400.0
 _REVIEW_URGENCY_FULL_DAYS = 3.0
 # Confidence, unlocks, focus, and heatmap use aggregates from this many sessions.
 CONFIDENCE_SESSION_WINDOW = 10
-# Raw speed×accuracy confidence ramps linearly until this many attempts per key.
+# Raw speed x accuracy confidence ramps linearly until this many attempts per key.
 MIN_CONFIDENCE_ATTEMPTS = 10
 # Bigrams are sparser — lower floor so transition focus reflects measured weakness.
 MIN_TRANSITION_CONFIDENCE_ATTEMPTS = 4

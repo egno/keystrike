@@ -1,7 +1,7 @@
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field, replace
 
-from keystrike.domain.aggregate import aggregate_session, combine_sessions
+from keystrike.domain.aggregate import combine_sessions
 from keystrike.domain.confidence import (
     compute_unlocked,
     confidence_of,
@@ -130,7 +130,7 @@ def _snapshot_unlock_state(
         repo.iter_headers(session.layout),
         key=lambda h: h.started_at,
     )[-(settings.confidence_session_window - 1):]
-    sessions = [
+    sessions: list[tuple[SessionResult, Iterable[Keystroke]]] = [
         (header, repo.load_keystrokes(header.session_id)) for header in prior_headers
     ]
     sessions.append((draft, session.keystrokes))
