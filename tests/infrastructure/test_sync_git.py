@@ -5,7 +5,11 @@ from pathlib import Path
 
 import pytest
 
+from keystrike.infrastructure.paths import Paths
 from keystrike.infrastructure.sync_git import (
+    GitClient,
+    GitSyncError,
+    GitSyncGateway,
     copy_file_if_exists,
     copy_layouts_missing,
     copy_layouts_to_remote,
@@ -268,3 +272,131 @@ def test_copy_file_if_exists_false_when_missing(tree: dict[str, Path]) -> None:
 
     assert copy_file_if_exists(src, dest) is False
     assert not dest.exists()
+
+
+class _FakeGitClient(GitClient):
+    """Records calls and raises canned errors instead of shelling out to git."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, ...]] = []
+        self.clone_error: GitSyncError | None = None
+        self.porcelain_status = " M settings.toml"
+
+    def run(self, *args: str, cwd: Path | None = None) -> str:  # pragma: no cover
+        raise AssertionError(f"unexpected raw run() call: {args}")
+
+    def clone(self, url: str, dest: Path) -> None:
+        self.calls.append(("clone", url, str(dest)))
+        if self.clone_error is not None:
+            raise self.clone_error
+
+    def init(self, cwd: Path) -> None:
+        self.calls.append(("init", str(cwd)))
+
+    def add_remote(self, cwd: Path, url: str) -> None:
+        self.calls.append(("add_remote", str(cwd), url))
+
+    def pull_ff_only(self, cwd: Path) -> None:
+        self.calls.append(("pull", str(cwd)))
+
+    def add(self, cwd: Path, *paths: str) -> None:
+        self.calls.append(("add", str(cwd), *paths))
+
+    def commit(self, cwd: Path, message: str) -> None:
+        self.calls.append(("commit", str(cwd), message))
+
+    def push(self, cwd: Path) -> None:
+        self.calls.append(("push", str(cwd)))
+
+    def status_porcelain(self, cwd: Path) -> str:
+        self.calls.append(("status_porcelain", str(cwd)))
+        return self.porcelain_status
+
+    def status_short(self, cwd: Path) -> str:
+        self.calls.append(("status_short", str(cwd)))
+        return "clean"
+
+
+@pytest.fixture
+def paths(tmp_path: Path) -> Paths:
+    return Paths(
+        config_dir=tmp_path / "config",
+        data_dir=tmp_path / "data",
+        log_dir=tmp_path / "log",
+    )
+
+
+def test_git_client_run_wraps_called_process_error(tmp_path: Path) -> None:
+    client = GitClient()
+
+    with pytest.raises(GitSyncError) as exc_info:
+        client.run("this-is-not-a-real-git-command", cwd=tmp_path)
+
+    assert exc_info.value.stderr
+
+
+def test_gateway_init_falls_back_to_git_init_on_missing_remote(paths: Paths) -> None:
+    client = _FakeGitClient()
+    client.clone_error = GitSyncError(
+        "git clone failed: repo not found",
+        stderr="fatal: repository 'origin' does not exist",
+    )
+    gateway = GitSyncGateway(paths, client=client)
+
+    gateway._clone("origin")
+
+    assert ("init", str(paths.sync_clone_dir)) in client.calls
+    assert ("add_remote", str(paths.sync_clone_dir), "origin") in client.calls
+    assert paths.sync_clone_dir.is_dir()
+
+
+def test_gateway_init_reraises_real_clone_failures(paths: Paths) -> None:
+    client = _FakeGitClient()
+    client.clone_error = GitSyncError(
+        "git clone failed: auth denied",
+        stderr="fatal: Authentication failed for 'origin'",
+    )
+    gateway = GitSyncGateway(paths, client=client)
+
+    with pytest.raises(GitSyncError) as exc_info:
+        gateway._clone("origin")
+
+    assert "Authentication failed" in exc_info.value.stderr
+    assert not any(call[0] == "init" for call in client.calls)
+
+
+def test_gateway_clone_dir_survives_partial_clone(paths: Paths) -> None:
+    # Simulates a clone that was interrupted mid-transfer, leaving the
+    # destination directory partially populated before the retryable init.
+    paths.sync_clone_dir.mkdir(parents=True)
+    (paths.sync_clone_dir / "leftover").write_text("partial", encoding="utf-8")
+    client = _FakeGitClient()
+    client.clone_error = GitSyncError(
+        "git clone failed: repo not found",
+        stderr="fatal: repository 'origin' does not exist",
+    )
+    gateway = GitSyncGateway(paths, client=client)
+
+    gateway._clone("origin")
+
+    assert paths.sync_clone_dir.is_dir()
+
+
+def test_gateway_push_propagates_git_sync_error_not_raw_subprocess_error(
+    paths: Paths,
+) -> None:
+    class _FailingPushClient(_FakeGitClient):
+        def push(self, cwd: Path) -> None:
+            raise GitSyncError("git push failed: non-fast-forward", stderr="rejected")
+
+    paths.sync_clone_dir.mkdir(parents=True)
+    gateway = GitSyncGateway(paths, client=_FailingPushClient())
+
+    with pytest.raises(GitSyncError, match="non-fast-forward"):
+        gateway._push_remote()
+
+
+def test_git_client_is_the_default_when_none_injected(paths: Paths) -> None:
+    gateway = GitSyncGateway(paths)
+
+    assert isinstance(gateway._client, GitClient)

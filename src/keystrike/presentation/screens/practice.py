@@ -16,8 +16,7 @@ from keystrike.application.session_use_cases import (
     StartSession,
     format_session_stats_line,
 )
-from keystrike.domain.focus import FocusReason
-from keystrike.domain.models import Layout, SessionResult
+from keystrike.domain.models import SessionResult
 from keystrike.domain.null_adapters import NULL_DAILY_LEARN_BUDGET, NULL_STATS_REBUILDER
 from keystrike.domain.protocols import Clock, DailyLearnBudgetProvider, StatsRebuilder
 from keystrike.domain.session import leading_key_char, skip_leading_whitespace
@@ -74,13 +73,7 @@ class PracticeScreen(Screen[None]):
         self._get_session_baseline = get_session_baseline
         self._rebuild_aggregates = rebuild_aggregates
         self._get_daily_learn_budget = get_daily_learn_budget
-        self._layout_obj: Layout | None = initial.layout_obj
-        self._lesson_heatmap = initial.lesson_heatmap
-        self._focus_key = initial.focus_key
-        self._focus_reason: FocusReason | None = initial.focus_reason
-        self._focus_confidence = initial.focus_confidence
-        self._focus_speed = initial.focus_speed
-        self._focus_accuracy = initial.focus_accuracy
+        self._prep = initial
         self._kb_heatmap: KbHeatmap | None = None
         self._session = self._start(
             initial.target_text,
@@ -100,13 +93,13 @@ class PracticeScreen(Screen[None]):
         with Vertical():
             yield self._hud
             yield self._typing_area
-            if self._layout_obj is not None and self._lesson_heatmap is not None:
+            if self._prep.layout_obj is not None and self._prep.lesson_heatmap is not None:
                 self._kb_heatmap = KbHeatmap(
-                    self._layout_obj,
-                    self._lesson_heatmap,
-                    focus=self._focus_key,
+                    self._prep.layout_obj,
+                    self._prep.lesson_heatmap,
+                    focus=self._prep.focus_key,
                     urgency=None,
-                    focus_transition=focus_transition_pair(self._focus_reason),
+                    focus_transition=focus_transition_pair(self._prep.focus_reason),
                 )
                 yield self._kb_heatmap
             yield Static(
@@ -119,11 +112,11 @@ class PracticeScreen(Screen[None]):
     def _focus_note_text(self) -> str:
         return (
             format_focus_note(
-                self._focus_key,
-                self._focus_reason,
-                confidence=self._focus_confidence,
-                speed=self._focus_speed,
-                accuracy=self._focus_accuracy,
+                self._prep.focus_key,
+                self._prep.focus_reason,
+                confidence=self._prep.focus_confidence,
+                speed=self._prep.focus_speed,
+                accuracy=self._prep.focus_accuracy,
             )
             or ""
         )
@@ -179,13 +172,7 @@ class PracticeScreen(Screen[None]):
         note.display = bool(text)
 
     def _begin_session(self, prep: SessionPrep) -> None:
-        self._layout_obj = prep.layout_obj
-        self._lesson_heatmap = prep.lesson_heatmap
-        self._focus_key = prep.focus_key
-        self._focus_reason = prep.focus_reason
-        self._focus_confidence = prep.focus_confidence
-        self._focus_speed = prep.focus_speed
-        self._focus_accuracy = prep.focus_accuracy
+        self._prep = prep
         self._session = self._start(
             prep.target_text,
             layout=prep.layout,

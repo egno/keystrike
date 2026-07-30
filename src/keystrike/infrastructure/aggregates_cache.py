@@ -7,7 +7,11 @@ import json
 from dataclasses import asdict
 from pathlib import Path
 
-from keystrike.domain.aggregate import without_same_key_transitions
+from keystrike.domain.aggregate import (
+    infer_key_stat_attempt_count,
+    infer_key_stat_samples,
+    without_same_key_transitions,
+)
 from keystrike.domain.models import Bigram, KeyStats, LayoutAggregates, TransitionStats
 
 from .atomic_write import atomic_write_text
@@ -17,19 +21,15 @@ from .paths import Paths
 
 def _coerce_samples(entry: dict[str, object]) -> int:
     samples = require_int(entry, "samples")
-    if samples <= 0 and require_float(entry, "mean_time_ns") > 0:
-        return 1
-    return samples
+    mean_time_ns = require_float(entry, "mean_time_ns")
+    return infer_key_stat_samples(samples, mean_time_ns)
 
 
 def _coerce_attempt_count(entry: dict[str, object]) -> int:
     samples = _coerce_samples(entry)
     errors = require_int(entry, "error_count")
-    inferred = samples + errors
-    stored = require_int(entry, "attempt_count", inferred)
-    if stored <= 0 and inferred > 0:
-        return inferred
-    return stored
+    stored = require_int(entry, "attempt_count", samples + errors)
+    return infer_key_stat_attempt_count(samples, errors, stored)
 
 
 class FileAggregatesCache:

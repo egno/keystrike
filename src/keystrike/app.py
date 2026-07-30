@@ -38,7 +38,13 @@ from keystrike.infrastructure.session_repo_jsonl import JsonlSessionRepository
 from keystrike.infrastructure.settings_repo_toml import TomlSettingsRepository
 from keystrike.infrastructure.sync_git import GitSyncGateway
 from keystrike.infrastructure.wordlist_store import FileWordListStore
-from keystrike.presentation.textual_app import KeystrikeApp
+from keystrike.presentation.textual_app import (
+    HomeServices,
+    KeystrikeApp,
+    PracticeServices,
+    SettingsServices,
+    StatsServices,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,24 +145,34 @@ def build() -> KeystrikeApp:
     )
 
     return KeystrikeApp(
-        clock=clock,
-        start=start,
-        record=record,
-        finish=finish,
         settings_repo=settings_repo,
         layout_repo=layout_repo,
-        prepare_practice=prepare_practice,
-        get_session_baseline=get_session_baseline,
-        rebuild_aggregates=rebuild_aggregates,
-        get_heatmap=get_heatmap,
-        get_history=get_history,
-        get_key_metric_trends=get_key_metric_trends,
-        get_aggregate_metric_trends=get_aggregate_metric_trends,
-        cycle_layout=cycle_layout,
-        update_settings=update_settings,
-        import_wordlist=import_wordlist,
-        clear_wordlist=clear_wordlist,
-        get_wordlist_cache_status=get_wordlist_cache_status,
-        get_daily_learn_budget=get_daily_learn_budget,
+        home=HomeServices(
+            cycle_layout=cycle_layout,
+            get_daily_learn_budget=get_daily_learn_budget,
+        ),
+        practice=PracticeServices(
+            clock=clock,
+            start=start,
+            record=record,
+            finish=finish,
+            prepare_practice=prepare_practice,
+            get_session_baseline=get_session_baseline,
+            rebuild_aggregates=rebuild_aggregates,
+            get_daily_learn_budget=get_daily_learn_budget,
+        ),
+        stats=StatsServices(
+            rebuild_aggregates=rebuild_aggregates,
+            get_heatmap=get_heatmap,
+            get_history=get_history,
+            get_key_metric_trends=get_key_metric_trends,
+            get_aggregate_metric_trends=get_aggregate_metric_trends,
+        ),
+        settings=SettingsServices(
+            update_settings=update_settings,
+            import_wordlist=import_wordlist,
+            clear_wordlist=clear_wordlist,
+            get_wordlist_cache_status=get_wordlist_cache_status,
+        ),
         app_version=__version__,
     )

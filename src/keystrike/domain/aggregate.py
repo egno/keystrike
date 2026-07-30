@@ -95,11 +95,21 @@ def _rounded_weighted_count(weighted: float) -> int:
     return max(1, rounded) if rounded == 0 else rounded
 
 
+@dataclass(frozen=True, slots=True)
+class MergedFields:
+    """Result of `_weighted_merge_fields`: the shared recency-weighted merge
+    math for key stats and transition stats."""
+
+    samples: int
+    mean_time_ns: float
+    error_count: int
+    attempt_count: int
+    last_seen: float
+
+
 def _weighted_merge_fields(
     entries: Sequence[tuple[HasConfidenceFields, float]],
-) -> tuple[int, float, int, int, float]:
-    """Shared recency-weighted merge math for key stats and transition stats:
-    returns (samples, mean_time_ns, error_count, attempt_count, last_seen)."""
+) -> MergedFields:
     weighted_samples = sum(weight * stats.samples for stats, weight in entries)
     weighted_errors = sum(weight * stats.error_count for stats, weight in entries)
     weighted_attempts = sum(weight * stats.attempt_count for stats, weight in entries)
@@ -111,12 +121,12 @@ def _weighted_merge_fields(
     else:
         mean = 0.0
     last_seen = max(stats.last_seen for stats, _ in entries)
-    return (
-        _rounded_weighted_count(weighted_samples),
-        mean,
-        round(weighted_errors),
-        _rounded_weighted_count(weighted_attempts),
-        last_seen,
+    return MergedFields(
+        samples=_rounded_weighted_count(weighted_samples),
+        mean_time_ns=mean,
+        error_count=round(weighted_errors),
+        attempt_count=_rounded_weighted_count(weighted_attempts),
+        last_seen=last_seen,
     )
 
 
@@ -132,14 +142,14 @@ def _combine_key_maps_weighted(
 
     out: dict[int, KeyStats] = {}
     for cp, entries in by_cp.items():
-        samples, mean, errors, attempts, last_seen = _weighted_merge_fields(entries)
+        merged = _weighted_merge_fields(entries)
         out[cp] = KeyStats(
             codepoint=cp,
-            samples=samples,
-            mean_time_ns=mean,
-            error_count=errors,
-            last_seen=last_seen,
-            attempt_count=attempts,
+            samples=merged.samples,
+            mean_time_ns=merged.mean_time_ns,
+            error_count=merged.error_count,
+            last_seen=merged.last_seen,
+            attempt_count=merged.attempt_count,
         )
     return out
 
@@ -155,15 +165,15 @@ def _combine_transition_maps_weighted(
 
     out: dict[Bigram, TransitionStats] = {}
     for key, entries in by_key.items():
-        samples, mean, errors, attempts, last_seen = _weighted_merge_fields(entries)
+        merged = _weighted_merge_fields(entries)
         out[key] = TransitionStats(
             prev_cp=key.prev_cp,
             next_cp=key.next_cp,
-            samples=samples,
-            mean_time_ns=mean,
-            error_count=errors,
-            last_seen=last_seen,
-            attempt_count=attempts,
+            samples=merged.samples,
+            mean_time_ns=merged.mean_time_ns,
+            error_count=merged.error_count,
+            last_seen=merged.last_seen,
+            attempt_count=merged.attempt_count,
         )
     return without_same_key_transitions(out)
 
@@ -191,6 +201,23 @@ def combine_sessions(
         keys=_combine_key_maps_weighted(key_maps, weights),
         transitions=_combine_transition_maps_weighted(transition_maps, weights),
     )
+
+
+def infer_key_stat_samples(samples: int, mean_time_ns: float) -> int:
+    """Legacy caches recorded `samples=0` alongside a real `mean_time_ns`
+    before the schema tracked keystroke counts; treat that as one sample."""
+    if samples <= 0 and mean_time_ns > 0:
+        return 1
+    return samples
+
+
+def infer_key_stat_attempt_count(samples: int, error_count: int, attempt_count: int) -> int:
+    """Legacy caches predate a stored `attempt_count`; treat samples + errors
+    as the inferred total whenever the stored value is non-positive."""
+    inferred = samples + error_count
+    if attempt_count <= 0 and inferred > 0:
+        return inferred
+    return attempt_count
 
 
 def merge_key_stats(a: KeyStats, b: KeyStats) -> KeyStats:

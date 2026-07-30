@@ -85,6 +85,13 @@ def is_typing_idle(
     return now_ns - session.last_keystroke_at_ns >= idle_pause_ns
 
 
+def session_accuracy(session: Session) -> float:
+    """Running accuracy for the in-progress session (1.0 before any keystroke)."""
+    if session.total_count == 0:
+        return 1.0
+    return session.correct_count / session.total_count
+
+
 @dataclass(slots=True)
 class Session:
     id: str

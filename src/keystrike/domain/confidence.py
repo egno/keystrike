@@ -67,12 +67,19 @@ class HasConfidenceFields(Protocol):
     def last_seen(self) -> float: ...
 
 
+def _inferred_attempt(mean_time_ns: float) -> int:
+    """One inferred attempt when a stat has measured timing but its counts were
+    zeroed (stale cache / old merge) — the shared fallback rule that keeps
+    `_accuracy` and `_effective_attempt_count` aligned."""
+    return 1 if mean_time_ns > 0 else 0
+
+
 def _accuracy(stats: HasConfidenceFields) -> float:
     """Fraction of attempts that were correct. 0.0 for a stat with no correct
     attempts yet, including one that's been missed but never hit."""
     samples = stats.samples
-    if samples <= 0 and stats.mean_time_ns > 0:
-        samples = 1
+    if samples <= 0:
+        samples = _inferred_attempt(stats.mean_time_ns)
     total = samples + stats.error_count
     return samples / total if total > 0 else 0.0
 
@@ -98,9 +105,7 @@ def _effective_attempt_count(
     inferred = samples + error_count
     if inferred > 0:
         return inferred
-    if mean_time_ns > 0:
-        return 1
-    return 0
+    return _inferred_attempt(mean_time_ns)
 
 
 def _attempts(stats: HasConfidenceFields) -> int:

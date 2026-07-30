@@ -6,7 +6,12 @@ from keystrike.domain.daily_learn import DailyLearnBudget, daily_learn_display
 from keystrike.domain.focus import FocusReason
 from keystrike.domain.null_adapters import NULL_DAILY_LEARN_BUDGET
 from keystrike.domain.protocols import Clock, DailyLearnBudgetProvider
-from keystrike.domain.session import Session, active_typing_duration_ns, is_typing_idle
+from keystrike.domain.session import (
+    Session,
+    active_typing_duration_ns,
+    is_typing_idle,
+    session_accuracy,
+)
 from keystrike.presentation.theme import STYLE_IDLE
 from keystrike.presentation.widgets.kb_heatmap import focus_reason_label, focus_transition_pair
 
@@ -41,7 +46,7 @@ def _format_hud(
     focus_reason: FocusReason | None = None,
     dim_learn: bool = True,
 ) -> str:
-    accuracy = (session.correct_count / session.total_count) if session.total_count else 1.0
+    accuracy = session_accuracy(session)
     return (
         f"Acc: [bold]{accuracy * 100:5.1f}%[/]"
         f"{_format_daily_learn_segment(daily_budget, dim=dim_learn)}"

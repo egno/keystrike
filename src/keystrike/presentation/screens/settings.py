@@ -132,8 +132,9 @@ class SettingsScreen(Screen[None]):
 
     def _collect_form_values(self) -> SettingsUpdate | None:
         speed_raw = self.query_one("#settings-speed", Input).value
-        target_speed_value = self._parse_int_field(speed_raw, "Target speed")
+        target_speed_value = self._parse_int_field(speed_raw)
         if target_speed_value is None:
+            self._show_error("Target speed must be an integer.")
             return None
 
         speed_unit_select = cast(
@@ -150,16 +151,15 @@ class SettingsScreen(Screen[None]):
         )
 
         alphabet_size_raw = self.query_one("#settings-alphabet-size", Input).value
-        alphabet_size = self._parse_int_field(alphabet_size_raw, "Number of letters")
+        alphabet_size = self._parse_int_field(alphabet_size_raw)
         if alphabet_size is None:
+            self._show_error("Number of letters must be an integer.")
             return None
 
         learn_daily_minutes_raw = self.query_one("#settings-learn-daily-minutes", Input).value
-        learn_daily_minutes = self._parse_int_field(
-            learn_daily_minutes_raw,
-            "Daily learn minutes",
-        )
+        learn_daily_minutes = self._parse_int_field(learn_daily_minutes_raw)
         if learn_daily_minutes is None:
+            self._show_error("Daily learn minutes must be an integer.")
             return None
 
         layout_select = cast("Select[str]", self.query_one("#settings-layout", Select))
@@ -243,9 +243,9 @@ class SettingsScreen(Screen[None]):
     def _show_error(self, message: str) -> None:
         self.query_one("#settings-error", Static).update(f"[bold red]{message}[/]")
 
-    def _parse_int_field(self, raw: str, field_label: str) -> int | None:
+    @staticmethod
+    def _parse_int_field(raw: str) -> int | None:
         try:
             return int(raw)
         except ValueError:
-            self._show_error(f"{field_label} must be an integer.")
             return None

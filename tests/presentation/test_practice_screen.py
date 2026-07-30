@@ -35,7 +35,13 @@ from keystrike.presentation.screens.home import HomeScreen
 from keystrike.presentation.screens.practice import PracticeScreen
 from keystrike.presentation.screens.settings import SettingsScreen
 from keystrike.presentation.screens.stats import StatsScreen
-from keystrike.presentation.textual_app import KeystrikeApp
+from keystrike.presentation.textual_app import (
+    HomeServices,
+    KeystrikeApp,
+    PracticeServices,
+    SettingsServices,
+    StatsServices,
+)
 from keystrike.presentation.widgets.hud import HUD
 from keystrike.presentation.widgets.kb_heatmap import KbHeatmap
 from tests.fakes import (
@@ -101,36 +107,46 @@ def _build_app(
     )
 
     app = KeystrikeApp(
-        clock=clock,
-        start=StartSession(clock=clock, id_gen=id_gen),
-        record=RecordKeystroke(clock=clock),
-        finish=FinishSession(
-            clock=clock,
-            repo=session_repo,
-            settings_repo=settings_repo,
-            layout_repo=layout_repo,
-        ),
         settings_repo=settings_repo,
         layout_repo=layout_repo,
-        prepare_practice=prepare_practice,
-        get_session_baseline=GetSessionBaseline(repo=session_repo, settings_repo=settings_repo),
-        rebuild_aggregates=rebuild_aggregates,
-        get_heatmap=GetHeatmap(cache=cache, settings_repo=settings_repo, clock=clock),
-        get_history=GetHistory(repo=session_repo),
-        get_key_metric_trends=GetKeyMetricTrends(
-            repo=session_repo,
-            settings_repo=settings_repo,
+        home=HomeServices(
+            cycle_layout=CycleLayout(settings_repo=settings_repo, layout_repo=layout_repo),
+            get_daily_learn_budget=get_daily_learn_budget,
         ),
-        get_aggregate_metric_trends=GetAggregateMetricTrends(
-            repo=session_repo,
-            settings_repo=settings_repo,
+        practice=PracticeServices(
+            clock=clock,
+            start=StartSession(clock=clock, id_gen=id_gen),
+            record=RecordKeystroke(clock=clock),
+            finish=FinishSession(
+                clock=clock,
+                repo=session_repo,
+                settings_repo=settings_repo,
+                layout_repo=layout_repo,
+            ),
+            prepare_practice=prepare_practice,
+            get_session_baseline=GetSessionBaseline(repo=session_repo, settings_repo=settings_repo),
+            rebuild_aggregates=rebuild_aggregates,
+            get_daily_learn_budget=get_daily_learn_budget,
         ),
-        get_daily_learn_budget=get_daily_learn_budget,
-        cycle_layout=CycleLayout(settings_repo=settings_repo, layout_repo=layout_repo),
-        update_settings=UpdateSettings(repo=settings_repo),
-        import_wordlist=ImportWordList(store=wordlist_store, settings_repo=settings_repo),
-        clear_wordlist=ClearWordList(settings_repo=settings_repo),
-        get_wordlist_cache_status=GetWordListCacheStatus(store=wordlist_store),
+        stats=StatsServices(
+            rebuild_aggregates=rebuild_aggregates,
+            get_heatmap=GetHeatmap(cache=cache, settings_repo=settings_repo, clock=clock),
+            get_history=GetHistory(repo=session_repo),
+            get_key_metric_trends=GetKeyMetricTrends(
+                repo=session_repo,
+                settings_repo=settings_repo,
+            ),
+            get_aggregate_metric_trends=GetAggregateMetricTrends(
+                repo=session_repo,
+                settings_repo=settings_repo,
+            ),
+        ),
+        settings=SettingsServices(
+            update_settings=UpdateSettings(repo=settings_repo),
+            import_wordlist=ImportWordList(store=wordlist_store, settings_repo=settings_repo),
+            clear_wordlist=ClearWordList(settings_repo=settings_repo),
+            get_wordlist_cache_status=GetWordListCacheStatus(store=wordlist_store),
+        ),
     )
     return app, clock, session_repo, settings_repo
 
@@ -293,7 +309,7 @@ async def test_adaptive_practice_focus_note_shows_speed_and_accuracy():
         practice = app.screen
         assert isinstance(practice, PracticeScreen)
         note = str(practice.query_one("#focus-note", Static).content)
-        if practice._focus_reason:
+        if practice._prep.focus_reason:
             assert "speed " in note
             assert "accuracy " in note
             assert "confidence " in note

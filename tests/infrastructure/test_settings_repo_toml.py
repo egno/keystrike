@@ -80,3 +80,22 @@ def test_ignores_removed_settings_keys(paths):
     )
     s = TomlSettingsRepository(paths).load()
     assert s == Settings()
+
+
+def test_malformed_field_value_falls_back_to_default_instead_of_crashing(paths):
+    paths.settings_file.write_text(
+        'schema_version = 1\nlayout = "qwerty"\ntarget_speed_cpm = "fast"\n',
+        encoding="utf-8",
+    )
+    s = TomlSettingsRepository(paths).load()
+    assert s.layout == "qwerty"
+    assert s.target_speed_cpm == Settings().target_speed_cpm
+
+
+def test_malformed_enum_value_falls_back_to_default(paths):
+    paths.settings_file.write_text(
+        'schema_version = 1\ntarget_speed_unit = "not-a-unit"\n',
+        encoding="utf-8",
+    )
+    s = TomlSettingsRepository(paths).load()
+    assert s.target_speed_unit == Settings().target_speed_unit

@@ -218,16 +218,8 @@ def _lesson_progress(
         threshold=_CONFIDENCE_GOOD,
         min_attempts=settings.min_confidence_attempts,
     )
-    if keys_need_focus:
-        focus_bigram = None
-        focus = select_focus(
-            unlocked,
-            stats,
-            target,
-            now,
-            min_attempts=settings.min_confidence_attempts,
-        )
-    elif transitions:
+    focus_bigram: Bigram | None = None
+    if not keys_need_focus and transitions:
         focus_bigram = select_focus_transition(
             unlocked,
             transitions,
@@ -235,18 +227,10 @@ def _lesson_progress(
             now,
             min_attempts=settings.min_transition_confidence_attempts,
         )
-        if focus_bigram is not None:
-            focus = focus_key_from_transition(*focus_bigram)
-        else:
-            focus = select_focus(
-                unlocked,
-                stats,
-                target,
-                now,
-                min_attempts=settings.min_confidence_attempts,
-            )
+
+    if focus_bigram is not None:
+        focus = focus_key_from_transition(*focus_bigram)
     else:
-        focus_bigram = None
         focus = select_focus(
             unlocked,
             stats,
@@ -336,6 +320,16 @@ def _compute_weights(
 
 
 @dataclass(slots=True)
+class _LessonContext:
+    settings: Settings
+    layout: Layout
+    stats: Mapping[int, KeyStats]
+    transitions: Mapping[Bigram, TransitionStats]
+    now: float
+    target: float
+
+
+@dataclass(slots=True)
 class BuildLesson:
     layout_repo: LayoutRepository
     aggregates_cache: AggregatesCache
@@ -346,80 +340,53 @@ class BuildLesson:
     clock: Clock
 
     def __call__(self, layout_name: str) -> Lesson:
-        settings = self.settings_repo.load()
-        layout = self.layout_repo.get(layout_name)
-        aggregates = self.aggregates_cache.get(layout_name)
-        stats: Mapping[int, KeyStats] = aggregates.keys if aggregates else {}
-        transitions: Mapping[Bigram, TransitionStats] = aggregates.transitions if aggregates else {}
-        now = self.clock.wall_epoch()
+        ctx = self._load_context(layout_name)
         unlocked, focus, state, focus_bigram = _lesson_progress(
             layout_name,
-            layout,
-            stats,
-            settings,
-            now,
-            transitions=transitions,
+            ctx.layout,
+            ctx.stats,
+            ctx.settings,
+            ctx.now,
+            transitions=ctx.transitions,
         )
-        target = target_ms_per_char(settings.target_speed_cpm)
         focus_confidence = _resolve_focus_confidence(
             focus,
             focus_bigram,
-            stats=stats,
-            transitions=transitions,
-            target=target,
-            settings=settings,
+            stats=ctx.stats,
+            transitions=ctx.transitions,
+            target=ctx.target,
+            settings=ctx.settings,
         )
-
-        table = self.language_provider.transitions(settings.lang)
-        generator = AdaptiveGenerator(table=table, rng=self.rng)
-        alphabet_chars = frozenset(chr(cp) for cp in unlocked)
         char_weights, transition_weights = _compute_weights(
             state,
             focus,
             focus_bigram,
             focus_confidence,
             unlocked=unlocked,
-            stats=stats,
-            transitions=transitions,
-            target=target,
-            settings=settings,
-            now=now,
+            stats=ctx.stats,
+            transitions=ctx.transitions,
+            target=ctx.target,
+            settings=ctx.settings,
+            now=ctx.now,
         )
-
-        dict_words: tuple[str, ...] | None = None
-        if settings.wordlist_url:
-            cached = self.wordlist_store.load(settings.wordlist_url)
-            if cached:
-                filtered = words_for_alphabet(cached, alphabet_chars)
-                if filtered:
-                    dict_words = tuple(filtered)
-        weighting = LessonWeighting(
+        alphabet_chars = frozenset(chr(cp) for cp in unlocked)
+        text = self._generate_text(
+            ctx,
+            alphabet_chars,
+            focus,
+            focus_bigram,
             char_weights=char_weights,
             transition_weights=transition_weights,
-            layout=layout,
-            words=dict_words,
-            focus_word_boost=settings.focus_word_boost,
-            focus_bigram_word_boost=settings.focus_bigram_word_boost,
         )
-        text = generator.generate_lesson(
-            alphabet_chars,
-            chr(focus),
-            word_count=WORD_COUNT,
-            weighting=weighting,
-            focus_bigram=focus_bigram,
-        )
-
-        urgency = {
-            cp: review_urgency(stats[cp].last_seen if cp in stats else 0.0, now) for cp in unlocked
-        }
+        urgency = _compute_urgency(ctx.stats, unlocked, ctx.now)
         reason, focus_speed, focus_accuracy = _compute_focus_explanation(
             focus,
             focus_bigram,
             focus_confidence,
-            stats=stats,
-            transitions=transitions,
-            target=target,
-            now=now,
+            stats=ctx.stats,
+            transitions=ctx.transitions,
+            target=ctx.target,
+            now=ctx.now,
         )
         return Lesson(
             text=text,
@@ -430,3 +397,67 @@ class BuildLesson:
             focus_speed=focus_speed,
             focus_accuracy=focus_accuracy,
         )
+
+    def _load_context(self, layout_name: str) -> _LessonContext:
+        settings = self.settings_repo.load()
+        layout = self.layout_repo.get(layout_name)
+        aggregates = self.aggregates_cache.get(layout_name)
+        stats: Mapping[int, KeyStats] = aggregates.keys if aggregates else {}
+        transitions: Mapping[Bigram, TransitionStats] = aggregates.transitions if aggregates else {}
+        return _LessonContext(
+            settings=settings,
+            layout=layout,
+            stats=stats,
+            transitions=transitions,
+            now=self.clock.wall_epoch(),
+            target=target_ms_per_char(settings.target_speed_cpm),
+        )
+
+    def _generate_text(
+        self,
+        ctx: _LessonContext,
+        alphabet_chars: frozenset[str],
+        focus: int,
+        focus_bigram: Bigram | None,
+        *,
+        char_weights: dict[str, float],
+        transition_weights: dict[Bigram, float],
+    ) -> str:
+        table = self.language_provider.transitions(ctx.settings.lang)
+        generator = AdaptiveGenerator(table=table, rng=self.rng)
+        weighting = LessonWeighting(
+            char_weights=char_weights,
+            transition_weights=transition_weights,
+            layout=ctx.layout,
+            words=self._resolve_dict_words(ctx.settings, alphabet_chars),
+            focus_word_boost=ctx.settings.focus_word_boost,
+            focus_bigram_word_boost=ctx.settings.focus_bigram_word_boost,
+        )
+        return generator.generate_lesson(
+            alphabet_chars,
+            chr(focus),
+            word_count=WORD_COUNT,
+            weighting=weighting,
+            focus_bigram=focus_bigram,
+        )
+
+    def _resolve_dict_words(
+        self,
+        settings: Settings,
+        alphabet_chars: frozenset[str],
+    ) -> tuple[str, ...] | None:
+        if not settings.wordlist_url:
+            return None
+        cached = self.wordlist_store.load(settings.wordlist_url)
+        if not cached:
+            return None
+        filtered = words_for_alphabet(cached, alphabet_chars)
+        return tuple(filtered) if filtered else None
+
+
+def _compute_urgency(
+    stats: Mapping[int, KeyStats],
+    unlocked: tuple[int, ...],
+    now: float,
+) -> dict[int, float]:
+    return {cp: review_urgency(stats[cp].last_seen if cp in stats else 0.0, now) for cp in unlocked}

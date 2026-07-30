@@ -47,14 +47,6 @@ class NullAggregatesEnsurer:
 NULL_AGGREGATES_ENSURER = NullAggregatesEnsurer()
 
 
-class NullLearningRateEstimator:
-    def __call__(self, layout: str, codepoint: int) -> int | None:
-        return None
-
-
-NULL_LEARNING_RATE_ESTIMATOR = NullLearningRateEstimator()
-
-
 class NullDailyLearnBudgetProvider:
     def __call__(self, *, extra_ns: int = 0) -> DailyLearnBudget:
         return compute_daily_learn_budget(completed_ns=0, limit_minutes=0, extra_ns=extra_ns)

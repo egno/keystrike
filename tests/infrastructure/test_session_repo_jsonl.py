@@ -158,6 +158,18 @@ def test_round_trip_target_speed_cpm(paths):
     assert headers[0].target_speed_cpm == 400
 
 
+def test_corrupt_index_line_is_skipped_not_fatal(paths):
+    repo = JsonlSessionRepository(paths)
+    repo.save_header(_header(sid="A"))
+    with paths.sessions_index.open("a", encoding="utf-8") as fh:
+        fh.write("{not valid json\n")
+        fh.write('{"schema_version": 1}\n')  # valid JSON, missing required fields
+    repo.save_header(_header(sid="B"))
+
+    headers = [h.session_id for h in JsonlSessionRepository(paths).iter_headers("qwerty")]
+    assert headers == ["A", "B"]
+
+
 def test_keystrokes_persisted_with_header_at_finish(paths):
     repo = JsonlSessionRepository(paths)
     header = _header(sid="S2")

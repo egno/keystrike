@@ -29,8 +29,9 @@ class JsonlSessionRepository:
         self._paths = paths
         # In-memory index maps session_id → header so load_keystrokes can locate
         # the file without re-reading index.jsonl. Populated by save_header and
-        # (lazily) by iter_headers.
+        # by _ensure_index (called explicitly, not as an incidental read side effect).
         self._session_index: dict[str, SessionResult] = {}
+        self._indexed = False
 
     def append_keystroke(self, session_id: str, started_at: float, k: Keystroke) -> None:
         file = self._paths.sessions_dir / _month_dir(started_at) / f"{session_id}.jsonl"
@@ -61,6 +62,10 @@ class JsonlSessionRepository:
                 yield header
 
     def iter_all_headers(self) -> Iterator[SessionResult]:
+        yield from self._parsed_headers()
+        self._indexed = True
+
+    def _parsed_headers(self) -> Iterator[SessionResult]:
         if not self._paths.sessions_index.exists():
             return
         with self._paths.sessions_index.open("r", encoding="utf-8") as fh:
@@ -68,12 +73,25 @@ class JsonlSessionRepository:
                 line = raw.strip()
                 if not line:
                     continue
-                data = json.loads(line)
-                header = _header_from_dict(data)
+                try:
+                    header = _header_from_dict(json.loads(line))
+                except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+                    # Skip a corrupt/truncated index row rather than aborting
+                    # every session recorded after it.
+                    continue
                 self._session_index[header.session_id] = header
                 yield header
 
+    def _ensure_index(self) -> None:
+        """Populate the session-id → header index from disk, once."""
+        if self._indexed:
+            return
+        for _ in self._parsed_headers():
+            pass
+        self._indexed = True
+
     def load_keystrokes(self, session_id: str) -> Iterator[Keystroke]:
+        self._ensure_index()
         header = self._session_index.get(session_id)
         if header is None:
             # Fall back: scan all month directories for the ulid.
@@ -130,8 +148,18 @@ def _header_to_dict(h: SessionResult) -> dict[str, object]:
     }
 
 
-def _parse_mode(raw: object) -> Mode:
-    return migrate_legacy_mode(str(raw))
+def _parse_mode(raw: str) -> Mode:
+    return migrate_legacy_mode(raw)
+
+
+def _require_int_tuple(
+    d: dict[str, object], key: str, default: tuple[int, ...] = ()
+) -> tuple[int, ...]:
+    raw = d.get(key, default)
+    if not isinstance(raw, (list, tuple)):
+        raise TypeError(f"expected list/tuple for {key!r}, got {type(raw).__name__}: {raw!r}")
+    items = cast("list[object] | tuple[object, ...]", raw)
+    return tuple(coerce_int(v, label=f"{key} element") for v in items)
 
 
 def _parse_key_confidence(raw: object) -> dict[int, float]:
@@ -153,14 +181,14 @@ def _header_from_dict(d: dict[str, object]) -> SessionResult:
         started_at=require_float(d, "started_at"),
         duration_ns=require_int(d, "duration_ns"),
         layout=require_str(d, "layout"),
-        mode=_parse_mode(d["mode"]),
-        lesson_alphabet=tuple(d["lesson_alphabet"]),  # type: ignore[arg-type]
+        mode=_parse_mode(require_str(d, "mode")),
+        lesson_alphabet=_require_int_tuple(d, "lesson_alphabet"),
         focus_key=require_int(d, "focus_key") if d.get("focus_key") is not None else None,
         total_keystrokes=require_int(d, "total_keystrokes"),
         correct_keystrokes=require_int(d, "correct_keystrokes"),
         words_completed=require_int(d, "words_completed", 0),
         lang=require_str(d, "lang", "en"),
-        unlocked_keys=tuple(d.get("unlocked_keys", ())),  # type: ignore[arg-type]
+        unlocked_keys=_require_int_tuple(d, "unlocked_keys"),
         key_confidence=_parse_key_confidence(d.get("key_confidence", {})),
         target_speed_cpm=require_int(d, "target_speed_cpm", 0),
     )

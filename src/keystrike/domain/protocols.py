@@ -70,12 +70,6 @@ class WordListStore(Protocol):
     def download_and_cache(self, url: str) -> list[str]: ...
 
 
-class LearningRateEstimator(Protocol):
-    """Shape of `application.stats_use_cases.GetLearningRate`."""
-
-    def __call__(self, layout: str, codepoint: int) -> int | None: ...
-
-
 class DailyLearnBudgetProvider(Protocol):
     """Shape of `application.learn_budget_use_cases.GetDailyLearnBudget`."""
 

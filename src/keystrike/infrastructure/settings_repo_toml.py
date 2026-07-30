@@ -27,6 +27,23 @@ def _fmt_scalar(v: object) -> str:
     raise TypeError(f"unsupported settings value type: {type(v).__name__}")
 
 
+def _coerce_field(default: object, raw_value: object) -> object:
+    # Dispatches on the *default value's* runtime type rather than the
+    # dataclass field's declared type, so this stays correct regardless of
+    # whether Settings uses postponed annotation evaluation.
+    if isinstance(default, TargetSpeedUnit):
+        return TargetSpeedUnit(str(raw_value))
+    if isinstance(default, bool):
+        return bool(raw_value)
+    if isinstance(default, int):
+        return int(raw_value)  # type: ignore[call-overload]
+    if isinstance(default, float):
+        return float(raw_value)  # type: ignore[arg-type]
+    if isinstance(default, str):
+        return str(raw_value)
+    raise AssertionError(f"unsupported settings field type: {type(default)!r}")
+
+
 class TomlSettingsRepository:
     def __init__(self, paths: Paths) -> None:
         self._paths = paths
@@ -51,21 +68,12 @@ class TomlSettingsRepository:
                 values[f.name] = str(raw_updated) if raw_updated is not None else None
                 continue
             default = getattr(defaults, f.name)
-            if f.type is TargetSpeedUnit:
-                try:
-                    values[f.name] = TargetSpeedUnit(str(raw.get(f.name, default)))
-                except ValueError:
-                    values[f.name] = default
-            elif f.type is bool:
-                values[f.name] = bool(raw.get(f.name, default))
-            elif f.type is int:
-                values[f.name] = int(raw.get(f.name, default))
-            elif f.type is float:
-                values[f.name] = float(raw.get(f.name, default))
-            elif f.type is str:
-                values[f.name] = str(raw.get(f.name, default))
-            else:
-                raise TypeError(f"unsupported settings field type: {f.type!r}")
+            try:
+                values[f.name] = _coerce_field(default, raw.get(f.name, default))
+            except (ValueError, TypeError):
+                # A hand-edited or stale settings.toml shouldn't be able to crash
+                # startup — fall back to this field's default and keep the rest.
+                values[f.name] = default
         # `values` is built dynamically off `dataclasses.fields(Settings)`, so
         # pyright can't statically match each entry to its declared parameter
         # type the way it could with a hand-written call — the per-field

@@ -39,7 +39,27 @@ _GIT_TIMEOUT_S = 30
 
 class GitSyncError(RuntimeError):
     """Raised when a git subprocess used for backup sync fails to run —
-    either it hung past the timeout or the `git` binary isn't installed."""
+    it hung past the timeout, the `git` binary isn't installed, or the
+    command itself exited non-zero (auth failure, network error, ...)."""
+
+    def __init__(self, message: str, *, stderr: str = "") -> None:
+        super().__init__(message)
+        self.stderr = stderr
+
+
+# Substrings of `git clone` stderr that indicate the remote simply doesn't
+# have any content yet (fresh bare repo, not-yet-created path) rather than a
+# real failure — safe to fall back to `git init` + `git remote add` for.
+_CLONE_MISSING_REMOTE_MARKERS = (
+    "does not exist",
+    "repository not found",
+    "not appear to be a git repository",
+)
+
+
+def _is_missing_remote_error(stderr: str) -> bool:
+    lowered = stderr.lower()
+    return any(marker in lowered for marker in _CLONE_MISSING_REMOTE_MARKERS)
 
 
 @dataclass(frozen=True, slots=True)
@@ -161,11 +181,73 @@ def copy_file_if_exists(src: Path, dest: Path) -> bool:
     return True
 
 
+class GitClient:
+    """Thin subprocess wrapper around the `git` CLI.
+
+    Isolates raw process plumbing so `GitSyncGateway`'s merge/sync
+    orchestration can be unit-tested against a fake client instead of
+    shelling out to real git.
+    """
+
+    def __init__(self, timeout_s: float = _GIT_TIMEOUT_S) -> None:
+        self._timeout_s = timeout_s
+
+    def run(self, *args: str, cwd: Path | None = None) -> str:
+        try:
+            result = subprocess.run(
+                ["git", *args],
+                cwd=cwd,
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=self._timeout_s,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise GitSyncError(
+                f"git {args[0]} timed out after {self._timeout_s}s "
+                "(hung waiting on network/credentials?)",
+            ) from exc
+        except FileNotFoundError as exc:
+            raise GitSyncError("git executable not found — is git installed?") from exc
+        except subprocess.CalledProcessError as exc:
+            stderr = (exc.stderr or "").strip()
+            raise GitSyncError(f"git {args[0]} failed: {stderr or exc}", stderr=stderr) from exc
+        return result.stdout
+
+    def clone(self, url: str, dest: Path) -> None:
+        self.run("clone", url, str(dest))
+
+    def init(self, cwd: Path) -> None:
+        self.run("init", cwd=cwd)
+
+    def add_remote(self, cwd: Path, url: str) -> None:
+        self.run("remote", "add", "origin", url, cwd=cwd)
+
+    def pull_ff_only(self, cwd: Path) -> None:
+        self.run("pull", "--ff-only", cwd=cwd)
+
+    def add(self, cwd: Path, *paths: str) -> None:
+        self.run("add", *paths, cwd=cwd)
+
+    def commit(self, cwd: Path, message: str) -> None:
+        self.run("commit", "-m", message, cwd=cwd)
+
+    def push(self, cwd: Path) -> None:
+        self.run("push", cwd=cwd)
+
+    def status_porcelain(self, cwd: Path) -> str:
+        return self.run("status", "--porcelain", cwd=cwd)
+
+    def status_short(self, cwd: Path) -> str:
+        return self.run("status", "--short", cwd=cwd)
+
+
 class GitSyncGateway:
-    def __init__(self, paths: Paths) -> None:
+    def __init__(self, paths: Paths, *, client: GitClient | None = None) -> None:
         self._paths = paths
         self._config_path = paths.sync_config_file
         self._clone_dir = paths.sync_clone_dir
+        self._client = client or GitClient()
 
     @property
     def clone_settings(self) -> Path:
@@ -244,27 +326,29 @@ class GitSyncGateway:
         if self._clone_dir.exists():
             shutil.rmtree(self._clone_dir)
         try:
-            _git("clone", url, str(self._clone_dir))
-        except subprocess.CalledProcessError:
-            self._clone_dir.mkdir(parents=True)
-            _git("init", cwd=self._clone_dir)
-            _git("remote", "add", "origin", url, cwd=self._clone_dir)
+            self._client.clone(url, self._clone_dir)
+        except GitSyncError as exc:
+            if not _is_missing_remote_error(exc.stderr):
+                raise
+            self._clone_dir.mkdir(parents=True, exist_ok=True)
+            self._client.init(self._clone_dir)
+            self._client.add_remote(self._clone_dir, url)
 
     def _pull_remote(self) -> None:
-        _git("pull", "--ff-only", cwd=self._clone_dir)
+        self._client.pull_ff_only(self._clone_dir)
 
     def _push_remote(self, message: str = "keystrike sync") -> bool:
-        _git("add", *_SYNC_REL_PATHS, cwd=self._clone_dir)
-        if not _git("status", "--porcelain", cwd=self._clone_dir).strip():
+        self._client.add(self._clone_dir, *_SYNC_REL_PATHS)
+        if not self._client.status_porcelain(self._clone_dir).strip():
             return False
-        _git("commit", "-m", message, cwd=self._clone_dir)
-        _git("push", cwd=self._clone_dir)
+        self._client.commit(self._clone_dir, message)
+        self._client.push(self._clone_dir)
         return True
 
     def _status_text(self) -> str:
         if not self._clone_dir.exists():
             return "clone missing"
-        return _git("status", "--short", cwd=self._clone_dir)
+        return self._client.status_short(self._clone_dir)
 
     def _require_configured(self) -> None:
         if not self.is_configured():
@@ -314,23 +398,3 @@ class GitSyncGateway:
         layouts = iter_layouts_from_index(self._paths.sessions_index)
         for layout in sorted(layouts):
             rebuild(layout)
-
-
-def _git(*args: str, cwd: Path | None = None) -> str:
-    try:
-        result = subprocess.run(
-            ["git", *args],
-            cwd=cwd,
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=_GIT_TIMEOUT_S,
-        )
-    except subprocess.TimeoutExpired as exc:
-        raise GitSyncError(
-            f"git {args[0]} timed out after {_GIT_TIMEOUT_S}s "
-            "(hung waiting on network/credentials?)",
-        ) from exc
-    except FileNotFoundError as exc:
-        raise GitSyncError("git executable not found — is git installed?") from exc
-    return result.stdout
