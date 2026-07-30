@@ -13,7 +13,7 @@ from .enums import Mode, SessionState
 from .models import Keystroke
 
 BACKSPACE = "\x7f"  # normalized backspace codepoint marker used at edges
-LEADING_SKIP_KEYS = frozenset(" \t\n\r")  # accidental space/enter/tab before typing starts
+LEADING_SKIP_KEYS = frozenset(" \t\n\r")  # accidental space/enter/tab before session/word start
 
 LEARN_IDLE_PAUSE_NS = 5 * 1_000_000_000  # pause learn timer after this idle gap
 
@@ -39,13 +39,17 @@ def leading_key_char(key: str, character: str | None = None) -> str | None:
 
 
 def skip_leading_whitespace(session: Session, char: str) -> bool:
-    """Drop space/enter/tab before the first real keystroke unless they are the target."""
-    if session.typing_started_at_ns is not None or not session.target_text:
+    """Drop accidental space/enter/tab before session or word start unless they are the target."""
+    if not session.target_text or session.position >= len(session.target_text):
         return False
     if char not in LEADING_SKIP_KEYS:
         return False
-    target = session.target_text[0]
-    return normalize_newline(char, target) != target
+    target = session.target_text[session.position]
+    if normalize_newline(char, target) == target:
+        return False
+    if session.position == 0:
+        return True
+    return session.target_text[session.position - 1] in LEADING_SKIP_KEYS
 
 
 def note_keystroke_for_timer(session: Session, now_ns: int) -> None:

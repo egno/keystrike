@@ -62,6 +62,11 @@ def transition_attempts(transition_stats: TransitionStats) -> int:
     return transition_stats.attempt_count
 
 
+def is_same_key_transition(prev_cp: int, next_cp: int) -> bool:
+    """Same physical key twice (e.g. ee, ss) — excluded from transition analysis."""
+    return prev_cp == next_cp
+
+
 def confidence_sample_factor(
     attempts: int,
     *,
@@ -116,6 +121,8 @@ def _measured_transitions_meet_threshold(
     """True when every measured bigram among unlocked keys meets threshold."""
     for prev in unlocked:
         for nxt in unlocked:
+            if is_same_key_transition(prev, nxt):
+                continue
             if chr(prev) + chr(nxt) not in transitions:
                 continue
             if (
@@ -270,6 +277,21 @@ def _focus_score(
     )
 
 
+def has_weak_unlocked_key(
+    unlocked: Sequence[int],
+    stats: Mapping[int, KeyStats],
+    target: float,
+    *,
+    threshold: float = 1.0,
+    min_attempts: int = MIN_CONFIDENCE_ATTEMPTS,
+) -> bool:
+    """True when any unlocked key is below mastery threshold."""
+    return any(
+        confidence_of(cp, stats, target, min_attempts=min_attempts) < threshold
+        for cp in unlocked
+    )
+
+
 def select_focus(
     unlocked: Sequence[int],
     stats: Mapping[int, KeyStats],
@@ -325,7 +347,8 @@ def select_focus_transition(
         (prev, nxt)
         for prev in unlocked
         for nxt in unlocked
-        if chr(prev) + chr(nxt) in transitions
+        if not is_same_key_transition(prev, nxt)
+        and chr(prev) + chr(nxt) in transitions
     ]
     if not pairs:
         return None

@@ -4,7 +4,7 @@ from unittest.mock import patch
 from keystrike.application.build_lesson import BuildLesson
 from keystrike.domain.aggregate import transition_key
 from keystrike.domain.learn_order import keyboard_order
-from keystrike.domain.models import LayoutAggregates, Settings, TransitionStats
+from keystrike.domain.models import KeyStats, LayoutAggregates, Settings, TransitionStats
 from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS
 from tests.fakes import (
     FakeAggregatesCache,
@@ -86,6 +86,72 @@ def test_cold_start_unlocks_row_ordered_prefix_not_frequency_order():
     assert row_unlocked != frequency_prefix
 
 
+def test_lesson_prefers_weak_key_over_weak_transition():
+    layout = BUNDLED_LAYOUTS["qwerty"]
+    order = keyboard_order(layout)
+    a, s = order[0], order[1]
+    now = 1_700_000_000.0
+    fast = 100_000_000.0
+    slow = 400_000_000.0
+    transitions = {
+        transition_key(a, a): TransitionStats(a, a, 10, fast, 0, now, attempt_count=10),
+        transition_key(a, s): TransitionStats(
+            a, s, 10, slow, 0, now, attempt_count=10,
+        ),
+        transition_key(s, a): TransitionStats(s, a, 10, fast, 0, now, attempt_count=10),
+        transition_key(s, s): TransitionStats(s, s, 10, fast, 0, now, attempt_count=10),
+    }
+    cache = FakeAggregatesCache(
+        by_layout={"qwerty": LayoutAggregates(keys={}, transitions=transitions)},
+    )
+    builder = BuildLesson(
+        layout_repo=FakeLayoutRepository(dict(BUNDLED_LAYOUTS)),
+        aggregates_cache=cache,
+        settings_repo=FakeSettingsRepository(Settings(alphabet_size=2)),
+        language_provider=FakeLanguageProvider(),
+        wordlist_store=FakeWordListStore(),
+        rng=Random(0),
+    )
+    lesson = builder("qwerty")
+    assert lesson.focus_reason == "weak"
+    assert "transition" not in (lesson.focus_reason or "")
+
+
+def test_lesson_ignores_weak_same_key_transition_for_focus():
+    layout = BUNDLED_LAYOUTS["qwerty"]
+    order = keyboard_order(layout)
+    a, s = order[0], order[1]
+    now = 1_700_000_000.0
+    at_target = 200_000_000.0
+    keys = {
+        a: KeyStats(a, 10, at_target, 0, now, attempt_count=10),
+        s: KeyStats(s, 10, at_target, 0, now, attempt_count=10),
+    }
+    transitions = {
+        transition_key(a, a): TransitionStats(
+            a, a, 10, 400_000_000.0, 0, now, attempt_count=10,
+        ),
+        transition_key(a, s): TransitionStats(a, s, 10, at_target, 0, now, attempt_count=10),
+        transition_key(s, a): TransitionStats(s, a, 10, at_target, 0, now, attempt_count=10),
+        transition_key(s, s): TransitionStats(
+            s, s, 10, 400_000_000.0, 0, now, attempt_count=10,
+        ),
+    }
+    cache = FakeAggregatesCache(
+        by_layout={"qwerty": LayoutAggregates(keys=keys, transitions=transitions)},
+    )
+    builder = BuildLesson(
+        layout_repo=FakeLayoutRepository(dict(BUNDLED_LAYOUTS)),
+        aggregates_cache=cache,
+        settings_repo=FakeSettingsRepository(Settings(alphabet_size=2)),
+        language_provider=FakeLanguageProvider(),
+        wordlist_store=FakeWordListStore(),
+        rng=Random(0),
+    )
+    lesson = builder("qwerty")
+    assert "transition" not in (lesson.focus_reason or "")
+
+
 def test_lesson_uses_transition_focus_when_transitions_weak():
     layout = BUNDLED_LAYOUTS["qwerty"]
     order = keyboard_order(layout)
@@ -93,6 +159,11 @@ def test_lesson_uses_transition_focus_when_transitions_weak():
     now = 1_700_000_000.0
     five_days = 5 * 86_400.0
     fast = 100_000_000.0
+    at_target = 200_000_000.0
+    keys = {
+        a: KeyStats(a, 10, at_target, 0, now, attempt_count=10),
+        s: KeyStats(s, 10, at_target, 0, now, attempt_count=10),
+    }
     transitions = {
         transition_key(a, a): TransitionStats(a, a, 10, fast, 0, now, attempt_count=10),
         transition_key(a, s): TransitionStats(
@@ -102,7 +173,7 @@ def test_lesson_uses_transition_focus_when_transitions_weak():
         transition_key(s, s): TransitionStats(s, s, 10, fast, 0, now, attempt_count=10),
     }
     cache = FakeAggregatesCache(
-        by_layout={"qwerty": LayoutAggregates(keys={}, transitions=transitions)},
+        by_layout={"qwerty": LayoutAggregates(keys=keys, transitions=transitions)},
     )
     builder = BuildLesson(
         layout_repo=FakeLayoutRepository(dict(BUNDLED_LAYOUTS)),
@@ -131,10 +202,18 @@ def test_lesson_falls_back_to_key_focus_without_transitions():
 def test_lesson_uses_transition_review_when_stale_and_mastered():
     layout = BUNDLED_LAYOUTS["qwerty"]
     order = keyboard_order(layout)
-    a, s = order[0], order[1]
+    a, s, h = order[0], order[1], order[2]
     now = 1_700_000_000.0
     five_days = 5 * 86_400.0
     at_target = 200_000_000.0
+    # s→h stays weak enough to block unlocking the next key; stale a→s still
+    # wins transition focus via review scoring (see test_select_focus_transition_*).
+    slow = 380_000_000.0
+    keys = {
+        a: KeyStats(a, 10, at_target, 0, now, attempt_count=10),
+        s: KeyStats(s, 10, at_target, 0, now, attempt_count=10),
+        h: KeyStats(h, 10, at_target, 0, now, attempt_count=10),
+    }
     transitions = {
         transition_key(a, a): TransitionStats(
             a, a, 10, at_target, 0, now, attempt_count=10,
@@ -142,20 +221,35 @@ def test_lesson_uses_transition_review_when_stale_and_mastered():
         transition_key(a, s): TransitionStats(
             a, s, 10, at_target, 0, now - five_days, attempt_count=10,
         ),
+        transition_key(a, h): TransitionStats(
+            a, h, 10, at_target, 0, now, attempt_count=10,
+        ),
         transition_key(s, a): TransitionStats(
             s, a, 10, at_target, 0, now, attempt_count=10,
         ),
         transition_key(s, s): TransitionStats(
             s, s, 10, at_target, 0, now, attempt_count=10,
         ),
+        transition_key(s, h): TransitionStats(
+            s, h, 10, slow, 0, now, attempt_count=10,
+        ),
+        transition_key(h, a): TransitionStats(
+            h, a, 10, at_target, 0, now, attempt_count=10,
+        ),
+        transition_key(h, s): TransitionStats(
+            h, s, 10, at_target, 0, now, attempt_count=10,
+        ),
+        transition_key(h, h): TransitionStats(
+            h, h, 10, at_target, 0, now, attempt_count=10,
+        ),
     }
     cache = FakeAggregatesCache(
-        by_layout={"qwerty": LayoutAggregates(keys={}, transitions=transitions)},
+        by_layout={"qwerty": LayoutAggregates(keys=keys, transitions=transitions)},
     )
     builder = BuildLesson(
         layout_repo=FakeLayoutRepository(dict(BUNDLED_LAYOUTS)),
         aggregates_cache=cache,
-        settings_repo=FakeSettingsRepository(Settings(alphabet_size=2)),
+        settings_repo=FakeSettingsRepository(Settings(alphabet_size=3)),
         language_provider=FakeLanguageProvider(),
         wordlist_store=FakeWordListStore(),
         rng=Random(0),
@@ -174,6 +268,11 @@ def test_lesson_wordlist_biases_weak_transition():
     now = 1_700_000_000.0
     five_days = 5 * 86_400.0
     fast = 100_000_000.0
+    at_target = 200_000_000.0
+    keys = {
+        a: KeyStats(a, 10, at_target, 0, now, attempt_count=10),
+        s: KeyStats(s, 10, at_target, 0, now, attempt_count=10),
+    }
     transitions = {
         transition_key(a, a): TransitionStats(a, a, 10, fast, 0, now, attempt_count=10),
         transition_key(a, s): TransitionStats(
@@ -185,7 +284,7 @@ def test_lesson_wordlist_biases_weak_transition():
     url = "https://example.com/words.txt"
     cached = ["asa", "ass", "sas", "ssa"]
     cache = FakeAggregatesCache(
-        by_layout={"qwerty": LayoutAggregates(keys={}, transitions=transitions)},
+        by_layout={"qwerty": LayoutAggregates(keys=keys, transitions=transitions)},
     )
     builder = BuildLesson(
         layout_repo=FakeLayoutRepository(dict(BUNDLED_LAYOUTS)),
@@ -220,6 +319,11 @@ def test_weak_transition_focus_over_represented_in_lesson_words():
     a, s = order[0], order[1]
     now = 1_700_000_000.0
     fast = 100_000_000.0
+    at_target = 200_000_000.0
+    keys = {
+        a: KeyStats(a, 10, at_target, 0, now, attempt_count=10),
+        s: KeyStats(s, 10, at_target, 0, now, attempt_count=10),
+    }
     transitions = {
         transition_key(a, a): TransitionStats(a, a, 10, fast, 0, now, attempt_count=10),
         transition_key(a, s): TransitionStats(
@@ -229,7 +333,7 @@ def test_weak_transition_focus_over_represented_in_lesson_words():
         transition_key(s, s): TransitionStats(s, s, 10, fast, 0, now, attempt_count=10),
     }
     cache = FakeAggregatesCache(
-        by_layout={"qwerty": LayoutAggregates(keys={}, transitions=transitions)},
+        by_layout={"qwerty": LayoutAggregates(keys=keys, transitions=transitions)},
     )
     builder = BuildLesson(
         layout_repo=FakeLayoutRepository(dict(BUNDLED_LAYOUTS)),

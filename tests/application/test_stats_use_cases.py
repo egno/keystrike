@@ -96,6 +96,32 @@ def test_rebuild_aggregates_populates_transitions():
     assert ab.mean_time_ns == 100_000_000.0
 
 
+def test_rebuild_aggregates_excludes_same_key_transitions():
+    repo = FakeSessionRepository()
+    cache = FakeAggregatesCache()
+    repo.save_header(_header("s1", 1_700_000_000.0))
+    repo.keystrokes["s1"] = [
+        Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
+        Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=100_000_000, correct=True),
+        Keystroke(codepoint=ord("e"), typed=ord("e"), t_ns=200_000_000, correct=True),
+        Keystroke(codepoint=ord("e"), typed=ord("e"), t_ns=300_000_000, correct=True),
+        Keystroke(codepoint=ord("b"), typed=ord("b"), t_ns=400_000_000, correct=True),
+    ]
+
+    RebuildAggregates(
+        repo=repo,
+        cache=cache,
+        settings_repo=FakeSettingsRepository(),
+    )("qwerty")
+
+    cached = cache.get("qwerty")
+    assert cached is not None
+    assert "aa" not in cached.transitions
+    assert "ee" not in cached.transitions
+    assert cached.transitions.get("ae") is not None
+    assert cached.transitions.get("eb") is not None
+
+
 def test_ensure_skips_when_cache_has_transitions():
     repo = FakeSessionRepository()
     cache = FakeAggregatesCache(

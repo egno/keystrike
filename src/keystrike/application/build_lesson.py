@@ -14,6 +14,8 @@ from keystrike.domain.confidence import (
     compute_unlocked,
     confidence_of,
     focus_key_from_transition,
+    has_weak_unlocked_key,
+    is_same_key_transition,
     key_confidence,
     practice_weight,
     review_urgency,
@@ -157,19 +159,42 @@ def _lesson_progress(
         transitions=transitions,
         min_transition_attempts=settings.min_transition_confidence_attempts,
     )
-    focus_bigram = (
-        select_focus_transition(
+    keys_need_focus = has_weak_unlocked_key(
+        unlocked,
+        stats,
+        target,
+        threshold=_CONFIDENCE_GOOD,
+        min_attempts=settings.min_confidence_attempts,
+    )
+    if keys_need_focus:
+        focus_bigram = None
+        focus = select_focus(
+            unlocked,
+            stats,
+            target,
+            now,
+            min_attempts=settings.min_confidence_attempts,
+        )
+    elif transitions:
+        focus_bigram = select_focus_transition(
             unlocked,
             transitions,
             target,
             now,
             min_attempts=settings.min_transition_confidence_attempts,
         )
-        if transitions else None
-    )
-    if focus_bigram is not None:
-        focus = focus_key_from_transition(*focus_bigram)
+        if focus_bigram is not None:
+            focus = focus_key_from_transition(*focus_bigram)
+        else:
+            focus = select_focus(
+                unlocked,
+                stats,
+                target,
+                now,
+                min_attempts=settings.min_confidence_attempts,
+            )
     else:
+        focus_bigram = None
         focus = select_focus(
             unlocked,
             stats,
@@ -249,6 +274,7 @@ class BuildLesson:
             )
             for prev in unlocked
             for nxt in unlocked
+            if not is_same_key_transition(prev, nxt)
         }
         if focus_bigram is not None:
             prev_cp, next_cp = focus_bigram

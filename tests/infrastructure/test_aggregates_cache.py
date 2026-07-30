@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from keystrike.domain.models import KeyStats, LayoutAggregates, TransitionStats
@@ -54,3 +56,57 @@ def test_layout_isolation(paths):
     assert ord("a") in qwerty.keys
     assert ord("z") in dvorak.keys
     assert ord("z") not in qwerty.keys
+
+
+def test_put_strips_same_key_transitions(paths):
+    cache = FileAggregatesCache(paths)
+    aggregates = LayoutAggregates(
+        keys={ord("a"): KeyStats(ord("a"), 1, 100.0, 0, 1.0)},
+        transitions={
+            "aa": TransitionStats(ord("a"), ord("a"), 1, 100.0, 0, 1.0),
+            "ab": TransitionStats(ord("a"), ord("b"), 1, 100.0, 0, 1.0),
+        },
+    )
+    cache.put("qwerty", aggregates)
+    loaded = cache.get("qwerty")
+    assert loaded is not None
+    assert "aa" not in loaded.transitions
+    assert "ab" in loaded.transitions
+    raw = json.loads(cache._file("qwerty").read_text(encoding="utf-8"))
+    assert "aa" not in raw["transitions"]
+
+
+def test_get_strips_same_key_transitions_from_stale_cache(paths):
+    cache = FileAggregatesCache(paths)
+    cache._file("qwerty").write_text(
+        json.dumps({
+            "schema_version": 1,
+            "layout": "qwerty",
+            "keys": {},
+            "transitions": {
+                "aa": {
+                    "prev_cp": ord("a"),
+                    "next_cp": ord("a"),
+                    "samples": 1,
+                    "mean_time_ns": 100.0,
+                    "error_count": 0,
+                    "last_seen": 1.0,
+                    "attempt_count": 1,
+                },
+                "ab": {
+                    "prev_cp": ord("a"),
+                    "next_cp": ord("b"),
+                    "samples": 1,
+                    "mean_time_ns": 100.0,
+                    "error_count": 0,
+                    "last_seen": 1.0,
+                    "attempt_count": 1,
+                },
+            },
+        }),
+        encoding="utf-8",
+    )
+    loaded = cache.get("qwerty")
+    assert loaded is not None
+    assert "aa" not in loaded.transitions
+    assert "ab" in loaded.transitions

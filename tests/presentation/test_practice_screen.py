@@ -229,7 +229,7 @@ async def test_adaptive_allowed_when_daily_learn_goal_reached():
 
 
 @pytest.mark.asyncio
-async def test_adaptive_practice_shows_transition_focus_note():
+async def test_adaptive_practice_shows_weak_key_focus_note():
     clock = FakeClock(wall=1_700_000_000.0)
     session_repo = FakeSessionRepository()
     session_repo.save_header(
@@ -263,7 +263,9 @@ async def test_adaptive_practice_shows_transition_focus_note():
         practice = app.screen
         assert isinstance(practice, PracticeScreen)
         note = str(practice.query_one("#focus-note", Static).content)
-        assert "weak transition" in note
+        assert "(weak)" in note
+        assert "[bold]a[/]" in note
+        assert "weak transition" not in note
         assert "speed " in note
         assert "accuracy " in note
 

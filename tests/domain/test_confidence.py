@@ -4,6 +4,7 @@ from keystrike.domain.confidence import (
     compute_unlocked,
     confidence_of,
     focus_key_from_transition,
+    has_weak_unlocked_key,
     key_attempts,
     key_confidence,
     practice_weight,
@@ -175,12 +176,28 @@ def test_compute_unlocked_stalls_when_threshold_not_met():
     assert unlocked == (1,)
 
 
-def test_compute_unlocked_stalls_on_weak_measured_transition():
+def test_compute_unlocked_ignores_weak_same_key_transition():
     learn_order = tuple(ord(c) for c in "eabcdfghm")
     stats = {cp: _stats(cp, mean_time_ns=100_000_000.0) for cp in learn_order[:8]}
     transitions = {
         "ee": TransitionStats(
             ord("e"), ord("e"), samples=10, mean_time_ns=400_000_000.0,
+            error_count=0, last_seen=0.0, attempt_count=10,
+        ),
+    }
+    unlocked = compute_unlocked(
+        learn_order, alphabet_size=8, stats=stats, target=200.0, transitions=transitions,
+    )
+    assert unlocked == learn_order[:9]
+    assert unlocked[-1] == ord("m")
+
+
+def test_compute_unlocked_stalls_on_weak_cross_key_transition():
+    learn_order = tuple(ord(c) for c in "eabcdfghm")
+    stats = {cp: _stats(cp, mean_time_ns=100_000_000.0) for cp in learn_order[:8]}
+    transitions = {
+        "ea": TransitionStats(
+            ord("e"), ord("a"), samples=10, mean_time_ns=400_000_000.0,
             error_count=0, last_seen=0.0, attempt_count=10,
         ),
     }
@@ -202,12 +219,35 @@ def test_compute_unlocked_advances_when_measured_transitions_meet_threshold():
     )
     assert unlocked == learn_order[:9]
     assert unlocked[-1] == ord("m")
+
+
 def test_select_focus_picks_weakest_unlocked_key():
     stats = {
         1: _stats(1, mean_time_ns=100_000_000.0),  # confidence 2.0
         2: _stats(2, mean_time_ns=400_000_000.0),  # confidence 0.5
     }
     assert select_focus((1, 2), stats, target=200.0, now=1000.0) == 2
+
+
+def test_has_weak_unlocked_key_true_when_any_below_threshold():
+    stats = {
+        1: _stats(1, mean_time_ns=200_000_000.0),
+        2: _stats(2, mean_time_ns=400_000_000.0),
+    }
+    assert has_weak_unlocked_key((1, 2), stats, target=200.0) is True
+
+
+def test_has_weak_unlocked_key_false_when_all_confident():
+    stats = {
+        1: _stats(1, mean_time_ns=200_000_000.0),
+        2: _stats(2, mean_time_ns=100_000_000.0),
+    }
+    assert has_weak_unlocked_key((1, 2), stats, target=200.0) is False
+
+
+def test_has_weak_unlocked_key_true_for_never_practiced():
+    stats = {1: _stats(1, mean_time_ns=200_000_000.0)}
+    assert has_weak_unlocked_key((1, 2), stats, target=200.0) is True
 
 
 def test_select_focus_prefers_never_practiced_key():
@@ -281,6 +321,31 @@ def _transition(
         last_seen=last_seen,
         attempt_count=attempts,
     )
+
+
+def test_select_focus_transition_ignores_same_key_pairs():
+    now = 1_700_000_000.0
+    unlocked = (ord("e"), ord("a"))
+    transitions = {
+        "ee": _transition(ord("e"), ord("e"), 400_000_000.0, last_seen=now, attempt_count=10),
+        "aa": _transition(ord("a"), ord("a"), 400_000_000.0, last_seen=now, attempt_count=10),
+    }
+    assert select_focus_transition(unlocked, transitions, 200.0, now) is None
+
+
+def test_select_focus_transition_never_picks_same_key_even_when_weakest():
+    now = 1_700_000_000.0
+    unlocked = (ord("a"), ord("b"))
+    fast = 100_000_000.0
+    transitions = {
+        "aa": _transition(ord("a"), ord("a"), 400_000_000.0, last_seen=now, attempt_count=10),
+        "ab": _transition(ord("a"), ord("b"), fast, last_seen=now, attempt_count=10),
+        "ba": _transition(ord("b"), ord("a"), fast, last_seen=now, attempt_count=10),
+        "bb": _transition(ord("b"), ord("b"), 400_000_000.0, last_seen=now, attempt_count=10),
+    }
+    result = select_focus_transition(unlocked, transitions, 200.0, now)
+    assert result is not None
+    assert result[0] != result[1]
 
 
 def test_select_focus_transition_picks_stale_over_slightly_weaker_recent():

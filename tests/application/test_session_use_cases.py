@@ -234,6 +234,42 @@ def test_leading_enter_honored_when_target_starts_with_newline(clock, id_gen):
     assert session.keystrokes[0].correct
 
 
+def test_repeated_leading_skip_keys_ignored_after_required_char(clock, id_gen):
+    start = StartSession(clock=clock, id_gen=id_gen)
+    record = RecordKeystroke(clock=clock)
+
+    session = start(" ab", layout="qwerty", mode=Mode.ADAPTIVE)
+    record(session, " ")
+    record(session, " ")
+    record(session, " ")
+    assert session.position == 1
+    assert session.total_count == 1
+
+    session = start("\nabc", layout="qwerty", mode=Mode.ADAPTIVE)
+    record(session, "\n")
+    record(session, "\n")
+    assert session.position == 1
+    assert session.total_count == 1
+
+
+def test_repeated_leading_skip_keys_ignored_at_word_start(clock, id_gen):
+    start = StartSession(clock=clock, id_gen=id_gen)
+    record = RecordKeystroke(clock=clock)
+    session = start("hi there", layout="qwerty", mode=Mode.ADAPTIVE)
+
+    for ch in "hi ":
+        record(session, ch)
+    record(session, " ")
+    record(session, "\t")
+
+    assert session.position == 3
+    assert session.total_count == 3
+    assert session.error_positions == set()
+
+    record(session, "t")
+    assert session.position == 4
+
+
 def test_learn_timer_pauses_after_idle(clock, id_gen):
     start = StartSession(clock=clock, id_gen=id_gen)
     record = RecordKeystroke(clock=clock)

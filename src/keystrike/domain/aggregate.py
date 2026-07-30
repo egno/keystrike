@@ -7,10 +7,10 @@ keystrokes increment error_count for the codepoint they missed.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 
-from .confidence import SESSION_RECENCY_DECAY
+from .confidence import SESSION_RECENCY_DECAY, is_same_key_transition
 from .models import KeyStats, Keystroke, LayoutAggregates, SessionResult, TransitionStats
 
 
@@ -152,7 +152,7 @@ def _combine_transition_maps_weighted(
             last_seen=max(stats.last_seen for stats, _ in entries),
             attempt_count=round(weighted_attempts),
         )
-    return out
+    return without_same_key_transitions(out)
 
 
 def combine_sessions(
@@ -210,6 +210,17 @@ def transition_key(prev_cp: int, next_cp: int) -> str:
     return chr(prev_cp) + chr(next_cp)
 
 
+def without_same_key_transitions(
+    transitions: Mapping[str, TransitionStats],
+) -> dict[str, TransitionStats]:
+    """Drop same-key pairs (aa, ee) from stored transition stats."""
+    return {
+        key: stats
+        for key, stats in transitions.items()
+        if not is_same_key_transition(stats.prev_cp, stats.next_cp)
+    }
+
+
 def per_transition_deltas(keystrokes: Iterable[Keystroke]) -> dict[str, list[int]]:
     """Inter-keystroke deltas per prev→next target pair for correct keystrokes."""
     deltas: dict[str, list[int]] = {}
@@ -219,7 +230,11 @@ def per_transition_deltas(keystrokes: Iterable[Keystroke]) -> dict[str, list[int
     for k in keystrokes:
         if not k.correct:
             continue
-        if last_correct_cp is not None and last_correct_t_ns is not None:
+        if (
+            last_correct_cp is not None
+            and last_correct_t_ns is not None
+            and not is_same_key_transition(last_correct_cp, k.codepoint)
+        ):
             delta = k.t_ns - last_correct_t_ns
             if delta > 0:
                 deltas.setdefault(transition_key(last_correct_cp, k.codepoint), []).append(delta)
@@ -240,12 +255,16 @@ def aggregate_transitions(
     for i, k in enumerate(all_keystrokes):
         if not k.correct:
             if i > 0:
-                key = transition_key(all_keystrokes[i - 1].codepoint, k.codepoint)
-                entry = partial.setdefault(key, _Partial())
-                entry.attempt_count += 1
-                entry.error_count += 1
+                prev_cp = all_keystrokes[i - 1].codepoint
+                if not is_same_key_transition(prev_cp, k.codepoint):
+                    key = transition_key(prev_cp, k.codepoint)
+                    entry = partial.setdefault(key, _Partial())
+                    entry.attempt_count += 1
+                    entry.error_count += 1
             continue
-        if last_correct_cp is not None:
+        if last_correct_cp is not None and not is_same_key_transition(
+            last_correct_cp, k.codepoint,
+        ):
             key = transition_key(last_correct_cp, k.codepoint)
             partial.setdefault(key, _Partial()).attempt_count += 1
         last_correct_cp = k.codepoint
@@ -255,7 +274,7 @@ def aggregate_transitions(
 
     session_end_wall = result.started_at + result.duration_ns / 1e9
 
-    return {
+    return without_same_key_transitions({
         key: TransitionStats(
             prev_cp=ord(key[0]),
             next_cp=ord(key[1]),
@@ -267,7 +286,7 @@ def aggregate_transitions(
             attempt_count=p.attempt_count,
         )
         for key, p in partial.items()
-    }
+    })
 
 
 def merge_transition_stats(a: TransitionStats, b: TransitionStats) -> TransitionStats:
@@ -296,4 +315,4 @@ def combine_transitions(*maps: dict[str, TransitionStats]) -> dict[str, Transiti
     for m in maps:
         for key, t in m.items():
             out[key] = merge_transition_stats(out[key], t) if key in out else t
-    return out
+    return without_same_key_transitions(out)

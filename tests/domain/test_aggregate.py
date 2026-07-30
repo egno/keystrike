@@ -222,6 +222,28 @@ def test_per_transition_deltas_tracks_prev_to_next_pair():
     assert deltas["bc"] == [150_000_000]
 
 
+def test_aggregate_transitions_skips_same_key_pairs():
+    keys = [
+        Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
+        Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=100_000_000, correct=True),
+        Keystroke(codepoint=ord("b"), typed=ord("b"), t_ns=200_000_000, correct=True),
+    ]
+    transitions = aggregate_transitions(_session(), keys)
+    assert "aa" not in transitions
+    assert "ab" in transitions
+
+
+def test_per_transition_deltas_skips_same_key_pairs():
+    keys = [
+        Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
+        Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=100_000_000, correct=True),
+        Keystroke(codepoint=ord("b"), typed=ord("b"), t_ns=250_000_000, correct=True),
+    ]
+    deltas = per_transition_deltas(keys)
+    assert "aa" not in deltas
+    assert deltas["ab"] == [150_000_000]
+
+
 def test_aggregate_transitions_attributes_errors_to_pair():
     keys = [
         Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
@@ -264,6 +286,14 @@ def test_combine_transitions_multiple_maps():
     assert out["ab"].samples == 2
     assert abs(out["ab"].mean_time_ns - 200.0) < 1e-9
     assert out["bc"].samples == 2
+
+
+def test_combine_transitions_drops_same_key_pairs():
+    stale = {"aa": TransitionStats(ord("a"), ord("a"), 1, 100.0, 0, 1.0)}
+    valid = {"ab": TransitionStats(ord("a"), ord("b"), 1, 100.0, 0, 1.0)}
+    out = combine_transitions(stale, valid)
+    assert "aa" not in out
+    assert "ab" in out
 
 
 def test_transition_key_format():

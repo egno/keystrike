@@ -7,6 +7,7 @@ import json
 from dataclasses import asdict
 from pathlib import Path
 
+from keystrike.domain.aggregate import without_same_key_transitions
 from keystrike.domain.models import KeyStats, LayoutAggregates, TransitionStats
 
 from .atomic_write import atomic_write_text
@@ -28,6 +29,20 @@ class FileAggregatesCache:
         data = json.loads(file.read_text(encoding="utf-8"))
         keys = data.get("keys", {})
         transitions = data.get("transitions", {})
+        parsed_transitions = {
+            key: TransitionStats(
+                prev_cp=int(entry["prev_cp"]),
+                next_cp=int(entry["next_cp"]),
+                samples=int(entry["samples"]),
+                mean_time_ns=float(entry["mean_time_ns"]),
+                error_count=int(entry["error_count"]),
+                last_seen=float(entry["last_seen"]),
+                attempt_count=int(
+                    entry.get("attempt_count", entry["samples"] + entry["error_count"]),
+                ),
+            )
+            for key, entry in transitions.items()
+        }
         return LayoutAggregates(
             keys={
                 int(cp): KeyStats(
@@ -42,27 +57,15 @@ class FileAggregatesCache:
                 )
                 for cp, entry in keys.items()
             },
-            transitions={
-                key: TransitionStats(
-                    prev_cp=int(entry["prev_cp"]),
-                    next_cp=int(entry["next_cp"]),
-                    samples=int(entry["samples"]),
-                    mean_time_ns=float(entry["mean_time_ns"]),
-                    error_count=int(entry["error_count"]),
-                    last_seen=float(entry["last_seen"]),
-                    attempt_count=int(
-                        entry.get("attempt_count", entry["samples"] + entry["error_count"]),
-                    ),
-                )
-                for key, entry in transitions.items()
-            },
+            transitions=without_same_key_transitions(parsed_transitions),
         )
 
     def put(self, layout: str, aggregates: LayoutAggregates) -> None:
+        transitions = without_same_key_transitions(aggregates.transitions)
         payload = {
             "schema_version": 1,
             "layout": layout,
             "keys": {str(cp): asdict(k) for cp, k in aggregates.keys.items()},
-            "transitions": {key: asdict(t) for key, t in aggregates.transitions.items()},
+            "transitions": {key: asdict(t) for key, t in transitions.items()},
         }
         atomic_write_text(self._file(layout), json.dumps(payload, indent=2))
