@@ -4,6 +4,7 @@ from keystrike.domain.generator import (
     AdaptiveGenerator,
     cpm_from_wpm,
     typical_chars_per_word,
+    wordlist_weight_for_word,
     wpm_from_cpm,
 )
 from keystrike.domain.markov import TransitionTable
@@ -81,6 +82,46 @@ def test_generate_wordlist_char_weights_bias():
         )
         counts[word[0]] += 1
     assert counts["a"] > counts["b"]
+
+
+def test_generate_wordlist_transition_weights_bias():
+    generator = AdaptiveGenerator(table=_uniform_table("abcd"), rng=Random(0))
+    words = ["cab", "cad"]
+    counts = {"cab": 0, "cad": 0}
+    for _ in range(50):
+        word = generator.generate_word(
+            frozenset("abcd"),
+            transition_weights={"ab": 100.0, "ad": 1.0},
+            words=words,
+        )
+        counts[word] += 1
+    assert counts["cab"] > counts["cad"]
+
+
+def test_wordlist_weight_for_word_combines_char_and_transition_weights():
+    weight = wordlist_weight_for_word(
+        "cab",
+        char_weights={"a": 2.0, "b": 2.0, "c": 1.0},
+        transition_weights={"ab": 3.0, "bc": 1.0},
+    )
+    assert weight == (2.0 + 2.0 + 1.0) * (3.0 + 1.0)
+
+
+def test_generate_lesson_wordlist_transition_weights_bias():
+    generator = AdaptiveGenerator(table=_uniform_table("as"), rng=Random(0))
+    words = ["asa", "ass", "sas", "ssa"]
+    ssa_count = 0
+    for seed in range(50):
+        generator.rng = Random(seed)
+        lesson = generator.generate_lesson(
+            frozenset("as"),
+            focus_char="s",
+            word_count=12,
+            transition_weights={"as": 100.0, "sa": 1.0, "ss": 1.0},
+            words=words,
+        )
+        ssa_count += lesson.split().count("ssa")
+    assert ssa_count < 80  # uniform would land near ~150 of 600 picks
 
 
 def test_generate_lesson_focus_wordlist_overweights_focus_char():

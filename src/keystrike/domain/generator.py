@@ -16,6 +16,30 @@ MAX_RETRIES = 5
 DEFAULT_WORD_COUNT = 12
 
 
+def wordlist_weight_for_word(
+    word: str,
+    *,
+    char_weights: Mapping[str, float] | None = None,
+    transition_weights: Mapping[str, float] | None = None,
+    focus_char: str | None = None,
+) -> float:
+    """Score a dictionary word for adaptive sampling — mirrors Markov biasing."""
+    if not char_weights and not transition_weights:
+        return 1.0
+    weight = 1.0
+    if char_weights:
+        weight = sum(char_weights.get(ch, 1.0) for ch in word)
+    if transition_weights and len(word) > 1:
+        bigram_weight = sum(
+            transition_weights.get(word[i] + word[i + 1], 1.0)
+            for i in range(len(word) - 1)
+        )
+        weight = bigram_weight if not char_weights else weight * bigram_weight
+    if focus_char and focus_char in word:
+        weight *= FOCUS_WORD_BOOST
+    return weight
+
+
 def typical_chars_per_word() -> float:
     """Mean chars per generated word (spaces excluded).
 
@@ -48,7 +72,12 @@ class AdaptiveGenerator:
         wordlist_weights: list[float] | None = None,
     ) -> str:
         if words:
-            word = self._sample_from_wordlist(words, char_weights, wordlist_weights)
+            word = self._sample_from_wordlist(
+                words,
+                char_weights,
+                transition_weights,
+                wordlist_weights,
+            )
             if (
                 MIN_WORD_LEN <= len(word) <= MAX_WORD_LEN
                 and set(word) <= alphabet
@@ -74,10 +103,14 @@ class AdaptiveGenerator:
         words: list[str] | None = None,
     ) -> str:
         wordlist_weights: list[float] | None = None
-        if words and char_weights:
+        if words and (char_weights or transition_weights):
             wordlist_weights = [
-                sum(char_weights.get(ch, 1.0) for ch in w)
-                * (FOCUS_WORD_BOOST if focus_char in w else 1.0)
+                wordlist_weight_for_word(
+                    w,
+                    char_weights=char_weights,
+                    transition_weights=transition_weights,
+                    focus_char=focus_char,
+                )
                 for w in words
             ]
         lesson_words = [
@@ -108,13 +141,21 @@ class AdaptiveGenerator:
         self,
         words: list[str],
         char_weights: Mapping[str, float] | None,
+        transition_weights: Mapping[str, float] | None,
         wordlist_weights: list[float] | None = None,
     ) -> str:
         if wordlist_weights is not None:
             return self.rng.choices(words, weights=wordlist_weights, k=1)[0]
-        if not char_weights:
+        if not char_weights and not transition_weights:
             return self.rng.choice(words)
-        weights = [sum(char_weights.get(ch, 1.0) for ch in w) for w in words]
+        weights = [
+            wordlist_weight_for_word(
+                w,
+                char_weights=char_weights,
+                transition_weights=transition_weights,
+            )
+            for w in words
+        ]
         return self.rng.choices(words, weights=weights, k=1)[0]
 
     def _sample_word(

@@ -118,6 +118,52 @@ def test_lesson_uses_transition_focus_when_transitions_weak():
     assert pair in lesson.text.replace(" ", "")
 
 
+def test_lesson_wordlist_biases_weak_transition():
+    layout = BUNDLED_LAYOUTS["qwerty"]
+    order = keyboard_order(layout)
+    a, s = order[0], order[1]
+    now = 1_700_000_000.0
+    five_days = 5 * 86_400.0
+    fast = 100_000_000.0
+    transitions = {
+        transition_key(a, a): TransitionStats(a, a, 10, fast, 0, now, attempt_count=10),
+        transition_key(a, s): TransitionStats(
+            a, s, 10, 400_000_000.0, 0, now - five_days, attempt_count=10,
+        ),
+        transition_key(s, a): TransitionStats(s, a, 10, fast, 0, now, attempt_count=10),
+        transition_key(s, s): TransitionStats(s, s, 10, fast, 0, now, attempt_count=10),
+    }
+    url = "https://example.com/words.txt"
+    cached = ["asa", "ass", "sas", "ssa"]
+    cache = FakeAggregatesCache(
+        by_layout={"qwerty": LayoutAggregates(keys={}, transitions=transitions)},
+    )
+    builder = BuildLesson(
+        layout_repo=FakeLayoutRepository(dict(BUNDLED_LAYOUTS)),
+        aggregates_cache=cache,
+        settings_repo=FakeSettingsRepository(Settings(alphabet_size=2, wordlist_url=url)),
+        language_provider=FakeLanguageProvider(),
+        wordlist_store=FakeWordListStore(by_url={url: cached}),
+        rng=Random(0),
+    )
+    lesson = builder("qwerty")
+    pair = chr(a) + chr(s)
+    assert lesson.focus_reason == f"{pair} weak transition"
+    assert set(lesson.text.split()) <= set(cached)
+
+    ssa_count = 0
+    as_word_count = 0
+    for seed in range(50):
+        builder.rng = Random(seed)
+        for word in builder("qwerty").text.split():
+            if word == "ssa":
+                ssa_count += 1
+            elif pair in word:
+                as_word_count += 1
+    assert as_word_count + ssa_count == 50 * 12
+    assert as_word_count > ssa_count * 2
+
+
 def test_lesson_uses_cached_wordlist_when_configured():
     url = "https://example.com/words.txt"
     cached = ["the", "and", "for", "are", "but", "not", "you", "all"]
