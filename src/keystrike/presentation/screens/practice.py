@@ -11,18 +11,23 @@ from keystrike.application.prepare_practice import PrepareNextSession, SessionPr
 from keystrike.application.session_use_cases import (
     AbortSession,
     FinishSession,
+    GetSessionBaseline,
     RecordKeystroke,
     StartSession,
-    confidence_window_session_baseline,
     format_session_stats_line,
 )
+from keystrike.domain.confidence import FocusReason
 from keystrike.domain.models import Layout, SessionResult
 from keystrike.domain.null_adapters import NULL_DAILY_LEARN_BUDGET, NULL_STATS_REBUILDER
 from keystrike.domain.protocols import Clock, DailyLearnBudgetProvider, StatsRebuilder
 from keystrike.domain.session import leading_key_char, skip_leading_whitespace
 from keystrike.presentation.bindings import BACK_BINDINGS
 from keystrike.presentation.widgets.hud import HUD
-from keystrike.presentation.widgets.kb_heatmap import KbHeatmap, format_focus_note
+from keystrike.presentation.widgets.kb_heatmap import (
+    KbHeatmap,
+    focus_transition_pair,
+    format_focus_note,
+)
 from keystrike.presentation.widgets.typing_area import TypingArea
 
 
@@ -56,6 +61,7 @@ class PracticeScreen(Screen[None]):
         clock: Clock,
         initial: SessionPrep,
         prepare_next: PrepareNextSession,
+        get_session_baseline: GetSessionBaseline,
         rebuild_aggregates: StatsRebuilder = NULL_STATS_REBUILDER,
         get_daily_learn_budget: DailyLearnBudgetProvider = NULL_DAILY_LEARN_BUDGET,
     ) -> None:
@@ -65,12 +71,13 @@ class PracticeScreen(Screen[None]):
         self._finish = finish
         self._clock = clock
         self._prepare_next = prepare_next
+        self._get_session_baseline = get_session_baseline
         self._rebuild_aggregates = rebuild_aggregates
         self._get_daily_learn_budget = get_daily_learn_budget
         self._layout_obj: Layout | None = initial.layout_obj
         self._lesson_heatmap = initial.lesson_heatmap
         self._focus_key = initial.focus_key
-        self._focus_reason = initial.focus_reason
+        self._focus_reason: FocusReason | None = initial.focus_reason
         self._focus_confidence = initial.focus_confidence
         self._focus_speed = initial.focus_speed
         self._focus_accuracy = initial.focus_accuracy
@@ -97,8 +104,9 @@ class PracticeScreen(Screen[None]):
                 self._kb_heatmap = KbHeatmap(
                     self._layout_obj,
                     self._lesson_heatmap,
-                    self._focus_key,
+                    focus=self._focus_key,
                     urgency=None,
+                    focus_transition=focus_transition_pair(self._focus_reason),
                 )
                 yield self._kb_heatmap
             yield Static(
@@ -109,13 +117,16 @@ class PracticeScreen(Screen[None]):
         yield Footer()
 
     def _focus_note_text(self) -> str:
-        return format_focus_note(
-            self._focus_key,
-            self._focus_reason,
-            confidence=self._focus_confidence,
-            speed=self._focus_speed,
-            accuracy=self._focus_accuracy,
-        ) or ""
+        return (
+            format_focus_note(
+                self._focus_key,
+                self._focus_reason,
+                confidence=self._focus_confidence,
+                speed=self._focus_speed,
+                accuracy=self._focus_accuracy,
+            )
+            or ""
+        )
 
     def on_mount(self) -> None:
         self._refresh_focus_note()
@@ -146,24 +157,17 @@ class PracticeScreen(Screen[None]):
         if self._session.finished:
             self._finish_session()
 
-    def _finish_session(self, *, start_next: bool = True) -> None:
+    def _finish_session(self) -> None:
         result = self._finish(self._session)
         self._rebuild_aggregates(result.layout)
         self._show_last_session_stats(result)
-        if not start_next:
-            return
         prep = self._prepare_next()
         if prep is None:
             return
         self._begin_session(prep)
 
     def _show_last_session_stats(self, result: SessionResult) -> None:
-        baseline = None
-        if self._finish.settings_repo is not None:
-            window = self._finish.settings_repo.load().confidence_session_window
-            baseline = confidence_window_session_baseline(
-                self._finish.repo, result, window=window,
-            )
+        baseline = self._get_session_baseline(result)
         self.query_one("#last-session-stats", Static).update(
             format_session_stats_line(result, baseline=baseline),
         )
@@ -193,13 +197,14 @@ class PracticeScreen(Screen[None]):
             self._session,
             focus_reason=prep.focus_reason,
         )
-        if self._kb_heatmap is not None and prep.layout_obj and prep.lesson_heatmap is not None:
-            self._kb_heatmap.refresh_heatmap(
-                prep.layout_obj,
-                prep.lesson_heatmap,
-                prep.focus_key,
-                urgency=None,
-            )
+        KbHeatmap.update_or_none(
+            self._kb_heatmap,
+            prep.layout_obj,
+            prep.lesson_heatmap,
+            focus=prep.focus_key,
+            urgency=None,
+            focus_transition=focus_transition_pair(prep.focus_reason),
+        )
         self._refresh_focus_note()
 
     def action_back(self) -> None:

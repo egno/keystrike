@@ -10,7 +10,9 @@ from keystrike.infrastructure.paths import Paths
 @pytest.fixture
 def paths(tmp_path: Path) -> Paths:
     return Paths(
-        config_dir=tmp_path / "config", data_dir=tmp_path / "data", log_dir=tmp_path / "log",
+        config_dir=tmp_path / "config",
+        data_dir=tmp_path / "data",
+        log_dir=tmp_path / "log",
     )
 
 

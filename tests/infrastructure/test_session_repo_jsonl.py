@@ -37,10 +37,16 @@ def test_round_trip_single_session(paths):
     repo = JsonlSessionRepository(paths)
     header = _header()
     repo.save_header(header)
-    repo.append_keystroke(header.session_id, header.started_at,
-                           Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True))
-    repo.append_keystroke(header.session_id, header.started_at,
-                           Keystroke(codepoint=ord("b"), typed=ord("b"), t_ns=100, correct=True))
+    repo.append_keystroke(
+        header.session_id,
+        header.started_at,
+        Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
+    )
+    repo.append_keystroke(
+        header.session_id,
+        header.started_at,
+        Keystroke(codepoint=ord("b"), typed=ord("b"), t_ns=100, correct=True),
+    )
 
     # Fresh repo instance — read must survive across process restart.
     repo2 = JsonlSessionRepository(paths)

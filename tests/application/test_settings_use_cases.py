@@ -15,7 +15,9 @@ from tests.fakes import FakeLayoutRepository, FakeSettingsRepository
 @pytest.fixture
 def paths(tmp_path):
     return Paths(
-        config_dir=tmp_path / "config", data_dir=tmp_path / "data", log_dir=tmp_path / "log",
+        config_dir=tmp_path / "config",
+        data_dir=tmp_path / "data",
+        log_dir=tmp_path / "log",
     )
 
 

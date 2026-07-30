@@ -1,4 +1,4 @@
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from typing import Protocol
 
 from .daily_learn import DailyLearnBudget
@@ -50,9 +50,14 @@ class StatsRebuilder(Protocol):
     """Shape of `application.stats_use_cases.RebuildAggregates` — lets callers
     (e.g. PracticeScreen) depend on the behavior without importing application code."""
 
-    def __call__(self, layout: str) -> dict[int, KeyStats]: ...
+    def __call__(self, layout: str) -> None: ...
 
-    def ensure(self, layout: str) -> dict[int, KeyStats]: ...
+
+class AggregatesEnsurer(Protocol):
+    """Shape of `application.stats_use_cases.EnsureAggregates` — lets callers
+    depend on the behavior without importing application code."""
+
+    def __call__(self, layout: str) -> Mapping[int, KeyStats]: ...
 
 
 class LanguageProvider(Protocol):
@@ -85,7 +90,3 @@ class SyncStore(Protocol):
     def pull(self, rebuild: StatsRebuilder) -> int: ...
     def push(self) -> bool: ...
     def status(self) -> SyncStatusReport: ...
-
-
-class SyncGateway(SyncStore, Protocol):
-    """Alias kept for application-layer typing."""

@@ -13,17 +13,8 @@ from keystrike.application.session_use_cases import (
     compute_wpm,
     confidence_window_session_baseline,
     count_words_completed,
-    focus_confidence_sparkline,
-    format_focus_confidence_trend_line,
-    format_key_confidence_trend_line,
-    format_key_speed_trend_line,
-    format_metric_trend_block,
     format_session_stats_line,
-    format_wpm_trend_line,
-    key_confidence_sparkline,
-    key_confidence_values,
     previous_session_header,
-    wpm_sparkline,
 )
 from keystrike.domain.aggregate import combine_sessions
 from keystrike.domain.confidence import (
@@ -37,7 +28,6 @@ from keystrike.domain.learn_order import keyboard_order
 from keystrike.domain.models import SessionResult, Settings
 from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS
 from tests.fakes import (
-    FakeAggregatesCache,
     FakeClock,
     FakeIdGenerator,
     FakeLayoutRepository,
@@ -70,8 +60,13 @@ def _session_stats_common(*, duration_ns: int = 60_000_000_000) -> _SessionStats
     )
 
 
-def _drive(text: str, keys: str, clock: FakeClock, id_gen: FakeIdGenerator,
-           repo: FakeSessionRepository | None = None):
+def _drive(
+    text: str,
+    keys: str,
+    clock: FakeClock,
+    id_gen: FakeIdGenerator,
+    repo: FakeSessionRepository | None = None,
+):
     start = StartSession(clock=clock, id_gen=id_gen)
     repo = repo if repo is not None else FakeSessionRepository()
     record = RecordKeystroke(clock=clock)
@@ -367,7 +362,8 @@ def test_format_session_stats_line_uses_window_not_previous_only():
     assert baseline.wpm > compute_wpm(slow)
 
     vs_previous = format_session_stats_line(
-        medium, baseline=SessionStatsBaseline(
+        medium,
+        baseline=SessionStatsBaseline(
             wpm=compute_wpm(fast),
             accuracy_pct=compute_accuracy(fast) * 100,
         ),
@@ -422,7 +418,6 @@ def test_finish_session_persists_unlocked_keys(clock, id_gen):
     finish = FinishSession(
         clock=clock,
         repo=repo,
-        aggregates_cache=FakeAggregatesCache(),
         settings_repo=settings_repo,
         layout_repo=layout_repo,
     )
@@ -465,7 +460,10 @@ def test_finish_session_bumps_alphabet_size_when_unlocked_set_grows(clock, id_ge
 
     warmup = "".join(chr(cp) for _ in range(10) for cp in order[:5])
     warmup_session = start(
-        warmup, layout="qwerty", mode=Mode.ADAPTIVE, focus_key=order[0],
+        warmup,
+        layout="qwerty",
+        mode=Mode.ADAPTIVE,
+        focus_key=order[0],
     )
     for ch in warmup:
         clock.advance(50_000_000)
@@ -489,7 +487,6 @@ def test_finish_session_persists_key_confidence(clock, id_gen):
     finish = FinishSession(
         clock=clock,
         repo=repo,
-        aggregates_cache=FakeAggregatesCache(),
         settings_repo=settings_repo,
         layout_repo=layout_repo,
     )
@@ -545,7 +542,7 @@ def test_finish_session_key_confidence_uses_confidence_session_window(clock, id_
 
     settings = settings_repo.load()
     target = target_ms_per_char(settings.target_speed_cpm)
-    prior = sorted(repo.headers, key=lambda h: h.started_at)[-(CONFIDENCE_SESSION_WINDOW - 1):]
+    prior = sorted(repo.headers, key=lambda h: h.started_at)[-(CONFIDENCE_SESSION_WINDOW - 1) :]
     stats = combine_sessions(
         [(header, repo.keystrokes[header.session_id]) for header in prior]
         + [(result, session.keystrokes)],
@@ -561,7 +558,6 @@ def test_finish_session_persists_target_speed_cpm(clock, id_gen):
     finish = FinishSession(
         clock=clock,
         repo=repo,
-        aggregates_cache=FakeAggregatesCache(),
         settings_repo=settings_repo,
         layout_repo=layout_repo,
     )
@@ -574,355 +570,3 @@ def test_finish_session_persists_target_speed_cpm(clock, id_gen):
 
     assert result.target_speed_cpm == 400
     assert repo.headers[0].target_speed_cpm == 400
-
-
-def test_focus_confidence_sparkline_uses_focus_key_per_session():
-    headers = [
-        SessionResult(
-            schema_version=3,
-            session_id="s1",
-            started_at=1.0,
-            duration_ns=60_000_000_000,
-            layout="qwerty",
-            mode=Mode.ADAPTIVE,
-            lesson_alphabet=(),
-            focus_key=ord("a"),
-            total_keystrokes=50,
-            correct_keystrokes=50,
-            key_confidence={ord("a"): 0.5, ord("b"): 1.0},
-        ),
-        SessionResult(
-            schema_version=3,
-            session_id="s2",
-            started_at=2.0,
-            duration_ns=30_000_000_000,
-            layout="qwerty",
-            mode=Mode.ADAPTIVE,
-            lesson_alphabet=(),
-            focus_key=ord("b"),
-            total_keystrokes=50,
-            correct_keystrokes=50,
-            key_confidence={ord("a"): 0.5, ord("b"): 1.0},
-        ),
-    ]
-    spark = focus_confidence_sparkline(headers)
-    assert len(spark) == 2
-    assert spark[0] <= spark[1]  # 0.5 then 1.0
-
-
-def test_format_focus_confidence_trend_line_tracks_labeled_key():
-    headers = [
-        SessionResult(
-            schema_version=3,
-            session_id="s1",
-            started_at=1.0,
-            duration_ns=60_000_000_000,
-            layout="qwerty",
-            mode=Mode.ADAPTIVE,
-            lesson_alphabet=(),
-            focus_key=ord("a"),
-            total_keystrokes=50,
-            correct_keystrokes=50,
-            key_confidence={ord("a"): 0.5, ord("b"): 1.0},
-        ),
-        SessionResult(
-            schema_version=3,
-            session_id="s2",
-            started_at=2.0,
-            duration_ns=30_000_000_000,
-            layout="qwerty",
-            mode=Mode.ADAPTIVE,
-            lesson_alphabet=(),
-            focus_key=ord("b"),
-            total_keystrokes=50,
-            correct_keystrokes=50,
-            key_confidence={ord("a"): 0.5, ord("b"): 1.0},
-        ),
-    ]
-    focus_line = format_focus_confidence_trend_line(headers)
-    key_line = format_metric_trend_block(
-        title="'b'",
-        headers=headers,
-        codepoint=ord("b"),
-        confidence_values=key_confidence_values(headers, ord("b")),
-        speed_values=[],
-        accuracy_values=[],
-        limit=20,
-    )
-    assert focus_line == key_line.replace("[bold]'b'[/]", "[bold]Focus 'b'[/]", 1)
-
-
-def test_format_focus_confidence_trend_line_includes_label_and_peak():
-    headers = [
-        SessionResult(
-            schema_version=3,
-            session_id="s1",
-            started_at=1.0,
-            duration_ns=60_000_000_000,
-            layout="qwerty",
-            mode=Mode.ADAPTIVE,
-            lesson_alphabet=(),
-            focus_key=ord("e"),
-            total_keystrokes=50,
-            correct_keystrokes=50,
-            key_confidence={ord("e"): 0.75},
-        ),
-    ]
-    line = format_focus_confidence_trend_line(headers)
-    assert line.startswith("[bold]Focus 'e'[/] (1 sessions)")
-    assert "[bold cyan]confidence[/]" in line
-    assert "latest     0.75" in line
-    assert "peak     0.75" in line
-
-
-def test_focus_confidence_missing_key_defaults_zero():
-    headers = [
-        SessionResult(
-            schema_version=3,
-            session_id="s1",
-            started_at=1.0,
-            duration_ns=60_000_000_000,
-            layout="qwerty",
-            mode=Mode.ADAPTIVE,
-            lesson_alphabet=(),
-            focus_key=ord("z"),
-            total_keystrokes=50,
-            correct_keystrokes=50,
-            key_confidence={},
-        ),
-    ]
-    spark = focus_confidence_sparkline(headers)
-    assert len(spark) == 1
-    assert spark[0] == "▁"
-
-
-def test_key_confidence_values_tracks_codepoint_across_sessions():
-    headers = [
-        SessionResult(
-            schema_version=3,
-            session_id="s1",
-            started_at=1.0,
-            duration_ns=60_000_000_000,
-            layout="qwerty",
-            mode=Mode.ADAPTIVE,
-            lesson_alphabet=(),
-            focus_key=ord("a"),
-            total_keystrokes=50,
-            correct_keystrokes=50,
-            key_confidence={ord("e"): 0.4, ord("a"): 0.5},
-        ),
-        SessionResult(
-            schema_version=3,
-            session_id="s2",
-            started_at=2.0,
-            duration_ns=30_000_000_000,
-            layout="qwerty",
-            mode=Mode.ADAPTIVE,
-            lesson_alphabet=(),
-            focus_key=ord("e"),
-            total_keystrokes=50,
-            correct_keystrokes=50,
-            key_confidence={ord("e"): 0.9, ord("a"): 0.5},
-        ),
-    ]
-    values = key_confidence_values(headers, ord("e"))
-    assert values == [0.4, 0.9]
-    spark = key_confidence_sparkline(headers, ord("e"))
-    assert len(spark) == 2
-    assert spark[0] <= spark[1]
-
-
-def test_key_confidence_values_normalize_to_current_goal():
-    headers = [
-        SessionResult(
-            schema_version=3,
-            session_id="s1",
-            started_at=1.0,
-            duration_ns=60_000_000_000,
-            layout="qwerty",
-            mode=Mode.ADAPTIVE,
-            lesson_alphabet=(),
-            focus_key=ord("e"),
-            total_keystrokes=50,
-            correct_keystrokes=50,
-            key_confidence={ord("e"): 1.0},
-            target_speed_cpm=300,
-        ),
-    ]
-    values = key_confidence_values(headers, ord("e"), current_target_speed_cpm=600)
-    assert values == [0.5]
-
-
-def test_key_confidence_values_legacy_session_unnormalized():
-    headers = [
-        SessionResult(
-            schema_version=3,
-            session_id="s1",
-            started_at=1.0,
-            duration_ns=60_000_000_000,
-            layout="qwerty",
-            mode=Mode.ADAPTIVE,
-            lesson_alphabet=(),
-            focus_key=ord("e"),
-            total_keystrokes=50,
-            correct_keystrokes=50,
-            key_confidence={ord("e"): 0.82},
-            target_speed_cpm=0,
-        ),
-    ]
-    values = key_confidence_values(headers, ord("e"), current_target_speed_cpm=600)
-    assert values == [0.82]
-
-
-def test_format_focus_confidence_trend_line_normalizes_to_current_goal():
-    headers = [
-        SessionResult(
-            schema_version=3,
-            session_id="s1",
-            started_at=1.0,
-            duration_ns=60_000_000_000,
-            layout="qwerty",
-            mode=Mode.ADAPTIVE,
-            lesson_alphabet=(),
-            focus_key=ord("e"),
-            total_keystrokes=50,
-            correct_keystrokes=50,
-            key_confidence={ord("e"): 1.0},
-            target_speed_cpm=300,
-        ),
-    ]
-    line = format_focus_confidence_trend_line(headers, current_target_speed_cpm=600)
-    assert "latest     0.50" in line
-    assert "peak     0.50" in line
-
-
-def test_format_key_confidence_trend_line_includes_cumulative():
-    headers = [
-        SessionResult(
-            schema_version=3,
-            session_id="s1",
-            started_at=1.0,
-            duration_ns=60_000_000_000,
-            layout="qwerty",
-            mode=Mode.ADAPTIVE,
-            lesson_alphabet=(),
-            focus_key=ord("e"),
-            total_keystrokes=50,
-            correct_keystrokes=50,
-            key_confidence={ord("e"): 0.75},
-        ),
-    ]
-    line = format_key_confidence_trend_line(headers, ord("e"), cumulative=1.1)
-    assert "'e' confidence" in line
-    assert "[cyan]" in line
-    assert "latest 0.75" in line
-    assert "cumulative 1.10" in line
-
-
-def test_format_metric_trend_block_key_detail_shows_key_once_with_colors():
-    headers = [
-        SessionResult(
-            schema_version=3,
-            session_id="s1",
-            started_at=1.0,
-            duration_ns=60_000_000_000,
-            layout="qwerty",
-            mode=Mode.ADAPTIVE,
-            lesson_alphabet=(),
-            focus_key=ord("e"),
-            total_keystrokes=50,
-            correct_keystrokes=50,
-            key_confidence={ord("e"): 0.75},
-        ),
-    ]
-    detail = format_metric_trend_block(
-        title="'e'",
-        headers=headers,
-        codepoint=ord("e"),
-        speed_values=[120.0],
-        accuracy_values=[0.95],
-    )
-    assert detail.startswith("[bold]'e'[/] (1 sessions)")
-    assert detail.count("sessions") == 1
-    assert "'e' confidence" not in detail
-    assert "[bold cyan]confidence[/]" in detail
-    assert "[bold green]speed     [/]" in detail
-    assert "[bold yellow]accuracy  [/]" in detail
-    assert detail.count("'e'") == 1
-    assert "latest   120.00" in detail
-    assert "latest    95.0%" in detail
-
-
-def test_format_metric_trend_block_aggregate_includes_title():
-    detail = format_metric_trend_block(
-        title="Layout",
-        confidence_values=[0.75],
-        speed_values=[120.0],
-        accuracy_values=[0.95],
-    )
-    assert detail.startswith("[bold]Layout[/] (1 sessions)")
-    assert "[bold cyan]confidence[/]" in detail
-    assert "[bold green]speed     [/]" in detail
-    assert "[bold yellow]accuracy  [/]" in detail
-
-
-def test_format_key_speed_trend_line_uses_green():
-    line = format_key_speed_trend_line([100.0, 120.0])
-    assert "[bold green]speed[/]" in line
-    assert "[green]" in line
-
-
-def test_wpm_sparkline_scales_oldest_to_newest():
-    headers = [
-        SessionResult(
-            schema_version=2,
-            session_id="s1",
-            started_at=1.0,
-            duration_ns=60_000_000_000,
-            layout="qwerty",
-            mode=Mode.ADAPTIVE,
-            lesson_alphabet=(),
-            focus_key=None,
-            total_keystrokes=50,
-            correct_keystrokes=50,
-            words_completed=10,
-        ),
-        SessionResult(
-            schema_version=2,
-            session_id="s2",
-            started_at=2.0,
-            duration_ns=30_000_000_000,
-            layout="qwerty",
-            mode=Mode.ADAPTIVE,
-            lesson_alphabet=(),
-            focus_key=None,
-            total_keystrokes=50,
-            correct_keystrokes=50,
-            words_completed=10,
-        ),
-    ]
-    spark = wpm_sparkline(headers)
-    assert len(spark) == 2
-    assert spark[0] <= spark[1]  # 50 wpm then 100 wpm
-
-
-def test_format_wpm_trend_line_includes_latest_and_peak():
-    headers = [
-        SessionResult(
-            schema_version=2,
-            session_id="s1",
-            started_at=1.0,
-            duration_ns=60_000_000_000,
-            layout="qwerty",
-            mode=Mode.ADAPTIVE,
-            lesson_alphabet=(),
-            focus_key=None,
-            total_keystrokes=50,
-            correct_keystrokes=50,
-            words_completed=10,
-        ),
-    ]
-    line = format_wpm_trend_line(headers)
-    assert "WPM trend" in line
-    assert "latest 10" in line
-    assert "peak 10" in line

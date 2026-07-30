@@ -28,7 +28,8 @@ def _degree_for(sample_count: int) -> int:
 
 
 def estimate_sessions_to_goal(
-    recent_time_ns: Sequence[float], target_time_ns: float,
+    recent_time_ns: Sequence[float],
+    target_time_ns: float,
 ) -> int | None:
     """`recent_time_ns` is per-attempt time, oldest first (most recent 30 kept).
 

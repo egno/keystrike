@@ -6,14 +6,15 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from keystrike.application.build_lesson import BuildLesson
+from keystrike.domain.confidence import FocusReason
 from keystrike.domain.enums import Mode
 from keystrike.domain.models import Layout
-from keystrike.domain.null_adapters import NULL_STATS_REBUILDER
+from keystrike.domain.null_adapters import NULL_AGGREGATES_ENSURER
 from keystrike.domain.protocols import (
+    AggregatesEnsurer,
     DailyLearnBudgetProvider,
     LayoutRepository,
     SettingsRepository,
-    StatsRebuilder,
 )
 
 PrepareNextSession = Callable[[], "SessionPrep | None"]
@@ -25,7 +26,7 @@ class SessionPrep:
     layout: str
     mode: Mode
     focus_key: int | None
-    focus_reason: str | None
+    focus_reason: FocusReason | None
     focus_confidence: float | None
     focus_speed: float | None
     focus_accuracy: float | None
@@ -40,11 +41,11 @@ class PreparePracticeSession:
     layout_repo: LayoutRepository
     build_lesson: BuildLesson
     get_daily_learn_budget: DailyLearnBudgetProvider
-    rebuild_aggregates: StatsRebuilder = NULL_STATS_REBUILDER
+    ensure_aggregates: AggregatesEnsurer = NULL_AGGREGATES_ENSURER
 
     def __call__(self) -> SessionPrep | None:
         settings = self.settings_repo.load()
-        self.rebuild_aggregates.ensure(settings.layout)
+        self.ensure_aggregates(settings.layout)
         lesson = self.build_lesson(settings.layout)
         return SessionPrep(
             target_text=lesson.text,

@@ -1,4 +1,5 @@
 from keystrike.application.stats_use_cases import (
+    EnsureAggregates,
     GetAggregateMetricTrends,
     GetHeatmap,
     GetHistory,
@@ -14,6 +15,7 @@ from keystrike.domain.confidence import (
 )
 from keystrike.domain.enums import Mode
 from keystrike.domain.models import (
+    Bigram,
     KeyStats,
     Keystroke,
     LayoutAggregates,
@@ -63,13 +65,12 @@ def test_rebuild_aggregates_uses_confidence_session_window():
     ]
 
     rebuild = RebuildAggregates(repo=repo, cache=cache, settings_repo=FakeSettingsRepository())
-    result = rebuild("qwerty")
+    assert rebuild("qwerty") is None
 
-    assert set(result) == {ord("a")}
-    assert result[ord("a")].samples == 2
     cached = cache.get("qwerty")
     assert cached is not None
-    assert cached.keys == result
+    assert set(cached.keys) == {ord("a")}
+    assert cached.keys[ord("a")].samples == 2
     assert cache.get("dvorak") is None
 
 
@@ -90,7 +91,7 @@ def test_rebuild_aggregates_populates_transitions():
 
     cached = cache.get("qwerty")
     assert cached is not None
-    ab = cached.transitions.get("ab")
+    ab = cached.transitions.get(Bigram(ord("a"), ord("b")))
     assert ab is not None
     assert ab.samples == 1
     assert ab.mean_time_ns == 100_000_000.0
@@ -116,10 +117,10 @@ def test_rebuild_aggregates_excludes_same_key_transitions():
 
     cached = cache.get("qwerty")
     assert cached is not None
-    assert "aa" not in cached.transitions
-    assert "ee" not in cached.transitions
-    assert cached.transitions.get("ae") is not None
-    assert cached.transitions.get("eb") is not None
+    assert Bigram(ord("a"), ord("a")) not in cached.transitions
+    assert Bigram(ord("e"), ord("e")) not in cached.transitions
+    assert cached.transitions.get(Bigram(ord("a"), ord("e"))) is not None
+    assert cached.transitions.get(Bigram(ord("e"), ord("b"))) is not None
 
 
 def test_ensure_skips_when_cache_has_transitions():
@@ -129,7 +130,7 @@ def test_ensure_skips_when_cache_has_transitions():
             "qwerty": LayoutAggregates(
                 keys={ord("a"): KeyStats(ord("a"), 1, 100_000_000.0, 0, 1.0, attempt_count=1)},
                 transitions={
-                    "ab": TransitionStats(
+                    Bigram(ord("a"), ord("b")): TransitionStats(
                         ord("a"),
                         ord("b"),
                         1,
@@ -147,8 +148,9 @@ def test_ensure_skips_when_cache_has_transitions():
         cache=cache,
         settings_repo=FakeSettingsRepository(),
     )
+    ensure = EnsureAggregates(repo=repo, cache=cache, rebuild=rebuild)
 
-    keys = rebuild.ensure("qwerty")
+    keys = ensure("qwerty")
 
     cached = cache.get("qwerty")
     assert cached is not None
@@ -176,12 +178,13 @@ def test_ensure_rebuilds_when_transitions_missing_but_sessions_exist():
         cache=cache,
         settings_repo=FakeSettingsRepository(),
     )
+    ensure = EnsureAggregates(repo=repo, cache=cache, rebuild=rebuild)
 
-    rebuild.ensure("qwerty")
+    ensure("qwerty")
 
     cached = cache.get("qwerty")
     assert cached is not None
-    assert cached.transitions.get("ab") is not None
+    assert cached.transitions.get(Bigram(ord("a"), ord("b"))) is not None
 
 
 def test_rebuild_aggregates_drops_sessions_outside_window():
@@ -205,11 +208,14 @@ def test_rebuild_aggregates_drops_sessions_outside_window():
         Keystroke(codepoint=ord("z"), typed=ord("z"), t_ns=300_000_000, correct=True),
     )
 
-    result = RebuildAggregates(
+    RebuildAggregates(
         repo=repo,
         cache=cache,
         settings_repo=FakeSettingsRepository(),
     )("qwerty")
+    cached = cache.get("qwerty")
+    assert cached is not None
+    result = cached.keys
 
     assert ord("a") in result
     assert ord("z") not in result
@@ -239,7 +245,10 @@ def test_rebuild_aggregates_respects_settings_window():
         Keystroke(codepoint=ord("z"), typed=ord("z"), t_ns=100_000_000, correct=True),
     )
 
-    result = RebuildAggregates(repo=repo, cache=cache, settings_repo=settings_repo)("qwerty")
+    RebuildAggregates(repo=repo, cache=cache, settings_repo=settings_repo)("qwerty")
+    cached = cache.get("qwerty")
+    assert cached is not None
+    result = cached.keys
 
     assert ord("z") not in result
     weights = session_recency_weights(window, decay=SESSION_RECENCY_DECAY)

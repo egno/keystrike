@@ -9,11 +9,13 @@ from keystrike.application.learn_budget_use_cases import GetDailyLearnBudget
 from keystrike.application.prepare_practice import PreparePracticeSession
 from keystrike.application.session_use_cases import (
     FinishSession,
+    GetSessionBaseline,
     RecordKeystroke,
     StartSession,
 )
 from keystrike.application.settings_use_cases import CycleLayout, UpdateSettings
 from keystrike.application.stats_use_cases import (
+    EnsureAggregates,
     GetAggregateMetricTrends,
     GetHeatmap,
     GetHistory,
@@ -74,17 +76,27 @@ def _build_app(
         rng=Random(0),
     )
     get_daily_learn_budget = GetDailyLearnBudget(
-        clock=clock, repo=session_repo, settings_repo=settings_repo, tz=_TZ,
+        clock=clock,
+        repo=session_repo,
+        settings_repo=settings_repo,
+        tz=_TZ,
     )
     rebuild_aggregates = RebuildAggregates(
-        repo=session_repo, cache=cache, settings_repo=settings_repo,
+        repo=session_repo,
+        cache=cache,
+        settings_repo=settings_repo,
+    )
+    ensure_aggregates = EnsureAggregates(
+        repo=session_repo,
+        cache=cache,
+        rebuild=rebuild_aggregates,
     )
     prepare_practice = PreparePracticeSession(
         settings_repo=settings_repo,
         layout_repo=layout_repo,
         build_lesson=build_lesson,
         get_daily_learn_budget=get_daily_learn_budget,
-        rebuild_aggregates=rebuild_aggregates,
+        ensure_aggregates=ensure_aggregates,
     )
 
     app = KeystrikeApp(
@@ -100,6 +112,7 @@ def _build_app(
         settings_repo=settings_repo,
         layout_repo=layout_repo,
         prepare_practice=prepare_practice,
+        get_session_baseline=GetSessionBaseline(repo=session_repo, settings_repo=settings_repo),
         rebuild_aggregates=rebuild_aggregates,
         get_heatmap=GetHeatmap(cache=cache, settings_repo=settings_repo),
         get_history=GetHistory(repo=session_repo),

@@ -10,8 +10,8 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 
-from .confidence import SESSION_RECENCY_DECAY, is_same_key_transition
-from .models import KeyStats, Keystroke, LayoutAggregates, SessionResult, TransitionStats
+from .confidence import SESSION_RECENCY_DECAY, HasConfidenceFields, is_same_key_transition
+from .models import Bigram, KeyStats, Keystroke, LayoutAggregates, SessionResult, TransitionStats
 
 
 @dataclass(slots=True)
@@ -66,8 +66,7 @@ def aggregate_session(
         cp: KeyStats(
             codepoint=cp,
             samples=len(p.time_samples),
-            mean_time_ns=(sum(p.time_samples) / len(p.time_samples))
-            if p.time_samples else 0.0,
+            mean_time_ns=(sum(p.time_samples) / len(p.time_samples)) if p.time_samples else 0.0,
             error_count=p.error_count,
             last_seen=session_end_wall,
             attempt_count=p.attempt_count,
@@ -88,6 +87,39 @@ def session_recency_weights(
     return [decay ** (session_count - 1 - i) for i in range(session_count)]
 
 
+def _rounded_weighted_count(weighted: float) -> int:
+    """Round recency-weighted counts without zeroing fractional evidence."""
+    if weighted <= 0:
+        return 0
+    rounded = round(weighted)
+    return max(1, rounded) if rounded == 0 else rounded
+
+
+def _weighted_merge_fields(
+    entries: Sequence[tuple[HasConfidenceFields, float]],
+) -> tuple[int, float, int, int, float]:
+    """Shared recency-weighted merge math for key stats and transition stats:
+    returns (samples, mean_time_ns, error_count, attempt_count, last_seen)."""
+    weighted_samples = sum(weight * stats.samples for stats, weight in entries)
+    weighted_errors = sum(weight * stats.error_count for stats, weight in entries)
+    weighted_attempts = sum(weight * stats.attempt_count for stats, weight in entries)
+    if weighted_samples > 0:
+        mean = (
+            sum(stats.mean_time_ns * weight * stats.samples for stats, weight in entries)
+            / weighted_samples
+        )
+    else:
+        mean = 0.0
+    last_seen = max(stats.last_seen for stats, _ in entries)
+    return (
+        _rounded_weighted_count(weighted_samples),
+        mean,
+        round(weighted_errors),
+        _rounded_weighted_count(weighted_attempts),
+        last_seen,
+    )
+
+
 def _combine_key_maps_weighted(
     maps: Sequence[dict[int, KeyStats]],
     weights: Sequence[float],
@@ -100,57 +132,38 @@ def _combine_key_maps_weighted(
 
     out: dict[int, KeyStats] = {}
     for cp, entries in by_cp.items():
-        weighted_samples = sum(weight * stats.samples for stats, weight in entries)
-        weighted_errors = sum(weight * stats.error_count for stats, weight in entries)
-        weighted_attempts = sum(weight * stats.attempt_count for stats, weight in entries)
-        if weighted_samples > 0:
-            mean = sum(
-                stats.mean_time_ns * weight * stats.samples
-                for stats, weight in entries
-            ) / weighted_samples
-        else:
-            mean = 0.0
+        samples, mean, errors, attempts, last_seen = _weighted_merge_fields(entries)
         out[cp] = KeyStats(
             codepoint=cp,
-            samples=round(weighted_samples),
+            samples=samples,
             mean_time_ns=mean,
-            error_count=round(weighted_errors),
-            last_seen=max(stats.last_seen for stats, _ in entries),
-            attempt_count=round(weighted_attempts),
+            error_count=errors,
+            last_seen=last_seen,
+            attempt_count=attempts,
         )
     return out
 
 
 def _combine_transition_maps_weighted(
-    maps: Sequence[dict[str, TransitionStats]],
+    maps: Sequence[dict[Bigram, TransitionStats]],
     weights: Sequence[float],
-) -> dict[str, TransitionStats]:
-    by_key: dict[str, list[tuple[TransitionStats, float]]] = {}
+) -> dict[Bigram, TransitionStats]:
+    by_key: dict[Bigram, list[tuple[TransitionStats, float]]] = {}
     for m, weight in zip(maps, weights, strict=True):
         for key, stats in m.items():
             by_key.setdefault(key, []).append((stats, weight))
 
-    out: dict[str, TransitionStats] = {}
+    out: dict[Bigram, TransitionStats] = {}
     for key, entries in by_key.items():
-        weighted_samples = sum(weight * stats.samples for stats, weight in entries)
-        weighted_errors = sum(weight * stats.error_count for stats, weight in entries)
-        weighted_attempts = sum(weight * stats.attempt_count for stats, weight in entries)
-        if weighted_samples > 0:
-            mean = sum(
-                stats.mean_time_ns * weight * stats.samples
-                for stats, weight in entries
-            ) / weighted_samples
-        else:
-            mean = 0.0
-        prev_cp, next_cp = entries[0][0].prev_cp, entries[0][0].next_cp
+        samples, mean, errors, attempts, last_seen = _weighted_merge_fields(entries)
         out[key] = TransitionStats(
-            prev_cp=prev_cp,
-            next_cp=next_cp,
-            samples=round(weighted_samples),
+            prev_cp=key.prev_cp,
+            next_cp=key.next_cp,
+            samples=samples,
             mean_time_ns=mean,
-            error_count=round(weighted_errors),
-            last_seen=max(stats.last_seen for stats, _ in entries),
-            attempt_count=round(weighted_attempts),
+            error_count=errors,
+            last_seen=last_seen,
+            attempt_count=attempts,
         )
     return without_same_key_transitions(out)
 
@@ -184,10 +197,7 @@ def merge_key_stats(a: KeyStats, b: KeyStats) -> KeyStats:
     if a.codepoint != b.codepoint:
         raise ValueError(f"codepoint mismatch: {a.codepoint} vs {b.codepoint}")
     total = a.samples + b.samples
-    mean = (
-        (a.mean_time_ns * a.samples + b.mean_time_ns * b.samples) / total
-        if total > 0 else 0.0
-    )
+    mean = (a.mean_time_ns * a.samples + b.mean_time_ns * b.samples) / total if total > 0 else 0.0
     return KeyStats(
         codepoint=a.codepoint,
         samples=total,
@@ -207,12 +217,15 @@ def combine(*maps: dict[int, KeyStats]) -> dict[int, KeyStats]:
 
 
 def transition_key(prev_cp: int, next_cp: int) -> str:
-    return chr(prev_cp) + chr(next_cp)
+    """Display form of a bigram, e.g. `transition_key(ord("a"), ord("b")) ==
+    "ab"`. Internal transition dicts are keyed by `Bigram` instances, not this
+    string — use this only for display/logging."""
+    return Bigram(prev_cp, next_cp).chars()
 
 
 def without_same_key_transitions(
-    transitions: Mapping[str, TransitionStats],
-) -> dict[str, TransitionStats]:
+    transitions: Mapping[Bigram, TransitionStats],
+) -> dict[Bigram, TransitionStats]:
     """Drop same-key pairs (aa, ee) from stored transition stats."""
     return {
         key: stats
@@ -221,9 +234,9 @@ def without_same_key_transitions(
     }
 
 
-def per_transition_deltas(keystrokes: Iterable[Keystroke]) -> dict[str, list[int]]:
+def per_transition_deltas(keystrokes: Iterable[Keystroke]) -> dict[Bigram, list[int]]:
     """Inter-keystroke deltas per prev→next target pair for correct keystrokes."""
-    deltas: dict[str, list[int]] = {}
+    deltas: dict[Bigram, list[int]] = {}
     last_correct_cp: int | None = None
     last_correct_t_ns: int | None = None
 
@@ -237,7 +250,7 @@ def per_transition_deltas(keystrokes: Iterable[Keystroke]) -> dict[str, list[int
         ):
             delta = k.t_ns - last_correct_t_ns
             if delta > 0:
-                deltas.setdefault(transition_key(last_correct_cp, k.codepoint), []).append(delta)
+                deltas.setdefault(Bigram(last_correct_cp, k.codepoint), []).append(delta)
         last_correct_cp = k.codepoint
         last_correct_t_ns = k.t_ns
 
@@ -247,8 +260,8 @@ def per_transition_deltas(keystrokes: Iterable[Keystroke]) -> dict[str, list[int
 def aggregate_transitions(
     result: SessionResult,
     keystrokes: Iterable[Keystroke],
-) -> dict[str, TransitionStats]:
-    partial: dict[str, _Partial] = {}
+) -> dict[Bigram, TransitionStats]:
+    partial: dict[Bigram, _Partial] = {}
     all_keystrokes = list(keystrokes)
     last_correct_cp: int | None = None
 
@@ -257,15 +270,16 @@ def aggregate_transitions(
             if i > 0:
                 prev_cp = all_keystrokes[i - 1].codepoint
                 if not is_same_key_transition(prev_cp, k.codepoint):
-                    key = transition_key(prev_cp, k.codepoint)
+                    key = Bigram(prev_cp, k.codepoint)
                     entry = partial.setdefault(key, _Partial())
                     entry.attempt_count += 1
                     entry.error_count += 1
             continue
         if last_correct_cp is not None and not is_same_key_transition(
-            last_correct_cp, k.codepoint,
+            last_correct_cp,
+            k.codepoint,
         ):
-            key = transition_key(last_correct_cp, k.codepoint)
+            key = Bigram(last_correct_cp, k.codepoint)
             partial.setdefault(key, _Partial()).attempt_count += 1
         last_correct_cp = k.codepoint
 
@@ -274,19 +288,20 @@ def aggregate_transitions(
 
     session_end_wall = result.started_at + result.duration_ns / 1e9
 
-    return without_same_key_transitions({
-        key: TransitionStats(
-            prev_cp=ord(key[0]),
-            next_cp=ord(key[1]),
-            samples=len(p.time_samples),
-            mean_time_ns=(sum(p.time_samples) / len(p.time_samples))
-            if p.time_samples else 0.0,
-            error_count=p.error_count,
-            last_seen=session_end_wall,
-            attempt_count=p.attempt_count,
-        )
-        for key, p in partial.items()
-    })
+    return without_same_key_transitions(
+        {
+            key: TransitionStats(
+                prev_cp=key.prev_cp,
+                next_cp=key.next_cp,
+                samples=len(p.time_samples),
+                mean_time_ns=(sum(p.time_samples) / len(p.time_samples)) if p.time_samples else 0.0,
+                error_count=p.error_count,
+                last_seen=session_end_wall,
+                attempt_count=p.attempt_count,
+            )
+            for key, p in partial.items()
+        }
+    )
 
 
 def merge_transition_stats(a: TransitionStats, b: TransitionStats) -> TransitionStats:
@@ -295,10 +310,7 @@ def merge_transition_stats(a: TransitionStats, b: TransitionStats) -> Transition
             f"transition mismatch: {a.prev_cp}→{a.next_cp} vs {b.prev_cp}→{b.next_cp}",
         )
     total = a.samples + b.samples
-    mean = (
-        (a.mean_time_ns * a.samples + b.mean_time_ns * b.samples) / total
-        if total > 0 else 0.0
-    )
+    mean = (a.mean_time_ns * a.samples + b.mean_time_ns * b.samples) / total if total > 0 else 0.0
     return TransitionStats(
         prev_cp=a.prev_cp,
         next_cp=a.next_cp,
@@ -310,8 +322,8 @@ def merge_transition_stats(a: TransitionStats, b: TransitionStats) -> Transition
     )
 
 
-def combine_transitions(*maps: dict[str, TransitionStats]) -> dict[str, TransitionStats]:
-    out: dict[str, TransitionStats] = {}
+def combine_transitions(*maps: dict[Bigram, TransitionStats]) -> dict[Bigram, TransitionStats]:
+    out: dict[Bigram, TransitionStats] = {}
     for m in maps:
         for key, t in m.items():
             out[key] = merge_transition_stats(out[key], t) if key in out else t

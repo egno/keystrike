@@ -7,8 +7,11 @@ selection logic (§6 of PLAN.md).
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from typing import Protocol
 
-from .models import KeyStats, TransitionStats
+from .enums import FocusKind
+from .models import Bigram, KeyStats, TransitionStats
 
 _SECONDS_PER_DAY = 86_400.0
 _REVIEW_URGENCY_FULL_DAYS = 3.0
@@ -31,6 +34,17 @@ FOCUS_TRANSITION_BOOST = 4.0
 FOCUS_WEAK_EXTRA_BOOST = 1.5
 
 
+@dataclass(frozen=True, slots=True)
+class FocusReason:
+    """Why the adaptive engine is emphasizing today's lesson focus. Replaces
+    the old ad-hoc strings/formatted-string focus reasons; `pair` is set only
+    for the TRANSITION_* kinds. Presentation code pattern-matches on `kind`
+    to render its own display text instead of parsing suffixes/substrings."""
+
+    kind: FocusKind
+    pair: Bigram | None = None
+
+
 def round_confidence(value: float) -> float:
     """Round confidence for comparisons and display so they stay aligned."""
     return round(value, CONFIDENCE_DECIMALS)
@@ -47,19 +61,79 @@ def key_confidence(target_ms_per_char: float, mean_time_ns: float) -> float:
     return target_ms_per_char / (mean_time_ns / 1e6)
 
 
+class HasConfidenceFields(Protocol):
+    """Structural shape shared by `KeyStats` and `TransitionStats`: everything
+    the confidence/accuracy/attempts math needs, regardless of whether the
+    stat is keyed by a single codepoint or a `Bigram`. Lets the functions
+    below have one body each instead of a key-variant and a transition-variant.
+
+    Declared as read-only properties (not plain attributes) so the frozen
+    `KeyStats`/`TransitionStats` dataclasses structurally satisfy it — a
+    protocol with mutable attribute requirements would reject them."""
+
+    @property
+    def samples(self) -> int: ...
+    @property
+    def error_count(self) -> int: ...
+    @property
+    def attempt_count(self) -> int: ...
+    @property
+    def mean_time_ns(self) -> float: ...
+    @property
+    def last_seen(self) -> float: ...
+
+
+def _accuracy(stats: HasConfidenceFields) -> float:
+    """Fraction of attempts that were correct. 0.0 for a stat with no correct
+    attempts yet, including one that's been missed but never hit."""
+    samples = stats.samples
+    if samples <= 0 and stats.mean_time_ns > 0:
+        samples = 1
+    total = samples + stats.error_count
+    return samples / total if total > 0 else 0.0
+
+
 def accuracy_of(key_stats: KeyStats) -> float:
-    """Fraction of attempts on this key that were correct. 0.0 for a key with
-    no correct attempts yet, including one that's been missed but never hit."""
-    total = key_stats.samples + key_stats.error_count
-    return key_stats.samples / total if total > 0 else 0.0
+    return _accuracy(key_stats)
+
+
+def _effective_attempt_count(
+    samples: int,
+    error_count: int,
+    attempt_count: int,
+    *,
+    mean_time_ns: float = 0.0,
+) -> int:
+    """Use samples+errors when attempt_count was zeroed (stale cache / old merge).
+
+    When mean_time_ns is measured but all counts were zeroed, infer at least one
+    attempt so confidence stays aligned with `_accuracy` (same fallback rule).
+    """
+    if attempt_count > 0:
+        return attempt_count
+    inferred = samples + error_count
+    if inferred > 0:
+        return inferred
+    if mean_time_ns > 0:
+        return 1
+    return 0
+
+
+def _attempts(stats: HasConfidenceFields) -> int:
+    return _effective_attempt_count(
+        stats.samples,
+        stats.error_count,
+        stats.attempt_count,
+        mean_time_ns=stats.mean_time_ns,
+    )
 
 
 def key_attempts(key_stats: KeyStats) -> int:
-    return key_stats.attempt_count
+    return _attempts(key_stats)
 
 
 def transition_attempts(transition_stats: TransitionStats) -> int:
-    return transition_stats.attempt_count
+    return _attempts(transition_stats)
 
 
 def is_same_key_transition(prev_cp: int, next_cp: int) -> bool:
@@ -81,6 +155,23 @@ def confidence_sample_factor(
     return min(1.0, attempts / minimum)
 
 
+def _confidence_from_stats(
+    stats: HasConfidenceFields | None,
+    target: float,
+    *,
+    min_attempts: int,
+) -> float:
+    """Shared body for `confidence_of`/`transition_confidence_of`: min(speed,
+    accuracy) so fast-but-sloppy or slow-but-accurate cannot read as mastered,
+    scaled down until `min_attempts` so a lucky first session can't read as
+    mastered (see docs/research/typing-pedagogy.md). 0.0 when never practiced.
+    """
+    if stats is None:
+        return 0.0
+    raw = min(key_confidence(target, stats.mean_time_ns), _accuracy(stats))
+    return round_confidence(raw * confidence_sample_factor(_attempts(stats), minimum=min_attempts))
+
+
 def confidence_of(
     codepoint: int,
     stats: Mapping[int, KeyStats],
@@ -89,30 +180,14 @@ def confidence_of(
     min_attempts: int = MIN_CONFIDENCE_ATTEMPTS,
 ) -> float:
     """Live confidence for one key from aggregated stats (typically the last
-    `CONFIDENCE_SESSION_WINDOW` sessions, recency-weighted), recomputed from the
-    current target.
-    0.0 for a never-practiced key.
-
-    Confidence is min(speed, accuracy) so fast-but-sloppy or slow-but-accurate
-    cannot read as mastered. Both must clear the bar. Scaled down until
-    `MIN_CONFIDENCE_ATTEMPTS` presses on the key so a lucky first session
-    can't read as mastered (see docs/research/typing-pedagogy.md).
-    """
-    key_stats = stats.get(codepoint)
-    if key_stats is None:
-        return 0.0
-    raw = min(
-        key_confidence(target, key_stats.mean_time_ns),
-        accuracy_of(key_stats),
-    )
-    return round_confidence(
-        raw * confidence_sample_factor(key_attempts(key_stats), minimum=min_attempts),
-    )
+    `CONFIDENCE_SESSION_WINDOW` sessions, recency-weighted), recomputed from
+    the current target. 0.0 for a never-practiced key."""
+    return _confidence_from_stats(stats.get(codepoint), target, min_attempts=min_attempts)
 
 
 def _measured_transitions_meet_threshold(
     unlocked: Sequence[int],
-    transitions: Mapping[str, TransitionStats],
+    transitions: Mapping[Bigram, TransitionStats],
     target: float,
     *,
     threshold: float,
@@ -123,11 +198,15 @@ def _measured_transitions_meet_threshold(
         for nxt in unlocked:
             if is_same_key_transition(prev, nxt):
                 continue
-            if chr(prev) + chr(nxt) not in transitions:
+            if Bigram(prev, nxt) not in transitions:
                 continue
             if (
                 transition_confidence_of(
-                    prev, nxt, transitions, target, min_attempts=min_attempts,
+                    prev,
+                    nxt,
+                    transitions,
+                    target,
+                    min_attempts=min_attempts,
                 )
                 < threshold
             ):
@@ -143,7 +222,7 @@ def compute_unlocked(
     *,
     threshold: float = 1.0,
     min_attempts: int = MIN_CONFIDENCE_ATTEMPTS,
-    transitions: Mapping[str, TransitionStats] | None = None,
+    transitions: Mapping[Bigram, TransitionStats] | None = None,
     min_transition_attempts: int = MIN_TRANSITION_CONFIDENCE_ATTEMPTS,
 ) -> tuple[int, ...]:
     """The first `alphabet_size` keys are always unlocked; each further key in
@@ -157,15 +236,12 @@ def compute_unlocked(
             for k in unlocked
         ):
             break
-        if (
-            transitions is not None
-            and not _measured_transitions_meet_threshold(
-                unlocked,
-                transitions,
-                target,
-                threshold=threshold,
-                min_attempts=min_transition_attempts,
-            )
+        if transitions is not None and not _measured_transitions_meet_threshold(
+            unlocked,
+            transitions,
+            target,
+            threshold=threshold,
+            min_attempts=min_transition_attempts,
         ):
             break
         unlocked.append(codepoint)
@@ -189,37 +265,28 @@ def review_urgency(last_seen: float, now: float) -> float:
 
 
 def transition_accuracy_of(transition_stats: TransitionStats) -> float:
-    total = transition_stats.samples + transition_stats.error_count
-    return transition_stats.samples / total if total > 0 else 0.0
+    return _accuracy(transition_stats)
 
 
 def transition_confidence(target_ms_per_char: float, mean_time_ns: float) -> float:
-    if mean_time_ns <= 0:
-        return 0.0
+    """Speed confidence for a transition — identical math to `key_confidence`,
+    kept as a separate name so call sites read as transition- vs key-specific."""
     return key_confidence(target_ms_per_char, mean_time_ns)
 
 
 def transition_confidence_of(
     prev_cp: int,
     next_cp: int,
-    stats: Mapping[str, TransitionStats],
+    stats: Mapping[Bigram, TransitionStats],
     target: float,
     *,
     min_attempts: int = MIN_TRANSITION_CONFIDENCE_ATTEMPTS,
 ) -> float:
     """Live confidence for one bigram transition. 0.0 when never practiced."""
-    transition_stats = stats.get(chr(prev_cp) + chr(next_cp))
-    if transition_stats is None:
-        return 0.0
-    raw = min(
-        transition_confidence(target, transition_stats.mean_time_ns),
-        transition_accuracy_of(transition_stats),
-    )
-    return round_confidence(
-        raw * confidence_sample_factor(
-            transition_attempts(transition_stats),
-            minimum=min_attempts,
-        ),
+    return _confidence_from_stats(
+        stats.get(Bigram(prev_cp, next_cp)),
+        target,
+        min_attempts=min_attempts,
     )
 
 
@@ -260,6 +327,22 @@ def practice_weight(
     return base * (1.0 + review_bias * urgency)
 
 
+def _focus_score_from_entry(
+    stats: HasConfidenceFields | None,
+    target: float,
+    now: float,
+    *,
+    review_penalty: float,
+    min_attempts: int,
+) -> float:
+    """Shared body for `_focus_score`/`_transition_focus_score`: confidence,
+    discounted further the longer it's been since last practiced, so a stale
+    mastered key/pair can still outrank a merely-weak recent one."""
+    urgency = review_urgency(stats.last_seen if stats else 0.0, now)
+    confidence = _confidence_from_stats(stats, target, min_attempts=min_attempts)
+    return confidence * (1.0 - review_penalty * urgency)
+
+
 def _focus_score(
     codepoint: int,
     stats: Mapping[int, KeyStats],
@@ -269,11 +352,12 @@ def _focus_score(
     review_penalty: float,
     min_attempts: int = MIN_CONFIDENCE_ATTEMPTS,
 ) -> float:
-    key_stats = stats.get(codepoint)
-    urgency = review_urgency(key_stats.last_seen if key_stats else 0.0, now)
-    return (
-        confidence_of(codepoint, stats, target, min_attempts=min_attempts)
-        * (1.0 - review_penalty * urgency)
+    return _focus_score_from_entry(
+        stats.get(codepoint),
+        target,
+        now,
+        review_penalty=review_penalty,
+        min_attempts=min_attempts,
     )
 
 
@@ -287,8 +371,7 @@ def has_weak_unlocked_key(
 ) -> bool:
     """True when any unlocked key is below mastery threshold."""
     return any(
-        confidence_of(cp, stats, target, min_attempts=min_attempts) < threshold
-        for cp in unlocked
+        confidence_of(cp, stats, target, min_attempts=min_attempts) < threshold for cp in unlocked
     )
 
 
@@ -307,7 +390,12 @@ def select_focus(
     return min(
         unlocked,
         key=lambda cp: _focus_score(
-            cp, stats, target, now, review_penalty=review_penalty, min_attempts=min_attempts,
+            cp,
+            stats,
+            target,
+            now,
+            review_penalty=review_penalty,
+            min_attempts=min_attempts,
         ),
     )
 
@@ -315,40 +403,39 @@ def select_focus(
 def _transition_focus_score(
     prev_cp: int,
     next_cp: int,
-    stats: Mapping[str, TransitionStats],
+    stats: Mapping[Bigram, TransitionStats],
     target: float,
     now: float,
     *,
     review_penalty: float,
     min_attempts: int = MIN_TRANSITION_CONFIDENCE_ATTEMPTS,
 ) -> float:
-    key = chr(prev_cp) + chr(next_cp)
-    t_stats = stats.get(key)
-    urgency = review_urgency(t_stats.last_seen if t_stats else 0.0, now)
-    confidence = transition_confidence_of(
-        prev_cp, next_cp, stats, target, min_attempts=min_attempts,
+    return _focus_score_from_entry(
+        stats.get(Bigram(prev_cp, next_cp)),
+        target,
+        now,
+        review_penalty=review_penalty,
+        min_attempts=min_attempts,
     )
-    return confidence * (1.0 - review_penalty * urgency)
 
 
 def select_focus_transition(
     unlocked: Sequence[int],
-    transitions: Mapping[str, TransitionStats],
+    transitions: Mapping[Bigram, TransitionStats],
     target: float,
     now: float,
     *,
     review_penalty: float = 0.5,
     min_attempts: int = MIN_TRANSITION_CONFIDENCE_ATTEMPTS,
-) -> tuple[int, int] | None:
+) -> Bigram | None:
     """Weakest unlocked bigram by transition confidence; None when no transition data."""
     if not transitions:
         return None
     pairs = [
-        (prev, nxt)
+        Bigram(prev, nxt)
         for prev in unlocked
         for nxt in unlocked
-        if not is_same_key_transition(prev, nxt)
-        and chr(prev) + chr(nxt) in transitions
+        if not is_same_key_transition(prev, nxt) and Bigram(prev, nxt) in transitions
     ]
     if not pairs:
         return None

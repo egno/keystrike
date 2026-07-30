@@ -2,10 +2,12 @@ from textual.app import ComposeResult
 from textual.widget import Widget
 from textual.widgets import Static
 
+from keystrike.domain.confidence import FocusReason
 from keystrike.domain.daily_learn import DailyLearnBudget, format_daily_learn_display
 from keystrike.domain.null_adapters import NULL_DAILY_LEARN_BUDGET
 from keystrike.domain.protocols import Clock, DailyLearnBudgetProvider
 from keystrike.domain.session import Session, active_typing_duration_ns, is_typing_idle
+from keystrike.presentation.widgets.kb_heatmap import focus_reason_label, focus_transition_pair
 
 
 def learn_timer_dimmed(session: Session, now_ns: int) -> bool:
@@ -22,17 +24,19 @@ def _format_daily_learn_segment(budget: DailyLearnBudget, *, dim: bool) -> str:
     return f"[dim]{colored}[/]" if dim else colored
 
 
-def _format_focus_segment(focus_key: int | None, focus_reason: str | None) -> str:
-    if focus_key is None or not focus_reason:
+def _format_focus_segment(focus_key: int | None, focus_reason: FocusReason | None) -> str:
+    if focus_key is None or focus_reason is None:
         return ""
-    return f"   Focus: [bold]{chr(focus_key)}[/] [dim]{focus_reason}[/]"
+    transition = focus_transition_pair(focus_reason)
+    label = transition.chars() if transition is not None else chr(focus_key)
+    return f"   Focus: [bold]{label}[/] [dim]{focus_reason_label(focus_reason)}[/]"
 
 
 def _format_hud(
     session: Session,
     daily_budget: DailyLearnBudget,
     *,
-    focus_reason: str | None = None,
+    focus_reason: FocusReason | None = None,
     dim_learn: bool = True,
 ) -> str:
     accuracy = (session.correct_count / session.total_count) if session.total_count else 1.0
@@ -58,7 +62,7 @@ class HUD(Widget):
         clock: Clock,
         *,
         get_daily_learn_budget: DailyLearnBudgetProvider = NULL_DAILY_LEARN_BUDGET,
-        focus_reason: str | None = None,
+        focus_reason: FocusReason | None = None,
     ) -> None:
         super().__init__()
         self._session = session
@@ -97,7 +101,7 @@ class HUD(Widget):
         self,
         session: Session,
         *,
-        focus_reason: str | None = None,
+        focus_reason: FocusReason | None = None,
     ) -> None:
         self._session = session
         self._focus_reason = focus_reason

@@ -74,9 +74,7 @@ async def test_settings_screen_refreshes_layout_select_on_resume():
         await pilot.pause()
 
         layout_select = app.screen.query_one("#settings-layout", Select)
-        option_values = sorted(
-            v for _, v in layout_select._options if isinstance(v, str)
-        )
+        option_values = sorted(v for _, v in layout_select._options if isinstance(v, str))
         assert "myown" in option_values
 
 

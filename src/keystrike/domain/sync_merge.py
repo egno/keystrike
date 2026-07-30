@@ -1,156 +1,117 @@
-"""Pure merge rules for git-backed sync (sessions union, settings LWW)."""
+"""Pure merge-decision rules for git-backed sync (sessions union, settings LWW).
+
+Everything here takes already-loaded data — parsed index entries, filename
+sets, timestamps, file contents as text — and returns a description of what
+should happen (which sessions to import, which settings file wins, which
+layout files are missing). No `Path`/`shutil`/disk I/O of any kind happens in
+this module. `infrastructure/sync_git.py` reads the real inputs off disk,
+calls the functions below to decide what to do, and performs the actual copy/
+write operations against the resulting plan.
+"""
 
 from __future__ import annotations
 
 import datetime as dt
-import json
-import shutil
 import tomllib
-from pathlib import Path
+from dataclasses import dataclass
+from typing import Any
 
 
-def read_index_session_ids(index_path: Path) -> set[str]:
-    return _index_session_ids(index_path)
+def index_session_ids(entries: list[dict[str, Any]]) -> set[str]:
+    """Session ids present in a parsed sessions index."""
+    return {str(entry["session_id"]) for entry in entries}
 
 
-def iter_layouts_from_index(index_path: Path) -> set[str]:
-    if not index_path.is_file():
-        return set()
-    layouts: set[str] = set()
-    with index_path.open(encoding="utf-8") as fh:
-        for raw in fh:
-            line = raw.strip()
-            if not line:
-                continue
-            data = json.loads(line)
-            layouts.add(str(data["layout"]))
-    return layouts
+def index_layouts(entries: list[dict[str, Any]]) -> set[str]:
+    """Distinct layout names referenced by a parsed sessions index."""
+    return {str(entry["layout"]) for entry in entries}
 
 
-def import_missing_sessions(
+@dataclass(frozen=True, slots=True)
+class SessionImportPlan:
+    """One remote session that should be imported locally."""
+
+    session_id: str
+    month: str
+    filename: str
+    index_line: str
+
+
+def plan_missing_sessions(
     *,
-    local_sessions_dir: Path,
-    remote_sessions_dir: Path,
-    local_index: Path,
-    remote_index: Path,
-) -> list[str]:
-    """Copy session files and append index entries present remotely but not locally."""
-    before = _index_session_ids(local_index)
-    if not remote_index.is_file():
-        return []
-    local_sessions_dir.mkdir(parents=True, exist_ok=True)
-    imported: list[str] = []
-    with remote_index.open(encoding="utf-8") as fh:
-        for raw in fh:
-            line = raw.strip()
-            if not line:
-                continue
-            data = json.loads(line)
-            session_id = str(data["session_id"])
-            if session_id in before:
-                continue
-            started_at = float(data["started_at"])
-            month = dt.datetime.fromtimestamp(started_at, tz=dt.UTC).strftime("%Y-%m")
-            remote_file = remote_sessions_dir / month / f"{session_id}.jsonl"
-            if not remote_file.is_file():
-                continue
-            dest_dir = local_sessions_dir / month
-            dest_dir.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(remote_file, dest_dir / remote_file.name)
-            with local_index.open("a", encoding="utf-8") as out:
-                out.write(line)
-                out.write("\n")
-            before.add(session_id)
-            imported.append(session_id)
-    return imported
+    local_session_ids: set[str],
+    remote_entries: list[dict[str, Any]],
+    remote_lines: list[str],
+) -> list[SessionImportPlan]:
+    """Decide which remote sessions are missing locally and need importing.
+
+    `remote_entries`/`remote_lines` are the parsed-JSON and matching raw
+    (stripped) text of each line in the remote index, in file order. This does
+    not check whether the session's `.jsonl` file actually exists on disk —
+    the infrastructure executor skips any plan entry whose source file is
+    missing.
+    """
+    seen = set(local_session_ids)
+    plans: list[SessionImportPlan] = []
+    for entry, line in zip(remote_entries, remote_lines, strict=True):
+        session_id = str(entry["session_id"])
+        if session_id in seen:
+            continue
+        started_at = float(entry["started_at"])
+        month = dt.datetime.fromtimestamp(started_at, tz=dt.UTC).strftime("%Y-%m")
+        plans.append(
+            SessionImportPlan(
+                session_id=session_id,
+                month=month,
+                filename=f"{session_id}.jsonl",
+                index_line=line,
+            ),
+        )
+        seen.add(session_id)
+    return plans
 
 
-def resolve_settings_lww(*, local_path: Path, remote_path: Path) -> str:
-    """Copy the newer settings file to both sides. Returns 'local', 'remote', or 'none'."""
-    if not local_path.is_file() and not remote_path.is_file():
-        return "none"
-    if not remote_path.is_file():
-        return "local"
-    if not local_path.is_file():
-        local_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(remote_path, local_path)
-        return "remote"
+def settings_epoch_from_toml(raw: str, mtime: float) -> float:
+    """Effective LWW timestamp for settings TOML text already read from disk.
 
-    local_epoch = settings_effective_epoch(local_path)
-    remote_epoch = settings_effective_epoch(remote_path)
-    if local_epoch >= remote_epoch:
-        remote_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(local_path, remote_path)
-        return "local"
-    local_path.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(remote_path, local_path)
-    return "remote"
-
-
-def copy_layouts_missing(*, local_layouts: Path, remote_layouts: Path) -> int:
-    """Copy remote layout TOML files missing locally."""
-    if not remote_layouts.is_dir():
-        return 0
-    local_layouts.mkdir(parents=True, exist_ok=True)
-    copied = 0
-    for remote_file in remote_layouts.glob("*.toml"):
-        local_file = local_layouts / remote_file.name
-        if not local_file.is_file():
-            shutil.copy2(remote_file, local_file)
-            copied += 1
-    return copied
-
-
-def copy_layouts_to_remote(*, local_layouts: Path, remote_layouts: Path) -> None:
-    if not local_layouts.is_dir():
-        return
-    remote_layouts.mkdir(parents=True, exist_ok=True)
-    for src in local_layouts.glob("*.toml"):
-        shutil.copy2(src, remote_layouts / src.name)
-
-
-def copy_file_if_exists(src: Path, dest: Path) -> bool:
-    if not src.is_file():
-        return False
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(src, dest)
-    return True
-
-
-def settings_effective_epoch(path: Path) -> float:
-    if not path.is_file():
-        return 0.0
-    raw = tomllib.loads(path.read_text(encoding="utf-8"))
-    updated = raw.get("updated_at")
+    Parsing TOML text is pure (`tomllib.loads` operates on a string, not a
+    file). `mtime` is the caller-supplied `st_mtime` fallback used when the
+    document has no `updated_at` field.
+    """
+    data = tomllib.loads(raw)
+    updated = data.get("updated_at")
     if updated is not None:
         text = str(updated).replace("Z", "+00:00")
         parsed = dt.datetime.fromisoformat(text)
         if parsed.tzinfo is None:
             parsed = parsed.replace(tzinfo=dt.UTC)
         return parsed.timestamp()
-    return path.stat().st_mtime
+    return mtime
 
 
-def merge_sessions_union(local_sessions: Path, remote_sessions: Path) -> int:
-    return len(
-        import_missing_sessions(
-            local_sessions_dir=local_sessions,
-            remote_sessions_dir=remote_sessions,
-            local_index=local_sessions / "index.jsonl",
-            remote_index=remote_sessions / "index.jsonl",
-        ),
-    )
+def decide_settings_winner(
+    *,
+    local_exists: bool,
+    remote_exists: bool,
+    local_epoch: float,
+    remote_epoch: float,
+) -> str:
+    """Which settings file should win: `'local'`, `'remote'`, or `'none'`.
+
+    Callers copy the winning file over the loser: when the result is
+    `'remote'`, remote always exists (copy remote -> local); when it's
+    `'local'`, propagate local -> remote only if a remote file existed to
+    overwrite in the first place.
+    """
+    if not local_exists and not remote_exists:
+        return "none"
+    if not remote_exists:
+        return "local"
+    if not local_exists:
+        return "remote"
+    return "local" if local_epoch >= remote_epoch else "remote"
 
 
-def _index_session_ids(index_file: Path) -> set[str]:
-    if not index_file.is_file():
-        return set()
-    ids: set[str] = set()
-    with index_file.open(encoding="utf-8") as fh:
-        for raw in fh:
-            line = raw.strip()
-            if not line:
-                continue
-            data = json.loads(line)
-            ids.add(str(data["session_id"]))
-    return ids
+def plan_layouts_to_copy(*, source_names: set[str], dest_names: set[str]) -> set[str]:
+    """Layout TOML filenames present in source but missing from dest."""
+    return source_names - dest_names

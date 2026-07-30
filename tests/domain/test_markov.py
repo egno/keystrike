@@ -1,7 +1,7 @@
 from random import Random
 
 from keystrike.domain.markov import TransitionTable, transition_practice_weight
-from keystrike.domain.models import Layout
+from keystrike.domain.models import Bigram, Layout
 from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS
 
 
@@ -43,9 +43,7 @@ def test_sample_char_weights_bias_toward_weighted_char():
     rng = Random(1)
     # "b" would be a coin flip against "c" on raw weight alone; a large
     # char_weights bias should make it win consistently.
-    results = {
-        table.sample("", frozenset("bc"), rng, char_weights={"b": 100.0}) for _ in range(20)
-    }
+    results = {table.sample("", frozenset("bc"), rng, char_weights={"b": 100.0}) for _ in range(20)}
     assert results == {"b"}
 
 
@@ -93,7 +91,12 @@ def test_sample_transition_weights_bias_weak_pair():
     rng = Random(0)
     counts = {"b": 0, "c": 0}
     for _ in range(200):
-        ch = table.sample("a", frozenset("abc"), rng, transition_weights={"ab": 100.0})
+        ch = table.sample(
+            "a",
+            frozenset("abc"),
+            rng,
+            transition_weights={Bigram(ord("a"), ord("b")): 100.0},
+        )
         assert ch is not None
         counts[ch] += 1
     assert counts["b"] > counts["c"]

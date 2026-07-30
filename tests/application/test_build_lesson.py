@@ -1,10 +1,12 @@
 from random import Random
 from unittest.mock import patch
 
-from keystrike.application.build_lesson import BuildLesson
-from keystrike.domain.aggregate import transition_key
+from keystrike.application.build_lesson import BuildLesson, _transition_focus_metrics
+from keystrike.domain.aggregate import _combine_transition_maps_weighted, session_recency_weights
+from keystrike.domain.confidence import FocusReason, target_ms_per_char, transition_confidence_of
+from keystrike.domain.enums import FocusKind
 from keystrike.domain.learn_order import keyboard_order
-from keystrike.domain.models import KeyStats, LayoutAggregates, Settings, TransitionStats
+from keystrike.domain.models import Bigram, KeyStats, LayoutAggregates, Settings, TransitionStats
 from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS
 from tests.fakes import (
     FakeAggregatesCache,
@@ -94,12 +96,18 @@ def test_lesson_prefers_weak_key_over_weak_transition():
     fast = 100_000_000.0
     slow = 400_000_000.0
     transitions = {
-        transition_key(a, a): TransitionStats(a, a, 10, fast, 0, now, attempt_count=10),
-        transition_key(a, s): TransitionStats(
-            a, s, 10, slow, 0, now, attempt_count=10,
+        Bigram(a, a): TransitionStats(a, a, 10, fast, 0, now, attempt_count=10),
+        Bigram(a, s): TransitionStats(
+            a,
+            s,
+            10,
+            slow,
+            0,
+            now,
+            attempt_count=10,
         ),
-        transition_key(s, a): TransitionStats(s, a, 10, fast, 0, now, attempt_count=10),
-        transition_key(s, s): TransitionStats(s, s, 10, fast, 0, now, attempt_count=10),
+        Bigram(s, a): TransitionStats(s, a, 10, fast, 0, now, attempt_count=10),
+        Bigram(s, s): TransitionStats(s, s, 10, fast, 0, now, attempt_count=10),
     }
     cache = FakeAggregatesCache(
         by_layout={"qwerty": LayoutAggregates(keys={}, transitions=transitions)},
@@ -113,8 +121,7 @@ def test_lesson_prefers_weak_key_over_weak_transition():
         rng=Random(0),
     )
     lesson = builder("qwerty")
-    assert lesson.focus_reason == "weak"
-    assert "transition" not in (lesson.focus_reason or "")
+    assert lesson.focus_reason == FocusReason(kind=FocusKind.KEY_WEAK)
 
 
 def test_lesson_ignores_weak_same_key_transition_for_focus():
@@ -128,13 +135,25 @@ def test_lesson_ignores_weak_same_key_transition_for_focus():
         s: KeyStats(s, 10, at_target, 0, now, attempt_count=10),
     }
     transitions = {
-        transition_key(a, a): TransitionStats(
-            a, a, 10, 400_000_000.0, 0, now, attempt_count=10,
+        Bigram(a, a): TransitionStats(
+            a,
+            a,
+            10,
+            400_000_000.0,
+            0,
+            now,
+            attempt_count=10,
         ),
-        transition_key(a, s): TransitionStats(a, s, 10, at_target, 0, now, attempt_count=10),
-        transition_key(s, a): TransitionStats(s, a, 10, at_target, 0, now, attempt_count=10),
-        transition_key(s, s): TransitionStats(
-            s, s, 10, 400_000_000.0, 0, now, attempt_count=10,
+        Bigram(a, s): TransitionStats(a, s, 10, at_target, 0, now, attempt_count=10),
+        Bigram(s, a): TransitionStats(s, a, 10, at_target, 0, now, attempt_count=10),
+        Bigram(s, s): TransitionStats(
+            s,
+            s,
+            10,
+            400_000_000.0,
+            0,
+            now,
+            attempt_count=10,
         ),
     }
     cache = FakeAggregatesCache(
@@ -149,7 +168,10 @@ def test_lesson_ignores_weak_same_key_transition_for_focus():
         rng=Random(0),
     )
     lesson = builder("qwerty")
-    assert "transition" not in (lesson.focus_reason or "")
+    assert lesson.focus_reason is None or lesson.focus_reason.kind in (
+        FocusKind.KEY_WEAK,
+        FocusKind.KEY_REVIEW,
+    )
 
 
 def test_lesson_uses_transition_focus_when_transitions_weak():
@@ -165,12 +187,18 @@ def test_lesson_uses_transition_focus_when_transitions_weak():
         s: KeyStats(s, 10, at_target, 0, now, attempt_count=10),
     }
     transitions = {
-        transition_key(a, a): TransitionStats(a, a, 10, fast, 0, now, attempt_count=10),
-        transition_key(a, s): TransitionStats(
-            a, s, 10, 400_000_000.0, 0, now - five_days, attempt_count=10,
+        Bigram(a, a): TransitionStats(a, a, 10, fast, 0, now, attempt_count=10),
+        Bigram(a, s): TransitionStats(
+            a,
+            s,
+            10,
+            400_000_000.0,
+            0,
+            now - five_days,
+            attempt_count=10,
         ),
-        transition_key(s, a): TransitionStats(s, a, 10, fast, 0, now, attempt_count=10),
-        transition_key(s, s): TransitionStats(s, s, 10, fast, 0, now, attempt_count=10),
+        Bigram(s, a): TransitionStats(s, a, 10, fast, 0, now, attempt_count=10),
+        Bigram(s, s): TransitionStats(s, s, 10, fast, 0, now, attempt_count=10),
     }
     cache = FakeAggregatesCache(
         by_layout={"qwerty": LayoutAggregates(keys=keys, transitions=transitions)},
@@ -184,10 +212,113 @@ def test_lesson_uses_transition_focus_when_transitions_weak():
         rng=Random(0),
     )
     lesson = builder("qwerty")
-    pair = chr(a) + chr(s)
+    pair_bigram = Bigram(a, s)
+    pair = pair_bigram.chars()
     assert lesson.focus_key == s
-    assert lesson.focus_reason == f"{pair} weak transition"
+    assert lesson.focus_reason == FocusReason(kind=FocusKind.TRANSITION_WEAK, pair=pair_bigram)
     assert pair in lesson.text.replace(" ", "")
+
+
+def test_transition_focus_metrics_reports_accuracy_when_speed_measured():
+    target = target_ms_per_char(300)
+    eo_key = Bigram(ord("e"), ord("o"))
+    transitions = {
+        eo_key: TransitionStats(
+            ord("e"),
+            ord("o"),
+            0,
+            196_000_000.0,
+            0,
+            1.0,
+            attempt_count=1,
+        ),
+    }
+    speed, accuracy = _transition_focus_metrics(
+        ord("e"),
+        ord("o"),
+        transitions,
+        target,
+    )
+    assert speed > 0
+    assert accuracy > 0
+
+
+def test_build_lesson_eo_not_zero_confidence_when_counts_zeroed():
+    """Full BuildLesson path: stale samples=0 must not show 0.00 with speed/acc."""
+    layout_name = "colemak_dh"
+    layout = BUNDLED_LAYOUTS[layout_name]
+    order = keyboard_order(layout)
+    now = 1_700_000_000.0
+    at_target = 200_000_000.0
+    keys = {cp: KeyStats(cp, 10, at_target, 0, now, attempt_count=10) for cp in order[:4]}
+    eo_key = Bigram(ord("e"), ord("o"))
+    transitions = {
+        eo_key: TransitionStats(
+            ord("e"),
+            ord("o"),
+            0,
+            566_631_000.0,
+            0,
+            now,
+            attempt_count=0,
+        ),
+    }
+    cache = FakeAggregatesCache(
+        by_layout={layout_name: LayoutAggregates(keys=keys, transitions=transitions)},
+    )
+    builder = BuildLesson(
+        layout_repo=FakeLayoutRepository(dict(BUNDLED_LAYOUTS)),
+        aggregates_cache=cache,
+        settings_repo=FakeSettingsRepository(
+            Settings(layout=layout_name, alphabet_size=4, target_speed_cpm=104),
+        ),
+        language_provider=FakeLanguageProvider(),
+        wordlist_store=FakeWordListStore(),
+        rng=Random(0),
+    )
+    lesson = builder(layout_name)
+    assert lesson.focus_reason == FocusReason(kind=FocusKind.TRANSITION_WEAK, pair=eo_key)
+    assert lesson.focus_speed is not None
+    assert lesson.focus_speed >= 1.0
+    assert lesson.focus_accuracy == 1.0
+    assert lesson.focus_confidence is not None
+    assert lesson.focus_confidence > 0.0
+
+
+def test_weak_transition_focus_confidence_matches_displayed_speed():
+    """Sparse recency-weighted eo must not show 0.00 confidence with good speed/acc."""
+    target = target_ms_per_char(300)
+    eo_key = Bigram(ord("e"), ord("o"))
+    old = TransitionStats(
+        ord("e"),
+        ord("o"),
+        1,
+        196_000_000.0,
+        0,
+        1.0,
+        attempt_count=1,
+    )
+    empty = TransitionStats(ord("e"), ord("o"), 0, 0.0, 0, 2.0, attempt_count=0)
+    merged = _combine_transition_maps_weighted(
+        [{eo_key: old}, {eo_key: empty}, {eo_key: empty}],
+        session_recency_weights(3),
+    )[eo_key]
+    speed, accuracy = _transition_focus_metrics(
+        ord("e"),
+        ord("o"),
+        {eo_key: merged},
+        target,
+    )
+    confidence = transition_confidence_of(
+        ord("e"),
+        ord("o"),
+        {eo_key: merged},
+        target,
+    )
+    assert speed >= 1.0
+    assert accuracy == 1.0
+    assert confidence > 0.0
+    assert confidence < 1.0  # still weak due to sample ramp
 
 
 def test_lesson_falls_back_to_key_focus_without_transitions():
@@ -195,8 +326,7 @@ def test_lesson_falls_back_to_key_focus_without_transitions():
     focus = keyboard_order(layout)[0]
     lesson = _build_lesson(Settings(alphabet_size=1))("qwerty")
     assert lesson.focus_key == focus
-    assert lesson.focus_reason == "weak"
-    assert "transition" not in (lesson.focus_reason or "")
+    assert lesson.focus_reason == FocusReason(kind=FocusKind.KEY_WEAK)
 
 
 def test_lesson_uses_transition_review_when_stale_and_mastered():
@@ -215,32 +345,86 @@ def test_lesson_uses_transition_review_when_stale_and_mastered():
         h: KeyStats(h, 10, at_target, 0, now, attempt_count=10),
     }
     transitions = {
-        transition_key(a, a): TransitionStats(
-            a, a, 10, at_target, 0, now, attempt_count=10,
+        Bigram(a, a): TransitionStats(
+            a,
+            a,
+            10,
+            at_target,
+            0,
+            now,
+            attempt_count=10,
         ),
-        transition_key(a, s): TransitionStats(
-            a, s, 10, at_target, 0, now - five_days, attempt_count=10,
+        Bigram(a, s): TransitionStats(
+            a,
+            s,
+            10,
+            at_target,
+            0,
+            now - five_days,
+            attempt_count=10,
         ),
-        transition_key(a, h): TransitionStats(
-            a, h, 10, at_target, 0, now, attempt_count=10,
+        Bigram(a, h): TransitionStats(
+            a,
+            h,
+            10,
+            at_target,
+            0,
+            now,
+            attempt_count=10,
         ),
-        transition_key(s, a): TransitionStats(
-            s, a, 10, at_target, 0, now, attempt_count=10,
+        Bigram(s, a): TransitionStats(
+            s,
+            a,
+            10,
+            at_target,
+            0,
+            now,
+            attempt_count=10,
         ),
-        transition_key(s, s): TransitionStats(
-            s, s, 10, at_target, 0, now, attempt_count=10,
+        Bigram(s, s): TransitionStats(
+            s,
+            s,
+            10,
+            at_target,
+            0,
+            now,
+            attempt_count=10,
         ),
-        transition_key(s, h): TransitionStats(
-            s, h, 10, slow, 0, now, attempt_count=10,
+        Bigram(s, h): TransitionStats(
+            s,
+            h,
+            10,
+            slow,
+            0,
+            now,
+            attempt_count=10,
         ),
-        transition_key(h, a): TransitionStats(
-            h, a, 10, at_target, 0, now, attempt_count=10,
+        Bigram(h, a): TransitionStats(
+            h,
+            a,
+            10,
+            at_target,
+            0,
+            now,
+            attempt_count=10,
         ),
-        transition_key(h, s): TransitionStats(
-            h, s, 10, at_target, 0, now, attempt_count=10,
+        Bigram(h, s): TransitionStats(
+            h,
+            s,
+            10,
+            at_target,
+            0,
+            now,
+            attempt_count=10,
         ),
-        transition_key(h, h): TransitionStats(
-            h, h, 10, at_target, 0, now, attempt_count=10,
+        Bigram(h, h): TransitionStats(
+            h,
+            h,
+            10,
+            at_target,
+            0,
+            now,
+            attempt_count=10,
         ),
     }
     cache = FakeAggregatesCache(
@@ -256,9 +440,8 @@ def test_lesson_uses_transition_review_when_stale_and_mastered():
     )
     with patch("keystrike.application.build_lesson.time.time", return_value=now):
         lesson = builder("qwerty")
-    pair = chr(a) + chr(s)
     assert lesson.focus_key == s
-    assert lesson.focus_reason == f"{pair} review transition"
+    assert lesson.focus_reason == FocusReason(kind=FocusKind.TRANSITION_REVIEW, pair=Bigram(a, s))
 
 
 def test_lesson_wordlist_biases_weak_transition():
@@ -274,12 +457,18 @@ def test_lesson_wordlist_biases_weak_transition():
         s: KeyStats(s, 10, at_target, 0, now, attempt_count=10),
     }
     transitions = {
-        transition_key(a, a): TransitionStats(a, a, 10, fast, 0, now, attempt_count=10),
-        transition_key(a, s): TransitionStats(
-            a, s, 10, 400_000_000.0, 0, now - five_days, attempt_count=10,
+        Bigram(a, a): TransitionStats(a, a, 10, fast, 0, now, attempt_count=10),
+        Bigram(a, s): TransitionStats(
+            a,
+            s,
+            10,
+            400_000_000.0,
+            0,
+            now - five_days,
+            attempt_count=10,
         ),
-        transition_key(s, a): TransitionStats(s, a, 10, fast, 0, now, attempt_count=10),
-        transition_key(s, s): TransitionStats(s, s, 10, fast, 0, now, attempt_count=10),
+        Bigram(s, a): TransitionStats(s, a, 10, fast, 0, now, attempt_count=10),
+        Bigram(s, s): TransitionStats(s, s, 10, fast, 0, now, attempt_count=10),
     }
     url = "https://example.com/words.txt"
     cached = ["asa", "ass", "sas", "ssa"]
@@ -296,7 +485,7 @@ def test_lesson_wordlist_biases_weak_transition():
     )
     lesson = builder("qwerty")
     pair = chr(a) + chr(s)
-    assert lesson.focus_reason == f"{pair} weak transition"
+    assert lesson.focus_reason == FocusReason(kind=FocusKind.TRANSITION_WEAK, pair=Bigram(a, s))
     assert set(lesson.text.split()) <= set(cached)
 
     ssa_count = 0
@@ -325,12 +514,18 @@ def test_weak_transition_focus_over_represented_in_lesson_words():
         s: KeyStats(s, 10, at_target, 0, now, attempt_count=10),
     }
     transitions = {
-        transition_key(a, a): TransitionStats(a, a, 10, fast, 0, now, attempt_count=10),
-        transition_key(a, s): TransitionStats(
-            a, s, 10, 400_000_000.0, 0, now, attempt_count=10,
+        Bigram(a, a): TransitionStats(a, a, 10, fast, 0, now, attempt_count=10),
+        Bigram(a, s): TransitionStats(
+            a,
+            s,
+            10,
+            400_000_000.0,
+            0,
+            now,
+            attempt_count=10,
         ),
-        transition_key(s, a): TransitionStats(s, a, 10, fast, 0, now, attempt_count=10),
-        transition_key(s, s): TransitionStats(s, s, 10, fast, 0, now, attempt_count=10),
+        Bigram(s, a): TransitionStats(s, a, 10, fast, 0, now, attempt_count=10),
+        Bigram(s, s): TransitionStats(s, s, 10, fast, 0, now, attempt_count=10),
     }
     cache = FakeAggregatesCache(
         by_layout={"qwerty": LayoutAggregates(keys=keys, transitions=transitions)},
@@ -430,6 +625,5 @@ def test_lesson_uses_markov_when_url_saved_without_cache():
     lesson = builder("qwerty")
     assert lesson.text
     assert all(
-        set(word) <= {chr(k.codepoint) for k in lesson.state.keys}
-        for word in lesson.text.split()
+        set(word) <= {chr(k.codepoint) for k in lesson.state.keys} for word in lesson.text.split()
     )

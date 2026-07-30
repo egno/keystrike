@@ -44,13 +44,21 @@ def build_layout(name: str, rows: tuple[str, str, str], *, ortholinear: bool = F
         for col, ch in enumerate(row):
             finger, hand = _FINGER_HAND_BY_COL[col]
             keys[ord(ch)] = KeyPos(
-                codepoint=ord(ch), row=row_index, col=col, finger=finger, hand=hand,
+                codepoint=ord(ch),
+                row=row_index,
+                col=col,
+                finger=finger,
+                hand=hand,
             )
             if not ch.isalpha():
                 punctuation.append(ch)
 
     keys[ord(" ")] = KeyPos(
-        codepoint=ord(" "), row=_SPACE_ROW, col=_SPACE_COL, finger=Finger.THUMB, hand=Hand.L,
+        codepoint=ord(" "),
+        row=_SPACE_ROW,
+        col=_SPACE_COL,
+        finger=Finger.THUMB,
+        hand=Hand.L,
     )
 
     learn_order = (

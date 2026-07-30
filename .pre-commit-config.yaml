@@ -3,6 +3,8 @@ repos:
     rev: v0.16.0
     hooks:
       - id: ruff-check
+      - id: ruff-format
+        args: [--check]
 
   - repo: local
     hooks:

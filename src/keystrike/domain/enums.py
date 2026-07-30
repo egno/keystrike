@@ -1,8 +1,27 @@
-from enum import IntEnum, StrEnum
+from enum import Enum, IntEnum, StrEnum, auto
 
 
 class Mode(StrEnum):
     ADAPTIVE = "adaptive"
+
+
+# Modes retired when code-practice/freeform/sample-text modes were dropped in
+# favor of adaptive-only drills. Old persisted sessions still carry these
+# strings, so they need to keep resolving to something valid.
+_LEGACY_MODES = frozenset({"free", "code", "sample"})
+
+
+def migrate_legacy_mode(raw: str) -> Mode:
+    """Map a persisted mode string to the current `Mode` enum, translating
+    retired legacy modes (from pre-adaptive-only builds) to `Mode.ADAPTIVE`.
+
+    This is a data-migration policy decision, not a persistence-format
+    concern, so it lives in the domain layer rather than in a repository
+    adapter.
+    """
+    if raw in _LEGACY_MODES:
+        return Mode.ADAPTIVE
+    return Mode(raw)
 
 
 class Finger(IntEnum):
@@ -27,3 +46,14 @@ class SessionState(StrEnum):
 class TargetSpeedUnit(StrEnum):
     WPM = "wpm"
     CPM = "cpm"
+
+
+class FocusKind(Enum):
+    """Why the adaptive engine picked today's lesson focus. Replaces the old
+    ad-hoc strings ("weak", "review", f"{pair} weak transition", ...) that
+    presentation code had to parse via substring/suffix matching."""
+
+    KEY_WEAK = auto()
+    KEY_REVIEW = auto()
+    TRANSITION_WEAK = auto()
+    TRANSITION_REVIEW = auto()

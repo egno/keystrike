@@ -5,7 +5,7 @@ import pytest
 from keystrike.application.build_lesson import BuildLesson
 from keystrike.application.learn_budget_use_cases import GetDailyLearnBudget
 from keystrike.application.prepare_practice import PreparePracticeSession
-from keystrike.application.stats_use_cases import RebuildAggregates
+from keystrike.application.stats_use_cases import EnsureAggregates, RebuildAggregates
 from keystrike.domain.enums import Mode
 from keystrike.domain.models import Keystroke, SessionResult, Settings
 from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS, CompositeLayoutRepository
@@ -24,7 +24,9 @@ from tests.fakes import (
 @pytest.fixture
 def paths(tmp_path):
     return Paths(
-        config_dir=tmp_path / "config", data_dir=tmp_path / "data", log_dir=tmp_path / "log",
+        config_dir=tmp_path / "config",
+        data_dir=tmp_path / "data",
+        log_dir=tmp_path / "log",
     )
 
 
@@ -35,7 +37,9 @@ def _prepare(*, settings: Settings | None = None) -> PreparePracticeSession:
     layout_repo = FakeLayoutRepository(dict(BUNDLED_LAYOUTS))
     cache = FakeAggregatesCache()
     get_daily_learn_budget = GetDailyLearnBudget(
-        clock=clock, repo=session_repo, settings_repo=settings_repo,
+        clock=clock,
+        repo=session_repo,
+        settings_repo=settings_repo,
     )
     return PreparePracticeSession(
         settings_repo=settings_repo,
@@ -88,6 +92,7 @@ def test_prepare_ensures_transitions_before_lesson():
         Keystroke(codepoint=ord("s"), typed=ord("x"), t_ns=600_000_000, correct=False),
     ]
     rebuild = RebuildAggregates(repo=session_repo, cache=cache, settings_repo=settings_repo)
+    ensure = EnsureAggregates(repo=session_repo, cache=cache, rebuild=rebuild)
     prepare = PreparePracticeSession(
         settings_repo=settings_repo,
         layout_repo=layout_repo,
@@ -100,9 +105,11 @@ def test_prepare_ensures_transitions_before_lesson():
             rng=Random(0),
         ),
         get_daily_learn_budget=GetDailyLearnBudget(
-            clock=clock, repo=session_repo, settings_repo=settings_repo,
+            clock=clock,
+            repo=session_repo,
+            settings_repo=settings_repo,
         ),
-        rebuild_aggregates=rebuild,
+        ensure_aggregates=ensure,
     )
 
     prep = prepare()
@@ -112,7 +119,6 @@ def test_prepare_ensures_transitions_before_lesson():
     assert cached is not None
     assert cached.transitions
     assert prep.focus_reason is not None
-    assert prep.focus_reason.endswith(" weak transition")
 
 
 def test_prepare_adaptive_still_builds_lesson_when_daily_goal_reached():
@@ -148,7 +154,9 @@ def test_prepare_adaptive_still_builds_lesson_when_daily_goal_reached():
             rng=Random(0),
         ),
         get_daily_learn_budget=GetDailyLearnBudget(
-            clock=clock, repo=session_repo, settings_repo=settings_repo,
+            clock=clock,
+            repo=session_repo,
+            settings_repo=settings_repo,
         ),
     )
     prep = prepare()

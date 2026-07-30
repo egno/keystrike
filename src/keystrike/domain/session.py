@@ -93,14 +93,14 @@ class Session:
     mode: Mode
     lang: str
     started_at_wall: float
-    started_at_ns: int            # when the practice screen opened (session creation)
+    started_at_ns: int  # when the practice screen opened (session creation)
     typing_started_at_ns: int | None = None  # first real keystroke — the timer's true zero
     last_keystroke_at_ns: int | None = None  # wall clock of last real keystroke
     active_duration_ns: int = 0  # accumulated active time between keystrokes
     keystrokes: list[Keystroke] = field(default_factory=list[Keystroke])
-    position: int = 0             # index into target_text of the next char to type
-    correct_count: int = 0        # total correct keystrokes (does not decrement on backspace)
-    total_count: int = 0          # total keystrokes recorded (including errors and corrections)
+    position: int = 0  # index into target_text of the next char to type
+    correct_count: int = 0  # total correct keystrokes (does not decrement on backspace)
+    total_count: int = 0  # total keystrokes recorded (including errors and corrections)
     error_positions: set[int] = field(default_factory=set[int])  # positions that needed correction
     state: SessionState = SessionState.RUNNING
     focus_key: int | None = None  # adaptive mode: the key this lesson emphasized

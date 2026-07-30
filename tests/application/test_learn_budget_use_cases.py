@@ -41,7 +41,10 @@ def test_get_daily_learn_budget_includes_extra_ns_for_active_session():
     settings_repo = FakeSettingsRepository(Settings(learn_daily_minutes=10))
 
     budget = GetDailyLearnBudget(
-        clock=clock, repo=repo, settings_repo=settings_repo, tz=_TZ,
+        clock=clock,
+        repo=repo,
+        settings_repo=settings_repo,
+        tz=_TZ,
     )(extra_ns=2 * 60 * 1_000_000_000)
 
     assert budget.limit_reached

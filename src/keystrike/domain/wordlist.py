@@ -11,8 +11,4 @@ def parse_wordlist_text(text: str) -> list[str]:
 
 
 def words_for_alphabet(words: list[str], alphabet: frozenset[str]) -> list[str]:
-    return [
-        w
-        for w in words
-        if MIN_WORD_LEN <= len(w) <= MAX_WORD_LEN and set(w) <= alphabet
-    ]
+    return [w for w in words if MIN_WORD_LEN <= len(w) <= MAX_WORD_LEN and set(w) <= alphabet]

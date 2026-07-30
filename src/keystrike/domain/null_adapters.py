@@ -32,14 +32,19 @@ class NullSessionRepository:
 
 
 class NullStatsRebuilder:
-    def __call__(self, layout: str) -> dict[int, KeyStats]:
-        return {}
-
-    def ensure(self, layout: str) -> dict[int, KeyStats]:
-        return {}
+    def __call__(self, layout: str) -> None:
+        return None
 
 
 NULL_STATS_REBUILDER = NullStatsRebuilder()
+
+
+class NullAggregatesEnsurer:
+    def __call__(self, layout: str) -> dict[int, KeyStats]:
+        return {}
+
+
+NULL_AGGREGATES_ENSURER = NullAggregatesEnsurer()
 
 
 class NullLearningRateEstimator:

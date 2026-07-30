@@ -63,9 +63,7 @@ def test_save_uses_atomic_replace(paths):
 
 def test_ignores_unknown_keys_for_forward_compat(paths):
     paths.settings_file.write_text(
-        'schema_version = 1\n'
-        'layout = "qwerty"\n'
-        'unknown_future_key = 42\n',
+        'schema_version = 1\nlayout = "qwerty"\nunknown_future_key = 42\n',
         encoding="utf-8",
     )
     s = TomlSettingsRepository(paths).load()
@@ -74,7 +72,7 @@ def test_ignores_unknown_keys_for_forward_compat(paths):
 
 def test_ignores_removed_settings_keys(paths):
     paths.settings_file.write_text(
-        'schema_version = 1\n'
+        "schema_version = 1\n"
         'layout = "qwerty"\n'
         'freeform_path = "/tmp/old.txt"\n'
         'code_language = "python"\n',

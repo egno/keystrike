@@ -62,6 +62,34 @@ focus and bigram-weighted lesson text use this floor. Keeping it lower than the
 key floor (default 4 vs 10) matches how sparse bigram data is in normal
 practice.
 
+## Unlocks and focus
+
+The first **N** keys in layout `learn_order` are always unlocked, where **N** is
+**Letters unlocked up front** in Settings (`alphabet_size`; see
+[README — Settings](https://github.com/egno/keystrike#settings)). Each further
+key in `learn_order` unlocks only when **every** currently unlocked key meets the
+confidence threshold (default 1.0) **and** every **measured** cross-key bigram
+among unlocked keys meets the same threshold. Unmeasured pairs do not block
+unlock — you are not required to practice every possible letter pair before the
+next key opens.
+
+Same-key repeats (double letters such as `ee`, `ss`) are excluded from unlock
+checks; only prev→next pairs on **different** keys count.
+
+**Focus selection** is letter-first: while any unlocked key is below threshold
+(`has_weak_unlocked_key`), the lesson emphasizes the weakest unlocked **key**
+(by confidence, with review urgency). Transition (bigram) focus activates only
+when all unlocked keys are confident; then the weakest measured cross-key bigram
+among the unlocked set drives focus. If no transition data exists yet, focus
+falls back to the weakest key.
+
+### Transition stats
+
+Same-key / double-letter bigrams are never aggregated into session stats, stored
+in the stats cache, or used in unlock checks, focus selection, or lesson
+transition weights. Only cross-key pairs (e.g. `th`, `he`) participate in
+transition confidence and bigram-weighted lesson text.
+
 ## Tradeoffs
 
 - **Window too short** — Rare keys in your unlocked set may never accumulate

@@ -9,24 +9,41 @@ from random import Random
 
 from .confidence import FOCUS_BIGRAM_WORD_BOOST, FOCUS_WORD_BOOST
 from .markov import TransitionTable
-from .models import Layout
+from .models import Bigram, Layout
 from .word_bounds import MAX_WORD_LEN, MIN_WORD_LEN
 
 MAX_RETRIES = 5
 DEFAULT_WORD_COUNT = 12
 
 
+@dataclass(frozen=True, slots=True)
+class LessonWeighting:
+    """Practice-weighting knobs threaded through lesson generation.
+
+    Bundles the char/transition weighting inputs and the focus-word boosts so
+    ``generate_lesson`` and its helpers take one object instead of a long,
+    mutually-dependent parameter list.
+    """
+
+    char_weights: Mapping[str, float] | None = None
+    transition_weights: Mapping[Bigram, float] | None = None
+    layout: Layout | None = None
+    words: list[str] | None = None
+    focus_word_boost: float = FOCUS_WORD_BOOST
+    focus_bigram_word_boost: float = FOCUS_BIGRAM_WORD_BOOST
+
+
 def wordlist_weight_for_word(
     word: str,
     *,
-    char_weights: Mapping[str, float] | None = None,
-    transition_weights: Mapping[str, float] | None = None,
+    weighting: LessonWeighting | None = None,
     focus_char: str | None = None,
     focus_bigram: str | None = None,
-    focus_word_boost: float = FOCUS_WORD_BOOST,
-    focus_bigram_word_boost: float = FOCUS_BIGRAM_WORD_BOOST,
 ) -> float:
     """Score a dictionary word for adaptive sampling — mirrors Markov biasing."""
+    weighting = weighting or LessonWeighting()
+    char_weights = weighting.char_weights
+    transition_weights = weighting.transition_weights
     if not char_weights and not transition_weights:
         return 1.0
     weight = 1.0
@@ -34,14 +51,14 @@ def wordlist_weight_for_word(
         weight = sum(char_weights.get(ch, 1.0) for ch in word)
     if transition_weights and len(word) > 1:
         bigram_weight = sum(
-            transition_weights.get(word[i] + word[i + 1], 1.0)
+            transition_weights.get(Bigram(ord(word[i]), ord(word[i + 1])), 1.0)
             for i in range(len(word) - 1)
         )
         weight = bigram_weight if not char_weights else weight * bigram_weight
     if focus_bigram and focus_bigram in word:
-        weight *= focus_bigram_word_boost
+        weight *= weighting.focus_bigram_word_boost
     elif focus_char and focus_char in word:
-        weight *= focus_word_boost
+        weight *= weighting.focus_word_boost
     return weight
 
 
@@ -69,28 +86,18 @@ class AdaptiveGenerator:
     def generate_word(
         self,
         alphabet: frozenset[str],
-        char_weights: Mapping[str, float] | None = None,
-        layout: Layout | None = None,
-        transition_weights: Mapping[str, float] | None = None,
+        weighting: LessonWeighting | None = None,
         *,
-        words: list[str] | None = None,
         wordlist_weights: list[float] | None = None,
     ) -> str:
-        if words:
-            word = self._sample_from_wordlist(
-                words,
-                char_weights,
-                transition_weights,
-                wordlist_weights,
-            )
-            if (
-                MIN_WORD_LEN <= len(word) <= MAX_WORD_LEN
-                and set(word) <= alphabet
-            ):
+        weighting = weighting or LessonWeighting()
+        if weighting.words:
+            word = self._sample_from_wordlist(weighting, wordlist_weights)
+            if MIN_WORD_LEN <= len(word) <= MAX_WORD_LEN and set(word) <= alphabet:
                 return word
         word = ""
         for _ in range(MAX_RETRIES):
-            word = self._sample_word(alphabet, char_weights, layout, transition_weights)
+            word = self._sample_word(alphabet, weighting)
             if MIN_WORD_LEN <= len(word) <= MAX_WORD_LEN:
                 return word
         return word
@@ -101,40 +108,26 @@ class AdaptiveGenerator:
         focus_char: str,
         *,
         word_count: int = DEFAULT_WORD_COUNT,
-        char_weights: Mapping[str, float] | None = None,
-        layout: Layout | None = None,
-        transition_weights: Mapping[str, float] | None = None,
+        weighting: LessonWeighting | None = None,
         focus_bigram: tuple[int, int] | None = None,
-        words: list[str] | None = None,
-        focus_word_boost: float = FOCUS_WORD_BOOST,
-        focus_bigram_word_boost: float = FOCUS_BIGRAM_WORD_BOOST,
     ) -> str:
+        weighting = weighting or LessonWeighting()
         focus_bigram_str: str | None = None
         if focus_bigram is not None:
             focus_bigram_str = chr(focus_bigram[0]) + chr(focus_bigram[1])
         wordlist_weights: list[float] | None = None
-        if words and (char_weights or transition_weights):
+        if weighting.words and (weighting.char_weights or weighting.transition_weights):
             wordlist_weights = [
                 wordlist_weight_for_word(
                     w,
-                    char_weights=char_weights,
-                    transition_weights=transition_weights,
+                    weighting=weighting,
                     focus_char=focus_char,
                     focus_bigram=focus_bigram_str,
-                    focus_word_boost=focus_word_boost,
-                    focus_bigram_word_boost=focus_bigram_word_boost,
                 )
-                for w in words
+                for w in weighting.words
             ]
         lesson_words = [
-            self.generate_word(
-                alphabet,
-                char_weights,
-                layout,
-                transition_weights,
-                words=words,
-                wordlist_weights=wordlist_weights,
-            )
+            self.generate_word(alphabet, weighting, wordlist_weights=wordlist_weights)
             for _ in range(word_count)
         ]
         if focus_bigram is not None:
@@ -143,7 +136,9 @@ class AdaptiveGenerator:
             if not any(bigram in w for w in lesson_words):
                 idx = self.rng.randrange(len(lesson_words))
                 lesson_words[idx] = self._inject_focus_bigram(
-                    lesson_words[idx], prev_char, next_char,
+                    lesson_words[idx],
+                    prev_char,
+                    next_char,
                 )
         elif not any(focus_char in w for w in lesson_words):
             idx = self.rng.randrange(len(lesson_words))
@@ -152,44 +147,34 @@ class AdaptiveGenerator:
 
     def _sample_from_wordlist(
         self,
-        words: list[str],
-        char_weights: Mapping[str, float] | None,
-        transition_weights: Mapping[str, float] | None,
+        weighting: LessonWeighting,
         wordlist_weights: list[float] | None = None,
     ) -> str:
+        words = weighting.words or []
         if wordlist_weights is not None:
             return self.rng.choices(words, weights=wordlist_weights, k=1)[0]
-        if not char_weights and not transition_weights:
+        if not weighting.char_weights and not weighting.transition_weights:
             return self.rng.choice(words)
-        weights = [
-            wordlist_weight_for_word(
-                w,
-                char_weights=char_weights,
-                transition_weights=transition_weights,
-            )
-            for w in words
-        ]
+        weights = [wordlist_weight_for_word(w, weighting=weighting) for w in words]
         return self.rng.choices(words, weights=weights, k=1)[0]
 
     def _sample_word(
         self,
         alphabet: frozenset[str],
-        char_weights: Mapping[str, float] | None,
-        layout: Layout | None,
-        transition_weights: Mapping[str, float] | None,
+        weighting: LessonWeighting,
     ) -> str:
         chars: list[str] = []
         while len(chars) < MAX_WORD_LEN:
-            p_stop = min(1.0, 1.3**len(chars) / MAX_WORD_LEN)
+            p_stop = min(1.0, 1.3 ** len(chars) / MAX_WORD_LEN)
             if chars and self.rng.random() < p_stop:
                 break
             ch = self.table.sample(
                 "".join(chars),
                 alphabet,
                 self.rng,
-                char_weights=char_weights,
-                layout=layout,
-                transition_weights=transition_weights,
+                char_weights=weighting.char_weights,
+                layout=weighting.layout,
+                transition_weights=weighting.transition_weights,
             )
             if ch is None:
                 ch = self.rng.choice(sorted(alphabet))

@@ -7,5 +7,7 @@ from ._grid import build_layout
 # home row's inner columns down to the bottom row (curl down instead of an
 # inward stretch), and G reclaims its QWERTY home-row position.
 LAYOUT = build_layout(
-    "colemak_dh", ("qwfpbjluy;", "arstgmneio", "zxcdvkh,./"), ortholinear=True,
+    "colemak_dh",
+    ("qwfpbjluy;", "arstgmneio", "zxcdvkh,./"),
+    ortholinear=True,
 )

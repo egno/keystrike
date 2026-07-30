@@ -3,6 +3,7 @@ TOML for the small Settings dataclass (all scalar fields, no nesting)."""
 
 from __future__ import annotations
 
+import dataclasses
 import tomllib
 from datetime import UTC, datetime
 
@@ -33,7 +34,10 @@ class TomlSettingsRepository:
     def load(self) -> Settings:
         if not self._paths.settings_file.exists():
             return Settings()
-        raw = tomllib.loads(self._paths.settings_file.read_text(encoding="utf-8"))
+        try:
+            raw = tomllib.loads(self._paths.settings_file.read_text(encoding="utf-8"))
+        except tomllib.TOMLDecodeError:
+            return Settings()
 
         defaults = Settings()
         unit_raw = str(raw.get("target_speed_unit", defaults.target_speed_unit))
@@ -79,36 +83,20 @@ class TomlSettingsRepository:
                 raw.get("learn_daily_minutes", defaults.learn_daily_minutes),
             ),
             wordlist_url=str(raw.get("wordlist_url", defaults.wordlist_url)),
-            updated_at=(
-                str(raw["updated_at"]) if raw.get("updated_at") is not None else None
-            ),
+            updated_at=(str(raw["updated_at"]) if raw.get("updated_at") is not None else None),
         )
 
     def save(self, settings: Settings) -> None:
+        # Field list is derived from the Settings dataclass itself (single
+        # source of truth) rather than hand-maintained here, so it can't
+        # silently drift when a field is added/removed from Settings.
         lines = ["# keystrike settings — edit with care, or use the Settings screen.\n"]
-        fields: list[tuple[str, object]] = [
-            ("schema_version", settings.schema_version),
-            ("layout", settings.layout),
-            ("target_speed_cpm", settings.target_speed_cpm),
-            ("target_speed_unit", settings.target_speed_unit),
-            ("alphabet_size", settings.alphabet_size),
-            ("confidence_session_window", settings.confidence_session_window),
-            ("min_confidence_attempts", settings.min_confidence_attempts),
-            (
-                "min_transition_confidence_attempts",
-                settings.min_transition_confidence_attempts,
-            ),
-            ("focus_char_boost", settings.focus_char_boost),
-            ("focus_word_boost", settings.focus_word_boost),
-            ("focus_bigram_word_boost", settings.focus_bigram_word_boost),
-            ("focus_transition_boost", settings.focus_transition_boost),
-            ("focus_weak_extra_boost", settings.focus_weak_extra_boost),
-            ("learn_daily_minutes", settings.learn_daily_minutes),
-            ("lang", settings.lang),
-        ]
-        if settings.wordlist_url:
-            fields.append(("wordlist_url", settings.wordlist_url))
-        for key, value in fields:
-            lines.append(f"{key} = {_fmt_scalar(value)}\n")
+        for field in dataclasses.fields(settings):
+            if field.name == "updated_at":
+                continue  # written fresh below, not round-tripped from the input
+            value = getattr(settings, field.name)
+            if field.name == "wordlist_url" and not value:
+                continue  # omit when unset, matching prior hand-rolled behavior
+            lines.append(f"{field.name} = {_fmt_scalar(value)}\n")
         lines.append(f"updated_at = {_fmt_scalar(datetime.now(UTC).isoformat())}\n")
         atomic_write_text(self._paths.settings_file, "".join(lines))

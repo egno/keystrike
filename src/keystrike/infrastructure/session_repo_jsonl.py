@@ -10,7 +10,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import cast
 
-from keystrike.domain.enums import Mode
+from keystrike.domain.enums import Mode, migrate_legacy_mode
 from keystrike.domain.models import Keystroke, SessionResult
 
 from .paths import Paths
@@ -36,12 +36,16 @@ class JsonlSessionRepository:
         file = self._paths.sessions_dir / _month_dir(started_at) / f"{session_id}.jsonl"
         file.parent.mkdir(parents=True, exist_ok=True)
         with file.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps({
-                "codepoint": k.codepoint,
-                "typed": k.typed,
-                "t_ns": k.t_ns,
-                "correct": k.correct,
-            }))
+            fh.write(
+                json.dumps(
+                    {
+                        "codepoint": k.codepoint,
+                        "typed": k.typed,
+                        "t_ns": k.t_ns,
+                        "correct": k.correct,
+                    }
+                )
+            )
             fh.write("\n")
 
     def save_header(self, header: SessionResult) -> None:
@@ -120,14 +124,8 @@ def _as_float(v: object) -> float:
     return float(v)  # type: ignore[arg-type]
 
 
-_LEGACY_MODES = frozenset({"free", "code", "sample"})
-
-
 def _parse_mode(raw: object) -> Mode:
-    value = str(raw)
-    if value in _LEGACY_MODES:
-        return Mode.ADAPTIVE
-    return Mode(value)
+    return migrate_legacy_mode(str(raw))
 
 
 def _parse_key_confidence(raw: object) -> dict[int, float]:
@@ -158,5 +156,3 @@ def _header_from_dict(d: dict[str, object]) -> SessionResult:
         key_confidence=_parse_key_confidence(d.get("key_confidence", {})),
         target_speed_cpm=_as_int(d.get("target_speed_cpm", 0)),
     )
-
-

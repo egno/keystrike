@@ -25,13 +25,13 @@ _NS_PER_MS = 1e6
 
 @dataclass(slots=True)
 class RebuildAggregates:
-    """Replay the last N sessions (from settings) into the cache."""
+    """Command: replay the last N sessions (from settings) into the cache."""
 
     repo: SessionRepository
     cache: AggregatesCache
     settings_repo: SettingsRepository
 
-    def __call__(self, layout: str) -> dict[int, KeyStats]:
+    def __call__(self, layout: str) -> None:
         window = self.settings_repo.load().confidence_session_window
         headers = sorted(
             self.repo.iter_headers(layout),
@@ -41,16 +41,30 @@ class RebuildAggregates:
             [(header, self.repo.load_keystrokes(header.session_id)) for header in headers],
         )
         self.cache.put(layout, combined)
-        return combined.keys
 
-    def ensure(self, layout: str) -> dict[int, KeyStats]:
-        """Rebuild only when cache is missing or lacks transitions despite session history."""
+
+@dataclass(slots=True)
+class EnsureAggregates:
+    """Query: current per-key aggregates for a layout.
+
+    Rebuilds first (via ``rebuild``) only when the cache is missing or lacks
+    transitions despite session history — callers never have to decide
+    whether a rebuild is needed themselves.
+    """
+
+    repo: SessionRepository
+    cache: AggregatesCache
+    rebuild: RebuildAggregates
+
+    def __call__(self, layout: str) -> Mapping[int, KeyStats]:
         cached = self.cache.get(layout)
         if cached is not None and cached.transitions:
             return cached.keys
         if cached is not None and not any(self.repo.iter_headers(layout)):
             return cached.keys
-        return self(layout)
+        self.rebuild(layout)
+        rebuilt = self.cache.get(layout)
+        return rebuilt.keys if rebuilt is not None else {}
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,10 +142,7 @@ def _normalize_speed_to_current_goal(
 ) -> float:
     if stored_target_cpm <= 0 or current_target_cpm <= 0:
         return speed
-    return speed * (
-        target_ms_per_char(current_target_cpm)
-        / target_ms_per_char(stored_target_cpm)
-    )
+    return speed * (target_ms_per_char(current_target_cpm) / target_ms_per_char(stored_target_cpm))
 
 
 def _aggregate_speed_accuracy(
@@ -205,10 +216,8 @@ def _metric_trends(
     confidences: list[float] = []
     for rel_i, header in enumerate(ordered):
         abs_i = start_offset + rel_i
-        window_headers = all_headers[max(0, abs_i - window + 1):abs_i + 1]
-        sessions = [
-            (h, repo.load_keystrokes(h.session_id)) for h in window_headers
-        ]
+        window_headers = all_headers[max(0, abs_i - window + 1) : abs_i + 1]
+        sessions = [(h, repo.load_keystrokes(h.session_id)) for h in window_headers]
         combined = combine_sessions(sessions).keys
 
         if header.target_speed_cpm > 0:
@@ -218,9 +227,7 @@ def _metric_trends(
 
         if codepoint is not None:
             key_stats = combined.get(codepoint)
-            if key_stats is None or (
-                key_stats.samples == 0 and key_stats.error_count == 0
-            ):
+            if key_stats is None or (key_stats.samples == 0 and key_stats.error_count == 0):
                 speeds.append(0.0)
                 accuracies.append(0.0)
                 confidences.append(0.0)
@@ -237,7 +244,10 @@ def _metric_trends(
             )
             accuracy = round_confidence(accuracy_of(key_stats))
             confidence = confidence_of(
-                codepoint, combined, session_target, min_attempts=min_attempts,
+                codepoint,
+                combined,
+                session_target,
+                min_attempts=min_attempts,
             )
         else:
             speed, accuracy = _aggregate_speed_accuracy(combined, session_target)
@@ -249,7 +259,9 @@ def _metric_trends(
                 ),
             )
             confidence = _aggregate_confidence(
-                combined, session_target, min_attempts,
+                combined,
+                session_target,
+                min_attempts,
             )
 
         speeds.append(speed)

@@ -79,8 +79,9 @@ Each `[[keys]]` table:
 | `hand` | yes | string | `L` or `R`. |
 | `shifted` | no | boolean | Default `false`. Stored on the key model; bundled layouts leave this unset. |
 
-`learn_order` controls which keys unlock first after the initial
-[alphabet_size](Confidence-Tuning) force-unlock. Bundled layouts use English
+`learn_order` controls which keys unlock first after the initial force-unlock
+(**Letters unlocked up front** in Settings; see
+[README — Settings](https://github.com/egno/keystrike#settings)). Bundled layouts use English
 letter frequency (`etaoinshrdlcumwfgypbvkjxqz`, then punctuation, then space).
 Custom layouts can follow the same idea or any order that matches your curriculum.
 

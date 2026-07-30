@@ -6,6 +6,7 @@ from textual.binding import BindingType
 from keystrike.application.prepare_practice import PreparePracticeSession
 from keystrike.application.session_use_cases import (
     FinishSession,
+    GetSessionBaseline,
     RecordKeystroke,
     StartSession,
 )
@@ -50,6 +51,7 @@ class KeystrikeApp(App[None]):
         settings_repo: SettingsRepository,
         layout_repo: LayoutRepository,
         prepare_practice: PreparePracticeSession,
+        get_session_baseline: GetSessionBaseline,
         rebuild_aggregates: StatsRebuilder,
         get_heatmap: GetHeatmap,
         get_history: GetHistory,
@@ -71,6 +73,7 @@ class KeystrikeApp(App[None]):
         self._settings_repo = settings_repo
         self._layout_repo = layout_repo
         self._prepare_practice = prepare_practice
+        self._get_session_baseline = get_session_baseline
         self._rebuild_aggregates = rebuild_aggregates
         self._get_heatmap = get_heatmap
         self._get_history = get_history
@@ -108,6 +111,7 @@ class KeystrikeApp(App[None]):
             clock=self._clock,
             initial=initial,
             prepare_next=self._prepare_practice,
+            get_session_baseline=self._get_session_baseline,
             rebuild_aggregates=self._rebuild_aggregates,
             get_daily_learn_budget=self._get_daily_learn_budget,
         )
