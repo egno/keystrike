@@ -59,7 +59,7 @@ class KeystrikeApp(App[None]):
         self.push_screen(PracticeScreen(services=self._practice, initial=initial))
 
     def on_home_screen_open_stats(self, _: HomeScreen.OpenStats) -> None:
-        settings = self._stats.settings_repo.load()
+        settings = self._home.settings_repo.load()
         self.push_screen(
             StatsScreen(
                 layout=settings.layout,

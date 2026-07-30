@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 
 from keystrike.domain.aggregate import combine_sessions, per_key_deltas
@@ -215,14 +215,20 @@ def _windowed_session_replays(
         yield header, combined, session_target
 
 
-def _key_metric_trends(
+def _accumulate_windowed_trends(
     repo: SessionRepository,
     settings_repo: SettingsRepository,
     layout: str,
-    codepoint: int,
-    *,
-    current_target_speed_cpm: int = 0,
+    current_target_speed_cpm: int,
+    compute: Callable[[Mapping[int, KeyStats], float, int], tuple[float, float, float]],
 ) -> tuple[list[float], list[float], list[float]]:
+    """Shared windowed-replay accumulation for per-session trend lines.
+
+    ``compute`` receives the combined per-key stats, the session's own target
+    speed (ms/char), and the settings' min-confidence-attempts, and returns
+    (raw speed confidence, accuracy, confidence) for that session — the raw
+    speed is then normalized to the caller's current target goal.
+    """
     settings = settings_repo.load()
     window = settings.confidence_session_window
     fallback_target = target_ms_per_char(settings.target_speed_cpm)
@@ -244,21 +250,39 @@ def _key_metric_trends(
         window,
         fallback_target,
     ):
-        key_stats = combined.get(codepoint)
-        if key_stats is None or (key_stats.samples == 0 and key_stats.error_count == 0):
-            speeds.append(0.0)
-            accuracies.append(0.0)
-            confidences.append(0.0)
-            continue
-        raw_speed = round_confidence(
-            key_confidence(session_target, key_stats.mean_time_ns),
-        )
+        raw_speed, accuracy, confidence = compute(combined, session_target, min_attempts)
         speed = round_confidence(
             _normalize_speed_to_current_goal(
                 raw_speed,
                 header.target_speed_cpm,
                 current_target_speed_cpm,
             ),
+        )
+        speeds.append(speed)
+        accuracies.append(accuracy)
+        confidences.append(confidence)
+
+    return speeds, accuracies, confidences
+
+
+def _key_metric_trends(
+    repo: SessionRepository,
+    settings_repo: SettingsRepository,
+    layout: str,
+    codepoint: int,
+    *,
+    current_target_speed_cpm: int = 0,
+) -> tuple[list[float], list[float], list[float]]:
+    def compute(
+        combined: Mapping[int, KeyStats],
+        session_target: float,
+        min_attempts: int,
+    ) -> tuple[float, float, float]:
+        key_stats = combined.get(codepoint)
+        if key_stats is None or (key_stats.samples == 0 and key_stats.error_count == 0):
+            return 0.0, 0.0, 0.0
+        raw_speed = round_confidence(
+            key_confidence(session_target, key_stats.mean_time_ns),
         )
         accuracy = round_confidence(accuracy_of(key_stats))
         confidence = confidence_of(
@@ -267,12 +291,15 @@ def _key_metric_trends(
             session_target,
             min_attempts=min_attempts,
         )
+        return raw_speed, accuracy, confidence
 
-        speeds.append(speed)
-        accuracies.append(accuracy)
-        confidences.append(confidence)
-
-    return speeds, accuracies, confidences
+    return _accumulate_windowed_trends(
+        repo,
+        settings_repo,
+        layout,
+        current_target_speed_cpm,
+        compute,
+    )
 
 
 def _aggregate_metric_trends(
@@ -282,46 +309,22 @@ def _aggregate_metric_trends(
     *,
     current_target_speed_cpm: int = 0,
 ) -> tuple[list[float], list[float], list[float]]:
-    settings = settings_repo.load()
-    window = settings.confidence_session_window
-    fallback_target = target_ms_per_char(settings.target_speed_cpm)
-    min_attempts = settings.min_confidence_attempts
-
-    all_headers = sorted(
-        repo.iter_headers(layout),
-        key=lambda h: h.started_at,
-    )
-    if not all_headers:
-        return [], [], []
-
-    speeds: list[float] = []
-    accuracies: list[float] = []
-    confidences: list[float] = []
-    for header, combined, session_target in _windowed_session_replays(
-        repo,
-        all_headers,
-        window,
-        fallback_target,
-    ):
+    def compute(
+        combined: Mapping[int, KeyStats],
+        session_target: float,
+        min_attempts: int,
+    ) -> tuple[float, float, float]:
         speed, accuracy = _aggregate_speed_accuracy(combined, session_target)
-        speed = round_confidence(
-            _normalize_speed_to_current_goal(
-                speed,
-                header.target_speed_cpm,
-                current_target_speed_cpm,
-            ),
-        )
-        confidence = _aggregate_confidence(
-            combined,
-            session_target,
-            min_attempts,
-        )
+        confidence = _aggregate_confidence(combined, session_target, min_attempts)
+        return speed, accuracy, confidence
 
-        speeds.append(speed)
-        accuracies.append(accuracy)
-        confidences.append(confidence)
-
-    return speeds, accuracies, confidences
+    return _accumulate_windowed_trends(
+        repo,
+        settings_repo,
+        layout,
+        current_target_speed_cpm,
+        compute,
+    )
 
 
 @dataclass(slots=True)

@@ -1,3 +1,4 @@
+import datetime as dt
 from collections.abc import Iterable, Iterator, Mapping
 from typing import Protocol
 
@@ -17,6 +18,7 @@ from .models import (
 class Clock(Protocol):
     def now_ns(self) -> int: ...
     def wall_epoch(self) -> float: ...
+    def local_tzinfo(self) -> dt.tzinfo: ...
 
 
 class IdGenerator(Protocol):

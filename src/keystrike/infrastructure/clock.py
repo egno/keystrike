@@ -1,3 +1,4 @@
+import datetime as dt
 import time
 
 
@@ -7,3 +8,6 @@ class MonotonicClock:
 
     def wall_epoch(self) -> float:
         return time.time()
+
+    def local_tzinfo(self) -> dt.tzinfo:
+        return dt.datetime.now().astimezone().tzinfo or dt.UTC

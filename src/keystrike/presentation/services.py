@@ -57,7 +57,6 @@ class PracticeServices:
 
 @dataclass(frozen=True, slots=True)
 class StatsServices:
-    settings_repo: SettingsRepository
     layout_repo: LayoutRepository
     rebuild_aggregates: StatsRebuilder
     get_heatmap: GetHeatmap

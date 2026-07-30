@@ -107,10 +107,10 @@ class SettingsScreen(Screen[None]):
         self._do_clear()
 
     def _collect_form_values(self) -> SettingsUpdate | None:
-        speed_raw = self.query_one("#settings-speed", Input).value
-        target_speed_value = self._parse_int_field(speed_raw)
+        target_speed_value = self._required_int(
+            "#settings-speed", "Target speed must be an integer."
+        )
         if target_speed_value is None:
-            self._show_error("Target speed must be an integer.")
             return None
 
         speed_unit_select = cast(
@@ -126,16 +126,16 @@ class SettingsScreen(Screen[None]):
             else target_speed_value
         )
 
-        alphabet_size_raw = self.query_one("#settings-alphabet-size", Input).value
-        alphabet_size = self._parse_int_field(alphabet_size_raw)
+        alphabet_size = self._required_int(
+            "#settings-alphabet-size", "Number of letters must be an integer."
+        )
         if alphabet_size is None:
-            self._show_error("Number of letters must be an integer.")
             return None
 
-        learn_daily_minutes_raw = self.query_one("#settings-learn-daily-minutes", Input).value
-        learn_daily_minutes = self._parse_int_field(learn_daily_minutes_raw)
+        learn_daily_minutes = self._required_int(
+            "#settings-learn-daily-minutes", "Daily learn minutes must be an integer."
+        )
         if learn_daily_minutes is None:
-            self._show_error("Daily learn minutes must be an integer.")
             return None
 
         layout_select = cast("Select[str]", self.query_one("#settings-layout", Select))
@@ -218,6 +218,12 @@ class SettingsScreen(Screen[None]):
 
     def _show_error(self, message: str) -> None:
         self.query_one("#settings-error", Static).update(f"[bold red]{message}[/]")
+
+    def _required_int(self, widget_id: str, error: str) -> int | None:
+        value = self._parse_int_field(self.query_one(widget_id, Input).value)
+        if value is None:
+            self._show_error(error)
+        return value
 
     @staticmethod
     def _parse_int_field(raw: str) -> int | None:

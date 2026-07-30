@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime as dt
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from itertools import count
@@ -22,12 +23,16 @@ class FakeClock:
 
     t_ns: int = 0
     wall: float = 1_700_000_000.0
+    tz: dt.tzinfo = dt.UTC
 
     def now_ns(self) -> int:
         return self.t_ns
 
     def wall_epoch(self) -> float:
         return self.wall
+
+    def local_tzinfo(self) -> dt.tzinfo:
+        return self.tz
 
     def advance(self, ns: int) -> None:
         self.t_ns += ns

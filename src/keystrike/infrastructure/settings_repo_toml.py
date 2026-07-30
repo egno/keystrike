@@ -12,6 +12,7 @@ from keystrike.domain.models import Settings
 
 from .atomic_write import atomic_write_text
 from .paths import Paths
+from .toml_escape import escape_toml_string
 
 
 def _fmt_scalar(v: object) -> str:
@@ -22,8 +23,7 @@ def _fmt_scalar(v: object) -> str:
     if isinstance(v, float):
         return repr(v)
     if isinstance(v, str):
-        escaped = v.replace("\\", "\\\\").replace('"', '\\"')
-        return f'"{escaped}"'
+        return f'"{escape_toml_string(v)}"'
     raise TypeError(f"unsupported settings value type: {type(v).__name__}")
 
 

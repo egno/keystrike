@@ -43,7 +43,6 @@ def _build_screen(
     return StatsScreen(
         layout=layout,
         services=StatsServices(
-            settings_repo=settings_repo,
             layout_repo=layout_repo,
             rebuild_aggregates=RebuildAggregates(
                 repo=repo,

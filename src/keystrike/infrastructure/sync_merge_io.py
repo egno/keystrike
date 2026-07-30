@@ -12,6 +12,7 @@ import shutil
 from pathlib import Path
 
 from keystrike.domain.sync_merge import (
+    SessionIndexEntry,
     decide_settings_winner,
     index_layouts,
     index_session_ids,
@@ -21,18 +22,25 @@ from keystrike.domain.sync_merge import (
 )
 
 
-def _read_index(path: Path) -> tuple[list[dict[str, object]], list[str]]:
-    """Load a sessions index file into parsed entries + matching raw lines."""
+def _read_index(path: Path) -> tuple[list[SessionIndexEntry], list[str]]:
+    """Load a sessions index file into parsed entries + matching raw lines.
+
+    Corrupt/truncated rows are skipped rather than aborting the whole sync.
+    """
     if not path.is_file():
         return [], []
-    entries: list[dict[str, object]] = []
+    entries: list[SessionIndexEntry] = []
     lines: list[str] = []
     with path.open(encoding="utf-8") as fh:
         for raw in fh:
             line = raw.strip()
             if not line:
                 continue
-            entries.append(json.loads(line))
+            try:
+                entry = SessionIndexEntry.from_dict(json.loads(line))
+            except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+                continue
+            entries.append(entry)
             lines.append(line)
     return entries, lines
 

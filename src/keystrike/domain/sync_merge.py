@@ -18,27 +18,34 @@ from dataclasses import dataclass
 from typing import Literal
 
 
-def _entry_str(entry: Mapping[str, object], key: str) -> str:
-    """Read a required string field off a parsed session-index entry."""
-    return str(entry[key])
+@dataclass(frozen=True, slots=True)
+class SessionIndexEntry:
+    """One parsed row of a sessions index file (`session_id`/`layout`/`started_at`)."""
+
+    session_id: str
+    layout: str
+    started_at: float
+
+    @classmethod
+    def from_dict(cls, raw: Mapping[str, object]) -> SessionIndexEntry:
+        started_at = raw["started_at"]
+        if not isinstance(started_at, (int, float)):
+            raise TypeError(f"expected numeric 'started_at', got {type(started_at).__name__}")
+        return cls(
+            session_id=str(raw["session_id"]),
+            layout=str(raw["layout"]),
+            started_at=float(started_at),
+        )
 
 
-def _entry_epoch(entry: Mapping[str, object], key: str) -> float:
-    """Read a required numeric (epoch seconds) field off a parsed session-index entry."""
-    value = entry[key]
-    if not isinstance(value, (int, float)):
-        raise TypeError(f"expected numeric {key!r}, got {type(value).__name__}")
-    return float(value)
-
-
-def index_session_ids(entries: Sequence[Mapping[str, object]]) -> set[str]:
+def index_session_ids(entries: Sequence[SessionIndexEntry]) -> set[str]:
     """Session ids present in a parsed sessions index."""
-    return {_entry_str(entry, "session_id") for entry in entries}
+    return {entry.session_id for entry in entries}
 
 
-def index_layouts(entries: Sequence[Mapping[str, object]]) -> set[str]:
+def index_layouts(entries: Sequence[SessionIndexEntry]) -> set[str]:
     """Distinct layout names referenced by a parsed sessions index."""
-    return {_entry_str(entry, "layout") for entry in entries}
+    return {entry.layout for entry in entries}
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,24 +61,23 @@ class SessionImportPlan:
 def plan_missing_sessions(
     *,
     local_session_ids: set[str],
-    remote_entries: Sequence[Mapping[str, object]],
+    remote_entries: Sequence[SessionIndexEntry],
     remote_lines: list[str],
 ) -> list[SessionImportPlan]:
     """Decide which remote sessions are missing locally and need importing.
 
-    `remote_entries`/`remote_lines` are the parsed-JSON and matching raw
-    (stripped) text of each line in the remote index, in file order. This does
-    not check whether the session's `.jsonl` file actually exists on disk —
-    the infrastructure executor skips any plan entry whose source file is
-    missing.
+    `remote_entries`/`remote_lines` are the parsed and matching raw (stripped)
+    text of each line in the remote index, in file order. This does not check
+    whether the session's `.jsonl` file actually exists on disk — the
+    infrastructure executor skips any plan entry whose source file is missing.
     """
     seen = set(local_session_ids)
     plans: list[SessionImportPlan] = []
     for entry, line in zip(remote_entries, remote_lines, strict=True):
-        session_id = _entry_str(entry, "session_id")
+        session_id = entry.session_id
         if session_id in seen:
             continue
-        started_at = _entry_epoch(entry, "started_at")
+        started_at = entry.started_at
         month = dt.datetime.fromtimestamp(started_at, tz=dt.UTC).strftime("%Y-%m")
         plans.append(
             SessionImportPlan(

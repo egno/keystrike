@@ -13,7 +13,7 @@ from pathlib import Path
 
 from keystrike.domain.models import SyncStatusReport
 from keystrike.domain.protocols import StatsRebuilder
-from keystrike.infrastructure.git_client import GitClient, GitSyncError
+from keystrike.infrastructure.git_client import GitClient, GitRunner, GitSyncError
 from keystrike.infrastructure.paths import Paths
 from keystrike.infrastructure.sync_merge_io import (
     copy_file_if_exists,
@@ -24,6 +24,7 @@ from keystrike.infrastructure.sync_merge_io import (
     read_index_session_ids,
     resolve_settings_lww,
 )
+from keystrike.infrastructure.toml_escape import escape_toml_string
 
 from .atomic_write import atomic_write_text
 
@@ -64,7 +65,7 @@ class SyncConfig:
 
 
 class GitSyncGateway:
-    def __init__(self, paths: Paths, *, client: GitClient | None = None) -> None:
+    def __init__(self, paths: Paths, *, client: GitRunner | None = None) -> None:
         self._paths = paths
         self._config_path = paths.sync_config_file
         self._clone_dir = paths.sync_clone_dir
@@ -131,15 +132,12 @@ class GitSyncGateway:
             only_clone=len(clone_ids - local_ids),
         )
 
-    def push_remote(self, message: str = "keystrike sync") -> bool:
-        return self._push_remote(message)
-
     def _load_config(self) -> SyncConfig:
         raw = tomllib.loads(self._config_path.read_text(encoding="utf-8"))
         return SyncConfig(remote_url=str(raw["remote_url"]))
 
     def _save_config(self, config: SyncConfig) -> None:
-        escaped = config.remote_url.replace("\\", "\\\\").replace('"', '\\"')
+        escaped = escape_toml_string(config.remote_url)
         atomic_write_text(self._config_path, f'remote_url = "{escaped}"\n')
 
     def _clone(self, url: str) -> None:

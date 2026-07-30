@@ -9,9 +9,22 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
+from typing import Protocol
 
 from .confidence import SESSION_RECENCY_DECAY, HasConfidenceFields, is_same_key_transition
-from .models import Bigram, KeyStats, Keystroke, LayoutAggregates, SessionResult, TransitionStats
+from .models import Bigram, KeyStats, Keystroke, LayoutAggregates, TransitionStats
+
+
+class SessionTiming(Protocol):
+    """Structural shape `aggregate_session`/`aggregate_transitions`/
+    `combine_sessions` need from a session header: only the fields required to
+    timestamp and weight aggregated stats, not a full persisted `SessionResult`."""
+
+    @property
+    def started_at(self) -> float: ...
+
+    @property
+    def duration_ns(self) -> int: ...
 
 
 @dataclass(slots=True)
@@ -45,7 +58,7 @@ def per_key_deltas(keystrokes: Iterable[Keystroke]) -> dict[int, list[int]]:
 
 
 def aggregate_session(
-    result: SessionResult,
+    result: SessionTiming,
     keystrokes: Iterable[Keystroke],
 ) -> dict[int, KeyStats]:
     partial: dict[int, _Partial] = {}
@@ -179,7 +192,7 @@ def _combine_transition_maps_weighted(
 
 
 def combine_sessions(
-    sessions: Sequence[tuple[SessionResult, Iterable[Keystroke]]],
+    sessions: Sequence[tuple[SessionTiming, Iterable[Keystroke]]],
     *,
     recency_decay: float = SESSION_RECENCY_DECAY,
 ) -> LayoutAggregates:
@@ -220,41 +233,6 @@ def infer_key_stat_attempt_count(samples: int, error_count: int, attempt_count: 
     return attempt_count
 
 
-def _merge_pair(a: HasConfidenceFields, b: HasConfidenceFields) -> MergedFields:
-    """Unweighted merge of two same-key stats: the weight=1.0 case of
-    `_weighted_merge_fields`."""
-    return _weighted_merge_fields([(a, 1.0), (b, 1.0)])
-
-
-def merge_key_stats(a: KeyStats, b: KeyStats) -> KeyStats:
-    if a.codepoint != b.codepoint:
-        raise ValueError(f"codepoint mismatch: {a.codepoint} vs {b.codepoint}")
-    merged = _merge_pair(a, b)
-    return KeyStats(
-        codepoint=a.codepoint,
-        samples=merged.samples,
-        mean_time_ns=merged.mean_time_ns,
-        error_count=merged.error_count,
-        last_seen=merged.last_seen,
-        attempt_count=merged.attempt_count,
-    )
-
-
-def combine(*maps: dict[int, KeyStats]) -> dict[int, KeyStats]:
-    out: dict[int, KeyStats] = {}
-    for m in maps:
-        for cp, k in m.items():
-            out[cp] = merge_key_stats(out[cp], k) if cp in out else k
-    return out
-
-
-def transition_key(prev_cp: int, next_cp: int) -> str:
-    """Display form of a bigram, e.g. `transition_key(ord("a"), ord("b")) ==
-    "ab"`. Internal transition dicts are keyed by `Bigram` instances, not this
-    string — use this only for display/logging."""
-    return Bigram(prev_cp, next_cp).chars()
-
-
 def without_same_key_transitions(
     transitions: Mapping[Bigram, TransitionStats],
 ) -> dict[Bigram, TransitionStats]:
@@ -290,7 +268,7 @@ def per_transition_deltas(keystrokes: Iterable[Keystroke]) -> dict[Bigram, list[
 
 
 def aggregate_transitions(
-    result: SessionResult,
+    result: SessionTiming,
     keystrokes: Iterable[Keystroke],
 ) -> dict[Bigram, TransitionStats]:
     partial: dict[Bigram, _Partial] = {}
@@ -334,28 +312,3 @@ def aggregate_transitions(
             for key, p in partial.items()
         }
     )
-
-
-def merge_transition_stats(a: TransitionStats, b: TransitionStats) -> TransitionStats:
-    if a.prev_cp != b.prev_cp or a.next_cp != b.next_cp:
-        raise ValueError(
-            f"transition mismatch: {a.prev_cp}→{a.next_cp} vs {b.prev_cp}→{b.next_cp}",
-        )
-    merged = _merge_pair(a, b)
-    return TransitionStats(
-        prev_cp=a.prev_cp,
-        next_cp=a.next_cp,
-        samples=merged.samples,
-        mean_time_ns=merged.mean_time_ns,
-        error_count=merged.error_count,
-        last_seen=merged.last_seen,
-        attempt_count=merged.attempt_count,
-    )
-
-
-def combine_transitions(*maps: dict[Bigram, TransitionStats]) -> dict[Bigram, TransitionStats]:
-    out: dict[Bigram, TransitionStats] = {}
-    for m in maps:
-        for key, t in m.items():
-            out[key] = merge_transition_stats(out[key], t) if key in out else t
-    return without_same_key_transitions(out)

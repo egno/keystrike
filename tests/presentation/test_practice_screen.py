@@ -130,7 +130,6 @@ def _build_app(
             get_daily_learn_budget=get_daily_learn_budget,
         ),
         stats=StatsServices(
-            settings_repo=settings_repo,
             layout_repo=layout_repo,
             rebuild_aggregates=rebuild_aggregates,
             get_heatmap=GetHeatmap(cache=cache, settings_repo=settings_repo, clock=clock),

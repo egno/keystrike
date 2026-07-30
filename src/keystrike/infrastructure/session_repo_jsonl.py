@@ -123,13 +123,19 @@ def _read_keystrokes(file: Path) -> Iterator[Keystroke]:
             line = raw.strip()
             if not line:
                 continue
-            d = json.loads(line)
-            yield Keystroke(
-                codepoint=d["codepoint"],
-                typed=d["typed"],
-                t_ns=d["t_ns"],
-                correct=d["correct"],
-            )
+            try:
+                d = json.loads(line)
+                keystroke = Keystroke(
+                    codepoint=d["codepoint"],
+                    typed=d["typed"],
+                    t_ns=d["t_ns"],
+                    correct=d["correct"],
+                )
+            except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+                # Skip a corrupt/truncated keystroke row (e.g. a crash mid-append)
+                # rather than aborting the whole session's keystroke stream.
+                continue
+            yield keystroke
 
 
 def _header_to_dict(h: SessionResult) -> dict[str, object]:

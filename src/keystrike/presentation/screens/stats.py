@@ -17,7 +17,11 @@ from keystrike.presentation.formatting.trends import (
     format_key_metric_trend_block,
 )
 from keystrike.presentation.services import StatsServices
-from keystrike.presentation.widgets.kb_heatmap import KbHeatmap
+from keystrike.presentation.widgets.kb_heatmap import (
+    HeatmapDisplay,
+    KbHeatmap,
+    build_heatmap_display,
+)
 
 _View = Literal["overview", "key_detail"]
 
@@ -72,9 +76,7 @@ class StatsScreen(Screen[None]):
         self.query_one("#stats-title", Static).update(title)
 
         self._kb_heatmap = KbHeatmap(
-            layout,
-            heatmap_view.confidence,
-            urgency=heatmap_view.urgency,
+            HeatmapDisplay(layout, heatmap_view.confidence, urgency=heatmap_view.urgency)
         )
         self.query_one(Vertical).mount(
             Static("[dim]vs current goal[/]", id="stats-heatmap-caption"),
@@ -170,9 +172,11 @@ class StatsScreen(Screen[None]):
         self._render_overview()
         KbHeatmap.update_or_none(
             self._kb_heatmap,
-            self._layout,
-            self._heatmap.confidence if self._heatmap is not None else None,
-            urgency=self._heatmap.urgency if self._heatmap is not None else None,
+            build_heatmap_display(
+                self._layout,
+                self._heatmap.confidence if self._heatmap is not None else None,
+                urgency=self._heatmap.urgency if self._heatmap is not None else None,
+            ),
         )
 
     def _show_key_detail(self, codepoint: int) -> None:
@@ -180,8 +184,10 @@ class StatsScreen(Screen[None]):
         self._render_key_detail(codepoint)
         KbHeatmap.update_or_none(
             self._kb_heatmap,
-            self._layout,
-            self._heatmap.confidence if self._heatmap is not None else None,
-            focus=codepoint,
-            urgency=self._heatmap.urgency if self._heatmap is not None else None,
+            build_heatmap_display(
+                self._layout,
+                self._heatmap.confidence if self._heatmap is not None else None,
+                focus=codepoint,
+                urgency=self._heatmap.urgency if self._heatmap is not None else None,
+            ),
         )

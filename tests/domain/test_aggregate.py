@@ -1,16 +1,12 @@
 from keystrike.domain.aggregate import (
+    _combine_key_maps_weighted,
     _combine_transition_maps_weighted,
     aggregate_session,
     aggregate_transitions,
-    combine,
     combine_sessions,
-    combine_transitions,
-    merge_key_stats,
-    merge_transition_stats,
     per_key_deltas,
     per_transition_deltas,
     session_recency_weights,
-    transition_key,
 )
 from keystrike.domain.confidence import (
     SESSION_RECENCY_DECAY,
@@ -19,7 +15,7 @@ from keystrike.domain.confidence import (
     transition_confidence_of,
 )
 from keystrike.domain.enums import Mode
-from keystrike.domain.models import Bigram, KeyStats, Keystroke, SessionResult, TransitionStats
+from keystrike.domain.models import Bigram, Keystroke, SessionResult, TransitionStats
 
 
 def _session(
@@ -120,29 +116,6 @@ def test_per_key_deltas_separates_by_codepoint():
     assert deltas[ord("b")] == [50_000_000]
 
 
-def test_merge_weighted_mean():
-    a = KeyStats(codepoint=ord("x"), samples=2, mean_time_ns=100.0, error_count=1, last_seen=100.0)
-    b = KeyStats(codepoint=ord("x"), samples=3, mean_time_ns=200.0, error_count=2, last_seen=200.0)
-    m = merge_key_stats(a, b)
-    assert m.samples == 5
-    # (2*100 + 3*200) / 5 = 160
-    assert abs(m.mean_time_ns - 160.0) < 1e-9
-    assert m.error_count == 3
-    assert m.last_seen == 200.0
-
-
-def test_combine_multiple_maps():
-    a = {ord("x"): KeyStats(ord("x"), 1, 100.0, 0, 1.0)}
-    b = {
-        ord("x"): KeyStats(ord("x"), 1, 300.0, 1, 2.0),
-        ord("y"): KeyStats(ord("y"), 2, 50.0, 0, 3.0),
-    }
-    out = combine(a, b)
-    assert out[ord("x")].samples == 2
-    assert abs(out[ord("x")].mean_time_ns - 200.0) < 1e-9
-    assert out[ord("y")].samples == 2
-
-
 def test_session_recency_weights_newest_is_one():
     assert session_recency_weights(1) == [1.0]
     assert session_recency_weights(3) == [
@@ -202,9 +175,12 @@ def test_combine_sessions_recent_errors_weigh_more_on_confidence():
         Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=150_000_000, correct=True),
     ]
     stats = combine_sessions([(s1, keys1), (s2, keys2)]).keys
-    equal_weight = combine(
-        {ord("a"): aggregate_session(s1, keys1)[ord("a")]},
-        {ord("a"): aggregate_session(s2, keys2)[ord("a")]},
+    equal_weight = _combine_key_maps_weighted(
+        [
+            {ord("a"): aggregate_session(s1, keys1)[ord("a")]},
+            {ord("a"): aggregate_session(s2, keys2)[ord("a")]},
+        ],
+        [1.0, 1.0],
     )
     assert confidence_of(ord("a"), stats, target=200.0) < confidence_of(
         ord("a"),
@@ -281,39 +257,12 @@ def test_aggregate_transitions_skips_error_on_first_keystroke():
     assert transitions == {}
 
 
-def test_merge_transition_stats_weighted_mean():
-    a = TransitionStats(ord("a"), ord("b"), 2, 100.0, 1, 100.0)
-    b = TransitionStats(ord("a"), ord("b"), 3, 200.0, 2, 200.0)
-    merged = merge_transition_stats(a, b)
-    assert merged.samples == 5
-    assert abs(merged.mean_time_ns - 160.0) < 1e-9
-    assert merged.error_count == 3
-
-
-def test_combine_transitions_multiple_maps():
-    ab_key = Bigram(ord("a"), ord("b"))
-    bc_key = Bigram(ord("b"), ord("c"))
-    a = {ab_key: TransitionStats(ord("a"), ord("b"), 1, 100.0, 0, 1.0)}
-    b = {
-        ab_key: TransitionStats(ord("a"), ord("b"), 1, 300.0, 1, 2.0),
-        bc_key: TransitionStats(ord("b"), ord("c"), 2, 50.0, 0, 3.0),
-    }
-    out = combine_transitions(a, b)
-    assert out[ab_key].samples == 2
-    assert abs(out[ab_key].mean_time_ns - 200.0) < 1e-9
-    assert out[bc_key].samples == 2
-
-
-def test_combine_transitions_drops_same_key_pairs():
+def test_combine_transition_maps_weighted_drops_same_key_pairs():
     stale = {Bigram(ord("a"), ord("a")): TransitionStats(ord("a"), ord("a"), 1, 100.0, 0, 1.0)}
     valid = {Bigram(ord("a"), ord("b")): TransitionStats(ord("a"), ord("b"), 1, 100.0, 0, 1.0)}
-    out = combine_transitions(stale, valid)
+    out = _combine_transition_maps_weighted([stale, valid], [1.0, 1.0])
     assert Bigram(ord("a"), ord("a")) not in out
     assert Bigram(ord("a"), ord("b")) in out
-
-
-def test_transition_key_format():
-    assert transition_key(ord("a"), ord("b")) == "ab"
 
 
 def test_combine_sessions_keeps_transition_samples_when_weight_rounds_down():

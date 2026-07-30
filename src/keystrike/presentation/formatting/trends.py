@@ -483,14 +483,12 @@ def _format_metric_delta(
     current: float,
     previous: float,
     *,
-    higher_is_better: bool = True,
     suffix: str = "",
 ) -> str:
     delta = current - previous
     if round(abs(delta), 1) == 0:
         return ""
-    improved = delta > 0 if higher_is_better else delta < 0
-    color = STYLE_DELTA_IMPROVE if improved else STYLE_DELTA_REGRESS
+    color = STYLE_DELTA_IMPROVE if delta > 0 else STYLE_DELTA_REGRESS
     arrow = "↑" if delta > 0 else "↓"
     return f" [{color}]{arrow}{abs(delta):.1f}{suffix}[/]"
 

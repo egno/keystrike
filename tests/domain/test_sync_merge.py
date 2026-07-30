@@ -1,4 +1,5 @@
 from keystrike.domain.sync_merge import (
+    SessionIndexEntry,
     decide_settings_winner,
     index_layouts,
     index_session_ids,
@@ -10,19 +11,8 @@ from keystrike.domain.sync_merge import (
 
 def _entry(
     sid: str, started_at: float = 1_700_000_000.0, layout: str = "qwerty"
-) -> dict[str, object]:
-    return {
-        "schema_version": 1,
-        "session_id": sid,
-        "started_at": started_at,
-        "duration_ns": 1,
-        "layout": layout,
-        "mode": "adaptive",
-        "lesson_alphabet": [97],
-        "focus_key": None,
-        "total_keystrokes": 1,
-        "correct_keystrokes": 1,
-    }
+) -> SessionIndexEntry:
+    return SessionIndexEntry(session_id=sid, layout=layout, started_at=started_at)
 
 
 def test_index_session_ids_extracts_ids():

@@ -1,7 +1,7 @@
 from collections.abc import Iterable
 from dataclasses import dataclass, field, replace
 
-from keystrike.domain.aggregate import combine_sessions, session_recency_weights
+from keystrike.domain.aggregate import SessionTiming, combine_sessions, session_recency_weights
 from keystrike.domain.confidence import (
     confidence_of,
     target_ms_per_char,
@@ -114,6 +114,15 @@ class RecordKeystroke:
         return session.finished
 
 
+@dataclass(frozen=True, slots=True)
+class _DraftTiming:
+    """Minimal `SessionTiming` for an in-progress session not yet persisted as
+    a `SessionResult` — only what `combine_sessions` actually reads."""
+
+    started_at: float
+    duration_ns: int
+
+
 def _snapshot_unlock_state(
     session: Session,
     duration_ns: int,
@@ -124,24 +133,12 @@ def _snapshot_unlock_state(
 ) -> tuple[tuple[int, ...], dict[int, float]]:
     settings = settings_repo.load()
     layout = layout_repo.get(session.layout)
-    draft = SessionResult(
-        schema_version=3,
-        session_id=session.id,
-        started_at=session.started_at_wall,
-        duration_ns=duration_ns,
-        layout=session.layout,
-        mode=session.mode,
-        lesson_alphabet=(),
-        focus_key=session.focus_key,
-        total_keystrokes=session.total_count,
-        correct_keystrokes=session.correct_count,
-        lang=session.lang,
-    )
+    draft = _DraftTiming(started_at=session.started_at_wall, duration_ns=duration_ns)
     prior_headers = sorted(
         repo.iter_headers(session.layout),
         key=lambda h: h.started_at,
     )[-(settings.confidence_session_window - 1) :]
-    sessions: list[tuple[SessionResult, Iterable[Keystroke]]] = [
+    sessions: list[tuple[SessionTiming, Iterable[Keystroke]]] = [
         (header, repo.load_keystrokes(header.session_id)) for header in prior_headers
     ]
     sessions.append((draft, session.keystrokes))

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
+from typing import Protocol
 
 # Network-bound git ops (clone/pull/push) can otherwise hang indefinitely
 # waiting on credentials, freezing the whole TUI.
@@ -23,6 +24,21 @@ class GitSyncError(RuntimeError):
     def __init__(self, message: str, *, stderr: str = "") -> None:
         super().__init__(message)
         self.stderr = stderr
+
+
+class GitRunner(Protocol):
+    """Shape of `GitClient` as consumed by `GitSyncGateway` — an infra-internal
+    seam so tests can fake git subprocess calls without subclassing `GitClient`."""
+
+    def clone(self, url: str, dest: Path) -> None: ...
+    def init(self, cwd: Path) -> None: ...
+    def add_remote(self, cwd: Path, url: str) -> None: ...
+    def pull_ff_only(self, cwd: Path) -> None: ...
+    def add(self, cwd: Path, *paths: str) -> None: ...
+    def commit(self, cwd: Path, message: str) -> None: ...
+    def push(self, cwd: Path) -> None: ...
+    def status_porcelain(self, cwd: Path) -> str: ...
+    def status_short(self, cwd: Path) -> str: ...
 
 
 class GitClient:

@@ -3,7 +3,7 @@ import pytest
 from keystrike.domain.enums import Mode
 from keystrike.domain.models import Keystroke, SessionResult
 from keystrike.infrastructure.paths import Paths
-from keystrike.infrastructure.session_repo_jsonl import JsonlSessionRepository
+from keystrike.infrastructure.session_repo_jsonl import JsonlSessionRepository, _session_file
 
 
 @pytest.fixture
@@ -199,6 +199,29 @@ def test_append_keystrokes_bulk_writes_all_in_one_open(paths):
     ks = list(repo2.load_keystrokes("S3"))
     assert [k.codepoint for k in ks] == [ord("a"), ord("b"), ord("c")]
     assert ks[2].correct is False
+
+
+def test_corrupt_keystroke_line_is_skipped_not_fatal(paths):
+    repo = JsonlSessionRepository(paths)
+    header = _header(sid="S6")
+    repo.append_keystroke(
+        header.session_id,
+        header.started_at,
+        Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
+    )
+    with _session_file(paths, header).open("a", encoding="utf-8") as fh:
+        fh.write("{not valid json\n")
+        fh.write('{"codepoint": 1}\n')  # valid JSON, missing required fields
+    repo.append_keystroke(
+        header.session_id,
+        header.started_at,
+        Keystroke(codepoint=ord("b"), typed=ord("b"), t_ns=100, correct=True),
+    )
+    repo.save_header(header)
+
+    repo2 = JsonlSessionRepository(paths)
+    ks = list(repo2.load_keystrokes("S6"))
+    assert [k.codepoint for k in ks] == [ord("a"), ord("b")]
 
 
 def test_load_keystrokes_scan_fallback_when_sessions_dir_missing(tmp_path):

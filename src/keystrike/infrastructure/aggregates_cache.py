@@ -31,6 +31,34 @@ def _coerce_attempt_count(entry: dict[str, object], samples: int) -> int:
     return infer_key_stat_attempt_count(samples, errors, stored)
 
 
+def _parse_transition_entry(entry: dict[str, object]) -> tuple[Bigram, TransitionStats]:
+    samples = _coerce_samples(entry)
+    return Bigram(
+        require_int(entry, "prev_cp"),
+        require_int(entry, "next_cp"),
+    ), TransitionStats(
+        prev_cp=require_int(entry, "prev_cp"),
+        next_cp=require_int(entry, "next_cp"),
+        samples=samples,
+        mean_time_ns=require_float(entry, "mean_time_ns"),
+        error_count=require_int(entry, "error_count"),
+        last_seen=require_float(entry, "last_seen"),
+        attempt_count=_coerce_attempt_count(entry, samples),
+    )
+
+
+def _parse_key_entry(cp: str, entry: dict[str, object]) -> KeyStats:
+    samples = _coerce_samples(entry)
+    return KeyStats(
+        codepoint=int(cp),
+        samples=samples,
+        mean_time_ns=require_float(entry, "mean_time_ns"),
+        error_count=require_int(entry, "error_count"),
+        last_seen=require_float(entry, "last_seen"),
+        attempt_count=_coerce_attempt_count(entry, samples),
+    )
+
+
 class FileAggregatesCache:
     def __init__(self, paths: Paths) -> None:
         self._paths = paths
@@ -47,41 +75,15 @@ class FileAggregatesCache:
             data = json.loads(file.read_text(encoding="utf-8"))
             keys = data.get("keys", {})
             transitions = data.get("transitions", {})
-
-            def _transition(entry: dict[str, object]) -> tuple[Bigram, TransitionStats]:
-                samples = _coerce_samples(entry)
-                return Bigram(
-                    require_int(entry, "prev_cp"),
-                    require_int(entry, "next_cp"),
-                ), TransitionStats(
-                    prev_cp=require_int(entry, "prev_cp"),
-                    next_cp=require_int(entry, "next_cp"),
-                    samples=samples,
-                    mean_time_ns=require_float(entry, "mean_time_ns"),
-                    error_count=require_int(entry, "error_count"),
-                    last_seen=require_float(entry, "last_seen"),
-                    attempt_count=_coerce_attempt_count(entry, samples),
-                )
-
-            def _key(cp: str, entry: dict[str, object]) -> KeyStats:
-                samples = _coerce_samples(entry)
-                return KeyStats(
-                    codepoint=int(cp),
-                    samples=samples,
-                    mean_time_ns=require_float(entry, "mean_time_ns"),
-                    error_count=require_int(entry, "error_count"),
-                    last_seen=require_float(entry, "last_seen"),
-                    attempt_count=_coerce_attempt_count(entry, samples),
-                )
-
-            parsed_transitions = dict(_transition(entry) for entry in transitions.values())
-            aggregates = LayoutAggregates(
-                keys={int(cp): _key(cp, entry) for cp, entry in keys.items()},
+            parsed_transitions = dict(
+                _parse_transition_entry(entry) for entry in transitions.values()
+            )
+            return LayoutAggregates(
+                keys={int(cp): _parse_key_entry(cp, entry) for cp, entry in keys.items()},
                 transitions=without_same_key_transitions(parsed_transitions),
             )
         except (json.JSONDecodeError, KeyError, TypeError, ValueError):
             return None
-        return aggregates
 
     def put(self, layout: str, aggregates: LayoutAggregates) -> None:
         transitions = without_same_key_transitions(aggregates.transitions)

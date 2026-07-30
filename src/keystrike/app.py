@@ -164,7 +164,6 @@ def build() -> KeystrikeApp:
             get_daily_learn_budget=get_daily_learn_budget,
         ),
         stats=StatsServices(
-            settings_repo=settings_repo,
             layout_repo=layout_repo,
             rebuild_aggregates=rebuild_aggregates,
             get_heatmap=get_heatmap,

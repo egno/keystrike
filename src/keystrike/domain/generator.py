@@ -39,6 +39,19 @@ class LessonWeighting:
             object.__setattr__(self, "words", tuple(self.words))
 
 
+@dataclass(frozen=True, slots=True)
+class WeightedWordlist:
+    """A wordlist paired with its precomputed per-word sampling weight.
+
+    Built once per lesson (weights depend on the fixed focus char/bigram for
+    that lesson) so ``words`` and ``weights`` can't drift out of index
+    alignment the way two independently-threaded parallel lists could.
+    """
+
+    words: tuple[str, ...]
+    weights: tuple[float, ...]
+
+
 def wordlist_weight_for_word(
     word: str,
     *,
@@ -94,11 +107,11 @@ class AdaptiveGenerator:
         alphabet: frozenset[str],
         weighting: LessonWeighting | None = None,
         *,
-        wordlist_weights: list[float] | None = None,
+        weighted_wordlist: WeightedWordlist | None = None,
     ) -> str:
         weighting = weighting or LessonWeighting()
         if weighting.words:
-            word = self._generate_word_from_wordlist(alphabet, weighting, wordlist_weights)
+            word = self._generate_word_from_wordlist(alphabet, weighting, weighted_wordlist)
             if word is not None:
                 return word
         return self._generate_word_via_markov(alphabet, weighting)
@@ -107,10 +120,10 @@ class AdaptiveGenerator:
         self,
         alphabet: frozenset[str],
         weighting: LessonWeighting,
-        wordlist_weights: list[float] | None,
+        weighted_wordlist: WeightedWordlist | None,
     ) -> str | None:
         """Sample a dictionary word, or None if it doesn't fit length/alphabet bounds."""
-        word = self._sample_from_wordlist(weighting, wordlist_weights)
+        word = self._sample_from_wordlist(weighting, weighted_wordlist)
         if MIN_WORD_LEN <= len(word) <= MAX_WORD_LEN and set(word) <= alphabet:
             return word
         return None
@@ -140,19 +153,22 @@ class AdaptiveGenerator:
         focus_bigram_str: str | None = None
         if focus_bigram is not None:
             focus_bigram_str = focus_bigram.chars()
-        wordlist_weights: list[float] | None = None
+        weighted_wordlist: WeightedWordlist | None = None
         if weighting.words and (weighting.char_weights or weighting.transition_weights):
-            wordlist_weights = [
-                wordlist_weight_for_word(
-                    w,
-                    weighting=weighting,
-                    focus_char=focus_char,
-                    focus_bigram=focus_bigram_str,
-                )
-                for w in weighting.words
-            ]
+            weighted_wordlist = WeightedWordlist(
+                words=weighting.words,
+                weights=tuple(
+                    wordlist_weight_for_word(
+                        w,
+                        weighting=weighting,
+                        focus_char=focus_char,
+                        focus_bigram=focus_bigram_str,
+                    )
+                    for w in weighting.words
+                ),
+            )
         lesson_words = [
-            self.generate_word(alphabet, weighting, wordlist_weights=wordlist_weights)
+            self.generate_word(alphabet, weighting, weighted_wordlist=weighted_wordlist)
             for _ in range(word_count)
         ]
         if focus_bigram is not None:
@@ -173,11 +189,13 @@ class AdaptiveGenerator:
     def _sample_from_wordlist(
         self,
         weighting: LessonWeighting,
-        wordlist_weights: list[float] | None = None,
+        weighted_wordlist: WeightedWordlist | None = None,
     ) -> str:
+        if weighted_wordlist is not None:
+            return self.rng.choices(
+                weighted_wordlist.words, weights=weighted_wordlist.weights, k=1
+            )[0]
         words = weighting.words or []
-        if wordlist_weights is not None:
-            return self.rng.choices(words, weights=wordlist_weights, k=1)[0]
         if not weighting.char_weights and not weighting.transition_weights:
             return self.rng.choice(words)
         weights = [wordlist_weight_for_word(w, weighting=weighting) for w in words]

@@ -274,16 +274,13 @@ def test_copy_file_if_exists_false_when_missing(tree: dict[str, Path]) -> None:
     assert not dest.exists()
 
 
-class _FakeGitClient(GitClient):
-    """Records calls and raises canned errors instead of shelling out to git."""
+class _FakeGitClient:
+    """Fakes the `GitRunner` seam: records calls, raises canned errors, no real git."""
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, ...]] = []
         self.clone_error: GitSyncError | None = None
         self.porcelain_status = " M settings.toml"
-
-    def run(self, *args: str, cwd: Path | None = None) -> str:  # pragma: no cover
-        raise AssertionError(f"unexpected raw run() call: {args}")
 
     def clone(self, url: str, dest: Path) -> None:
         self.calls.append(("clone", url, str(dest)))

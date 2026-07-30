@@ -22,7 +22,7 @@ class GetDailyLearnBudget:
     tz: dt.tzinfo | None = None
 
     def __call__(self, *, extra_ns: int = 0) -> DailyLearnBudget:
-        tz = self.tz or dt.datetime.now().astimezone().tzinfo or dt.UTC
+        tz = self.tz or self.clock.local_tzinfo()
         today = session_local_date(self.clock.wall_epoch(), tz)
         completed_ns = daily_learn_duration_ns(self.repo.iter_all_headers(), today, tz=tz)
         limit_minutes = self.settings_repo.load().learn_daily_minutes

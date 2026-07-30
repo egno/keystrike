@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.widget import Widget
@@ -72,27 +74,59 @@ def _key_style(
     return style
 
 
-def render_heatmap(
-    layout: Layout,
-    heatmap: dict[int, float],
+@dataclass(frozen=True, slots=True)
+class HeatmapDisplay:
+    """Everything needed to render/refresh a keyboard heatmap, bundled so it
+    travels as one value instead of five loose, always-parallel parameters."""
+
+    layout: Layout
+    heatmap: dict[int, float]
+    focus: int | None = None
+    urgency: dict[int, float] | None = None
+    focus_transition: tuple[int, int] | None = None
+
+
+def build_heatmap_display(
+    layout: Layout | None,
+    heatmap: dict[int, float] | None,
+    *,
     focus: int | None = None,
     urgency: dict[int, float] | None = None,
-    *,
     focus_transition: tuple[int, int] | None = None,
-) -> Text:
+) -> HeatmapDisplay | None:
+    """`HeatmapDisplay(...)`, or None if the layout/heatmap data isn't ready yet."""
+    if layout is None or heatmap is None:
+        return None
+    return HeatmapDisplay(
+        layout,
+        heatmap,
+        focus=focus,
+        urgency=urgency,
+        focus_transition=focus_transition,
+    )
+
+
+def render_heatmap(display: HeatmapDisplay) -> Text:
     """Render the layout's alpha rows as a 3x10 ASCII grid, colored by confidence.
 
     Staggered (traditional) layouts get a 2-space indent per row, approximating
     the physical row-shift of a regular keyboard. Ortholinear layouts render
     with columns aligned instead — there's no physical stagger to show.
 
-    `focus`, if given, adds an underline on top of the key's confidence color —
-    cyan when mastered (confidence >= 1.0), plain underline when still weak.
-    Used by Practice to call out today's lesson focus without hiding yellow/red.
+    `display.focus`, if given, adds an underline on top of the key's confidence
+    color — cyan when mastered (confidence >= 1.0), plain underline when still
+    weak. Used by Practice to call out today's lesson focus without hiding
+    yellow/red.
 
     Keys with review urgency > 0 get a magenta underline on top of their
     confidence color so stale-but-mastered keys stand apart from merely weak ones.
     """
+    layout = display.layout
+    heatmap = display.heatmap
+    focus = display.focus
+    urgency = display.urgency
+    focus_transition = display.focus_transition
+
     grid: list[list[tuple[str, str] | None]] = [[None] * _COLS for _ in range(_ROWS)]
     for cp, pos in layout.keys.items():
         if pos.row >= _ROWS:
@@ -171,79 +205,24 @@ class KbHeatmap(Widget):
     }
     """
 
-    def __init__(
-        self,
-        layout: Layout,
-        heatmap: dict[int, float],
-        *,
-        focus: int | None = None,
-        urgency: dict[int, float] | None = None,
-        focus_transition: tuple[int, int] | None = None,
-    ) -> None:
+    def __init__(self, display: HeatmapDisplay) -> None:
         super().__init__()
-        self._layout = layout
-        self._heatmap = heatmap
-        self._focus = focus
-        self._urgency = urgency
-        self._focus_transition = focus_transition
+        self._display = display
 
     def compose(self) -> ComposeResult:
-        yield Static(
-            render_heatmap(
-                self._layout,
-                self._heatmap,
-                self._focus,
-                self._urgency,
-                focus_transition=self._focus_transition,
-            ),
-            id="kb-heatmap-text",
-        )
+        yield Static(render_heatmap(self._display), id="kb-heatmap-text")
 
-    def refresh_heatmap(
-        self,
-        layout: Layout,
-        heatmap: dict[int, float],
-        *,
-        focus: int | None = None,
-        urgency: dict[int, float] | None = None,
-        focus_transition: tuple[int, int] | None = None,
-    ) -> None:
-        self._layout = layout
-        self._heatmap = heatmap
-        self._focus = focus
-        self._urgency = urgency
-        self._focus_transition = focus_transition
-        self.query_one("#kb-heatmap-text", Static).update(
-            render_heatmap(
-                layout,
-                heatmap,
-                focus,
-                urgency,
-                focus_transition=focus_transition,
-            ),
-        )
+    def refresh_heatmap(self, display: HeatmapDisplay) -> None:
+        self._display = display
+        self.query_one("#kb-heatmap-text", Static).update(render_heatmap(display))
 
     @staticmethod
-    def update_or_none(
-        widget: "KbHeatmap | None",
-        layout: Layout | None,
-        heatmap: dict[int, float] | None,
-        *,
-        focus: int | None = None,
-        urgency: dict[int, float] | None = None,
-        focus_transition: tuple[int, int] | None = None,
-    ) -> None:
+    def update_or_none(widget: "KbHeatmap | None", display: HeatmapDisplay | None) -> None:
         """Refresh `widget` if it and the required layout/heatmap data are present.
 
-        Centralizes the "if self._kb_heatmap is not None and layout/heatmap
-        present" guard that would otherwise be duplicated at every call site.
+        Centralizes the "if self._kb_heatmap is not None and display present"
+        guard that would otherwise be duplicated at every call site.
         """
-        if widget is None or layout is None or heatmap is None:
+        if widget is None or display is None:
             return
-        widget.refresh_heatmap(
-            layout,
-            heatmap,
-            focus=focus,
-            urgency=urgency,
-            focus_transition=focus_transition,
-        )
+        widget.refresh_heatmap(display)
