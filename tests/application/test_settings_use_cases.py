@@ -7,8 +7,16 @@ from keystrike.application.settings_use_cases import (
 )
 from keystrike.domain.enums import TargetSpeedUnit
 from keystrike.domain.models import Settings
-from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS
+from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS, CompositeLayoutRepository
+from keystrike.infrastructure.paths import Paths
 from tests.fakes import FakeLayoutRepository, FakeSettingsRepository
+
+
+@pytest.fixture
+def paths(tmp_path):
+    return Paths(
+        config_dir=tmp_path / "config", data_dir=tmp_path / "data", log_dir=tmp_path / "log",
+    )
 
 
 def test_update_settings_persists_all_fields():
@@ -128,3 +136,20 @@ def test_cycle_layout_noop_with_fewer_than_two_layouts():
     result = cycle()
 
     assert result.layout == "qwerty"
+
+
+def test_cycle_layout_includes_custom_toml_layout(paths):
+    paths.layouts_dir.mkdir(parents=True)
+    (paths.layouts_dir / "myown.toml").write_text(
+        'name = "myown"\nlearn_order = "a"\n\n'
+        '[[keys]]\nchar = "a"\nrow = 1\ncol = 0\nfinger = "PINKY"\nhand = "L"\n',
+        encoding="utf-8",
+    )
+    layout_repo = CompositeLayoutRepository(paths)
+    repo = FakeSettingsRepository(Settings(layout="qwerty"))
+    cycle = CycleLayout(settings_repo=repo, layout_repo=layout_repo)
+
+    layouts_seen = {cycle().layout for _ in range(len(layout_repo.list_available()))}
+
+    assert "myown" in layouts_seen
+    assert layouts_seen == set(layout_repo.list_available())

@@ -60,7 +60,7 @@ class SettingsScreen(Screen[None]):
 
     def compose(self) -> ComposeResult:
         settings = self._settings_repo.load()
-        layouts = [(name, name) for name in self._layout_repo.list_available()]
+        layouts = self._layout_select_options()
         with Vertical():
             yield Static("[bold]Settings[/]  [dim](Ctrl+S save, Esc/q back)[/]")
             yield Label("Layout")
@@ -112,11 +112,13 @@ class SettingsScreen(Screen[None]):
         yield Footer()
 
     def on_mount(self) -> None:
+        self._refresh_layout_select()
         self._refresh_wordlist_status()
 
     def on_screen_resume(self) -> None:
         settings = self._settings_repo.load()
         self.query_one("#settings-alphabet-size", Input).value = str(settings.alphabet_size)
+        self._refresh_layout_select()
 
     def action_import_wordlist(self) -> None:
         self._do_import()
@@ -219,6 +221,16 @@ class SettingsScreen(Screen[None]):
         persisted = self._settings_repo.load().wordlist_url
         text = message or self._wordlist_status(persisted)
         self.query_one("#settings-wordlist-status", Static).update(text)
+
+    def _layout_select_options(self) -> list[tuple[str, str]]:
+        return [(name, name) for name in self._layout_repo.list_available()]
+
+    def _refresh_layout_select(self) -> None:
+        layout_select = cast("Select[str]", self.query_one("#settings-layout", Select))
+        current = layout_select.value
+        layout_select.set_options(self._layout_select_options())
+        if not isinstance(current, NoSelection):
+            layout_select.value = current
 
     def _show_error(self, message: str) -> None:
         self.query_one("#settings-error", Static).update(f"[bold red]{message}[/]")

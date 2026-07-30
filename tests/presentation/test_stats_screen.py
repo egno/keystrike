@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import cast
 
 import pytest
@@ -15,6 +16,7 @@ from keystrike.application.stats_use_cases import (
 from keystrike.domain.enums import Mode
 from keystrike.domain.models import Keystroke, SessionResult, Settings
 from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS
+from keystrike.infrastructure.layout_toml import load_layout_toml
 from keystrike.presentation.screens.stats import StatsScreen
 from tests.fakes import (
     FakeAggregatesCache,
@@ -23,16 +25,19 @@ from tests.fakes import (
     FakeSettingsRepository,
 )
 
+_LAYOUT_FIXTURES = Path(__file__).parent.parent / "infrastructure" / "fixtures" / "layouts"
+
 
 def _build_screen(
     repo: FakeSessionRepository,
     layout: str = "qwerty",
     *,
     settings: Settings | None = None,
+    layout_repo: FakeLayoutRepository | None = None,
 ) -> StatsScreen:
     cache = FakeAggregatesCache()
     settings_repo = FakeSettingsRepository(settings or Settings())
-    layout_repo = FakeLayoutRepository(dict(BUNDLED_LAYOUTS))
+    layout_repo = layout_repo or FakeLayoutRepository(dict(BUNDLED_LAYOUTS))
     return StatsScreen(
         layout=layout,
         layout_repo=layout_repo,
@@ -241,6 +246,21 @@ async def test_stats_title_omits_ortholinear_for_staggered_layout():
         await pilot.pause()
         title = str(app.screen.query_one("#stats-title", Static).content)
         assert "ortholinear" not in title
+
+
+@pytest.mark.asyncio
+async def test_stats_title_flags_custom_ortholinear_toml_layout():
+    custom = load_layout_toml(_LAYOUT_FIXTURES / "good_ortholinear.toml")
+    layout_repo = FakeLayoutRepository({**BUNDLED_LAYOUTS, "custom_ortho": custom})
+    app = App()
+    async with app.run_test() as pilot:
+        repo = FakeSessionRepository()
+        await app.push_screen(
+            _build_screen(repo, layout="custom_ortho", layout_repo=layout_repo),
+        )
+        await pilot.pause()
+        title = str(app.screen.query_one("#stats-title", Static).content)
+        assert "ortholinear" in title
 
 
 def _session_with_key_confidence(

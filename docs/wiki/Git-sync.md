@@ -145,7 +145,7 @@ Typical `{config_dir}` / `{data_dir}`:
 | --- | --- | --- |
 | Linux | `~/.config/keystrike/` | `~/.local/share/keystrike/` |
 | macOS | `~/Library/Application Support/keystrike/` | same tree under Application Support |
-| Windows | `%APPDATA%\keystrike\` | `%LOCALAPPDATA%\keystrike\` |
+| Windows | `%LOCALAPPDATA%\keystrike\` | same tree under Local AppData |
 
 `sync.toml` contains only the remote URL, for example:
 

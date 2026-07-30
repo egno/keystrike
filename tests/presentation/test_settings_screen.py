@@ -52,6 +52,35 @@ async def test_settings_screen_refreshes_alphabet_size_on_resume():
 
 
 @pytest.mark.asyncio
+async def test_settings_screen_refreshes_layout_select_on_resume():
+    app = App()
+    layout_repo = FakeLayoutRepository(dict(BUNDLED_LAYOUTS))
+    settings_repo = FakeSettingsRepository(Settings())
+    store = FakeWordListStore()
+    screen = SettingsScreen(
+        settings_repo=settings_repo,
+        layout_repo=layout_repo,
+        update_settings=UpdateSettings(repo=settings_repo),
+        import_wordlist=ImportWordList(store=store, settings_repo=settings_repo),
+        clear_wordlist=ClearWordList(settings_repo=settings_repo),
+        get_wordlist_cache_status=GetWordListCacheStatus(store=store),
+    )
+    async with app.run_test() as pilot:
+        await app.push_screen(screen)
+        await pilot.pause()
+
+        layout_repo.layouts["myown"] = BUNDLED_LAYOUTS["dvorak"]
+        screen.on_screen_resume()
+        await pilot.pause()
+
+        layout_select = app.screen.query_one("#settings-layout", Select)
+        option_values = sorted(
+            v for _, v in layout_select._options if isinstance(v, str)
+        )
+        assert "myown" in option_values
+
+
+@pytest.mark.asyncio
 async def test_save_persists_changes_and_pops_screen():
     app = App()
     async with app.run_test() as pilot:
@@ -77,6 +106,33 @@ async def test_save_persists_changes_and_pops_screen():
         assert settings_repo.settings.confidence_session_window == (
             Settings().confidence_session_window
         )
+        assert app.screen_stack[-1] is not screen
+
+
+@pytest.mark.asyncio
+async def test_save_persists_custom_layout_from_dropdown():
+    app = App()
+    layout_repo = FakeLayoutRepository(dict(BUNDLED_LAYOUTS))
+    layout_repo.layouts["myown"] = BUNDLED_LAYOUTS["dvorak"]
+    settings_repo = FakeSettingsRepository(Settings())
+    store = FakeWordListStore()
+    screen = SettingsScreen(
+        settings_repo=settings_repo,
+        layout_repo=layout_repo,
+        update_settings=UpdateSettings(repo=settings_repo),
+        import_wordlist=ImportWordList(store=store, settings_repo=settings_repo),
+        clear_wordlist=ClearWordList(settings_repo=settings_repo),
+        get_wordlist_cache_status=GetWordListCacheStatus(store=store),
+    )
+    async with app.run_test() as pilot:
+        await app.push_screen(screen)
+        await pilot.pause()
+
+        app.screen.query_one("#settings-layout", Select).value = "myown"
+        await pilot.press("ctrl+s")
+        await pilot.pause()
+
+        assert settings_repo.settings.layout == "myown"
         assert app.screen_stack[-1] is not screen
 
 

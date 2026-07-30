@@ -1,11 +1,14 @@
 from random import Random
 
+import pytest
+
 from keystrike.application.build_lesson import BuildLesson
 from keystrike.application.learn_budget_use_cases import GetDailyLearnBudget
 from keystrike.application.prepare_practice import PreparePracticeSession
 from keystrike.domain.enums import Mode
 from keystrike.domain.models import SessionResult, Settings
-from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS
+from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS, CompositeLayoutRepository
+from keystrike.infrastructure.paths import Paths
 from tests.fakes import (
     FakeAggregatesCache,
     FakeClock,
@@ -15,6 +18,13 @@ from tests.fakes import (
     FakeSettingsRepository,
     FakeWordListStore,
 )
+
+
+@pytest.fixture
+def paths(tmp_path):
+    return Paths(
+        config_dir=tmp_path / "config", data_dir=tmp_path / "data", log_dir=tmp_path / "log",
+    )
 
 
 def _prepare(*, settings: Settings | None = None) -> PreparePracticeSession:
@@ -89,3 +99,42 @@ def test_prepare_adaptive_still_builds_lesson_when_daily_goal_reached():
     prep = prepare()
     assert prep is not None
     assert prep.mode is Mode.ADAPTIVE
+
+
+def test_prepare_uses_custom_toml_layout(paths):
+    paths.layouts_dir.mkdir(parents=True)
+    (paths.layouts_dir / "myown.toml").write_text(
+        'name = "myown"\nlearn_order = "ab"\n\n'
+        '[[keys]]\nchar = "a"\nrow = 1\ncol = 0\nfinger = "PINKY"\nhand = "L"\n\n'
+        '[[keys]]\nchar = "b"\nrow = 1\ncol = 1\nfinger = "RING"\nhand = "L"\n',
+        encoding="utf-8",
+    )
+    layout_repo = CompositeLayoutRepository(paths)
+    settings_repo = FakeSettingsRepository(
+        Settings(layout="myown", alphabet_size=2),
+    )
+    prepare = PreparePracticeSession(
+        settings_repo=settings_repo,
+        layout_repo=layout_repo,
+        build_lesson=BuildLesson(
+            layout_repo=layout_repo,
+            aggregates_cache=FakeAggregatesCache(),
+            settings_repo=settings_repo,
+            language_provider=FakeLanguageProvider(),
+            wordlist_store=FakeWordListStore(),
+            rng=Random(0),
+        ),
+        get_daily_learn_budget=GetDailyLearnBudget(
+            clock=FakeClock(),
+            repo=FakeSessionRepository(),
+            settings_repo=settings_repo,
+        ),
+    )
+
+    prep = prepare()
+
+    assert prep is not None
+    assert prep.layout_obj is not None
+    assert prep.layout_obj.name == "myown"
+    assert prep.layout_obj.learn_order == (ord("a"), ord("b"))
+    assert prep.lesson_heatmap is not None
