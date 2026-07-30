@@ -24,7 +24,9 @@ from keystrike.domain.session import (
     BACKSPACE,
     Session,
     active_typing_duration_ns,
+    normalize_newline,
     note_keystroke_for_timer,
+    skip_leading_whitespace,
 )
 
 _SPARK = "▁▂▃▄▅▆▇█"
@@ -82,6 +84,9 @@ class RecordKeystroke:
         if len(char) != 1:
             return session.finished
 
+        if skip_leading_whitespace(session, char):
+            return session.finished
+
         # The timer doesn't start until the first real keystroke — no penalty
         # for time spent reading the prompt before typing.
         now_ns = self.clock.now_ns()
@@ -90,7 +95,9 @@ class RecordKeystroke:
         note_keystroke_for_timer(session, now_ns)
         t_ns = active_typing_duration_ns(session, now_ns)
 
-        target_cp = ord(session.target_text[session.position])
+        target_char = session.target_text[session.position]
+        char = normalize_newline(char, target_char)
+        target_cp = ord(target_char)
         typed_cp = ord(char)
         correct = typed_cp == target_cp
 

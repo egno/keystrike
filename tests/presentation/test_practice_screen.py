@@ -138,6 +138,26 @@ async def test_app_launches_types_and_persists_session():
 
 
 @pytest.mark.asyncio
+async def test_leading_space_tab_ignored_before_first_keystroke():
+    app, _clock, _repo, _ = _build_app()
+    async with app.run_test() as pilot:
+        await pilot.press("enter")
+        await pilot.pause()
+        practice = app.screen
+        assert isinstance(practice, PracticeScreen)
+
+        await pilot.press("tab")
+        await pilot.pause()
+        if practice._session.target_text[0] != " ":
+            await pilot.press("space")
+            await pilot.pause()
+
+        assert practice._session.typing_started_at_ns is None
+        assert practice._session.keystrokes == []
+        assert practice._session.position == 0
+
+
+@pytest.mark.asyncio
 async def test_stats_screen_reachable_from_home():
     app, _clock, _repo, _settings = _build_app()
     async with app.run_test() as pilot:

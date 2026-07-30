@@ -19,6 +19,7 @@ from keystrike.application.session_use_cases import (
 from keystrike.domain.models import Layout, SessionResult
 from keystrike.domain.null_adapters import NULL_DAILY_LEARN_BUDGET, NULL_STATS_REBUILDER
 from keystrike.domain.protocols import Clock, DailyLearnBudgetProvider, StatsRebuilder
+from keystrike.domain.session import leading_key_char, skip_leading_whitespace
 from keystrike.presentation.bindings import BACK_BINDINGS
 from keystrike.presentation.widgets.hud import HUD
 from keystrike.presentation.widgets.kb_heatmap import KbHeatmap, format_focus_note
@@ -123,6 +124,11 @@ class PracticeScreen(Screen[None]):
     def on_key(self, event: events.Key) -> None:
         key = event.key
         char: str | None = event.character
+
+        leading = leading_key_char(key, char)
+        if leading is not None and skip_leading_whitespace(self._session, leading):
+            event.stop()
+            return
 
         if key == "backspace":
             self._record.backspace(self._session)

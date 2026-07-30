@@ -195,6 +195,45 @@ def test_timer_does_not_start_until_first_keystroke(clock, id_gen):
     assert result.duration_ns == 100_000_000
 
 
+def test_leading_space_enter_tab_ignored_before_first_keystroke(clock, id_gen):
+    start = StartSession(clock=clock, id_gen=id_gen)
+    record = RecordKeystroke(clock=clock)
+    session = start("abc", layout="qwerty", mode=Mode.ADAPTIVE)
+
+    for ch in (" ", "\t", "\n", "\r"):
+        record(session, ch)
+
+    assert session.typing_started_at_ns is None
+    assert session.keystrokes == []
+    assert session.position == 0
+
+    record(session, "a")
+    assert session.typing_started_at_ns is not None
+    assert session.position == 1
+
+
+def test_leading_space_honored_when_target_starts_with_space(clock, id_gen):
+    start = StartSession(clock=clock, id_gen=id_gen)
+    record = RecordKeystroke(clock=clock)
+    session = start(" ab", layout="qwerty", mode=Mode.ADAPTIVE)
+
+    record(session, " ")
+    assert session.position == 1
+    assert len(session.keystrokes) == 1
+    assert session.keystrokes[0].correct
+
+
+def test_leading_enter_honored_when_target_starts_with_newline(clock, id_gen):
+    start = StartSession(clock=clock, id_gen=id_gen)
+    record = RecordKeystroke(clock=clock)
+    session = start("\nabc", layout="qwerty", mode=Mode.ADAPTIVE)
+
+    record(session, "\r")
+    assert session.position == 1
+    assert len(session.keystrokes) == 1
+    assert session.keystrokes[0].correct
+
+
 def test_learn_timer_pauses_after_idle(clock, id_gen):
     start = StartSession(clock=clock, id_gen=id_gen)
     record = RecordKeystroke(clock=clock)
