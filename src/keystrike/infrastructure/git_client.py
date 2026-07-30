@@ -42,12 +42,7 @@ class GitRunner(Protocol):
 
 
 class GitClient:
-    """Thin subprocess wrapper around the `git` CLI.
-
-    Isolates raw process plumbing so `GitSyncGateway`'s merge/sync
-    orchestration can be unit-tested against a fake client instead of
-    shelling out to real git.
-    """
+    """Concrete implementation of GitRunner protocol for running git subprocesses."""
 
     def __init__(self, timeout_s: float = _GIT_TIMEOUT_S) -> None:
         self._timeout_s = timeout_s

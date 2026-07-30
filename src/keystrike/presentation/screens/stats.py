@@ -18,6 +18,7 @@ from keystrike.presentation.formatting.trends import (
 )
 from keystrike.presentation.services import StatsServices
 from keystrike.presentation.widgets.kb_heatmap import (
+    HeatmapDisplay,
     KbHeatmap,
     build_heatmap_display,
 )
@@ -74,11 +75,7 @@ class StatsScreen(Screen[None]):
             title += "  [dim](ortholinear)[/]"
         self.query_one("#stats-title", Static).update(title)
 
-        display = build_heatmap_display(
-            layout,
-            heatmap_view.confidence,
-            urgency=heatmap_view.urgency,
-        )
+        display = self._current_heatmap_display()
         if display is not None:
             self._kb_heatmap = KbHeatmap(display)
         self.query_one(Vertical).mount(
@@ -126,6 +123,15 @@ class StatsScreen(Screen[None]):
         if codepoint not in self._layout.keys:
             return None
         return codepoint
+
+    def _current_heatmap_display(self, *, focus: int | None = None) -> HeatmapDisplay | None:
+        """Build heatmap display using current layout and heatmap."""
+        return build_heatmap_display(
+            self._layout,
+            self._heatmap.confidence if self._heatmap is not None else None,
+            focus=focus,
+            urgency=self._heatmap.urgency if self._heatmap is not None else None,
+        )
 
     def _render_overview(self) -> None:
         widget = self.query_one("#stats-trends", Static)
@@ -176,11 +182,7 @@ class StatsScreen(Screen[None]):
         self._render_overview()
         KbHeatmap.update_or_none(
             self._kb_heatmap,
-            build_heatmap_display(
-                self._layout,
-                self._heatmap.confidence if self._heatmap is not None else None,
-                urgency=self._heatmap.urgency if self._heatmap is not None else None,
-            ),
+            self._current_heatmap_display(),
         )
 
     def _show_key_detail(self, codepoint: int) -> None:
@@ -188,10 +190,5 @@ class StatsScreen(Screen[None]):
         self._render_key_detail(codepoint)
         KbHeatmap.update_or_none(
             self._kb_heatmap,
-            build_heatmap_display(
-                self._layout,
-                self._heatmap.confidence if self._heatmap is not None else None,
-                focus=codepoint,
-                urgency=self._heatmap.urgency if self._heatmap is not None else None,
-            ),
+            self._current_heatmap_display(focus=codepoint),
         )

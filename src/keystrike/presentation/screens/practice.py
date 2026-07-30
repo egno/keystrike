@@ -15,6 +15,7 @@ from keystrike.presentation.formatting.trends import format_session_stats_line
 from keystrike.presentation.services import PracticeServices
 from keystrike.presentation.widgets.hud import HUD
 from keystrike.presentation.widgets.kb_heatmap import (
+    HeatmapDisplay,
     KbHeatmap,
     build_heatmap_display,
     focus_transition_pair,
@@ -73,9 +74,7 @@ class PracticeScreen(Screen[None]):
             yield self._hud
             yield self._typing_area
             if self._prep.layout_obj is not None and self._prep.lesson_heatmap is not None:
-                display = build_heatmap_display(
-                    self._prep.layout_obj,
-                    self._prep.lesson_heatmap,
+                display = self._current_heatmap_display(
                     focus=self._prep.focus_key,
                     focus_transition=focus_transition_pair(self._prep.focus_reason),
                 )
@@ -99,6 +98,20 @@ class PracticeScreen(Screen[None]):
                 accuracy=self._prep.focus_accuracy,
             )
             or ""
+        )
+
+    def _current_heatmap_display(
+        self,
+        *,
+        focus: int | None = None,
+        focus_transition: tuple[int, int] | None = None,
+    ) -> HeatmapDisplay | None:
+        """Build heatmap display using current session's layout and heatmap."""
+        return build_heatmap_display(
+            self._prep.layout_obj,
+            self._prep.lesson_heatmap,
+            focus=focus,
+            focus_transition=focus_transition,
         )
 
     def on_mount(self) -> None:
@@ -166,9 +179,7 @@ class PracticeScreen(Screen[None]):
         )
         KbHeatmap.update_or_none(
             self._kb_heatmap,
-            build_heatmap_display(
-                prep.layout_obj,
-                prep.lesson_heatmap,
+            self._current_heatmap_display(
                 focus=prep.focus_key,
                 focus_transition=focus_transition_pair(prep.focus_reason),
             ),
