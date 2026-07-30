@@ -20,6 +20,7 @@ from keystrike.infrastructure.layout_toml import load_layout_toml
 from keystrike.presentation.screens.stats import StatsScreen
 from tests.fakes import (
     FakeAggregatesCache,
+    FakeClock,
     FakeLayoutRepository,
     FakeSessionRepository,
     FakeSettingsRepository,
@@ -46,7 +47,7 @@ def _build_screen(
             cache=cache,
             settings_repo=settings_repo,
         ),
-        get_heatmap=GetHeatmap(cache=cache, settings_repo=settings_repo),
+        get_heatmap=GetHeatmap(cache=cache, settings_repo=settings_repo, clock=FakeClock()),
         get_history=GetHistory(repo=repo),
         get_key_metric_trends=GetKeyMetricTrends(
             repo=repo,

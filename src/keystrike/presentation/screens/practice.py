@@ -16,7 +16,7 @@ from keystrike.application.session_use_cases import (
     StartSession,
     format_session_stats_line,
 )
-from keystrike.domain.confidence import FocusReason
+from keystrike.domain.focus import FocusReason
 from keystrike.domain.models import Layout, SessionResult
 from keystrike.domain.null_adapters import NULL_DAILY_LEARN_BUDGET, NULL_STATS_REBUILDER
 from keystrike.domain.protocols import Clock, DailyLearnBudgetProvider, StatsRebuilder

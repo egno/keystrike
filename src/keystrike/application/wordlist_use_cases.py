@@ -34,7 +34,7 @@ class ImportWordList:
         validate_wordlist_url(url)
         try:
             words = self.store.download_and_cache(url)
-        except Exception as exc:
+        except (ValueError, OSError) as exc:
             raise WordListError(str(exc)) from exc
         updated = replace(self.settings_repo.load(), wordlist_url=url)
         self.settings_repo.save(updated)

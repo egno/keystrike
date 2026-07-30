@@ -1,15 +1,16 @@
 from random import Random
-from unittest.mock import patch
 
 from keystrike.application.build_lesson import BuildLesson, _transition_focus_metrics
 from keystrike.domain.aggregate import _combine_transition_maps_weighted, session_recency_weights
-from keystrike.domain.confidence import FocusReason, target_ms_per_char, transition_confidence_of
+from keystrike.domain.confidence import target_ms_per_char, transition_confidence_of
 from keystrike.domain.enums import FocusKind
+from keystrike.domain.focus import FocusReason
 from keystrike.domain.learn_order import keyboard_order
 from keystrike.domain.models import Bigram, KeyStats, LayoutAggregates, Settings, TransitionStats
 from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS
 from tests.fakes import (
     FakeAggregatesCache,
+    FakeClock,
     FakeLanguageProvider,
     FakeLayoutRepository,
     FakeSettingsRepository,
@@ -25,6 +26,7 @@ def _build_lesson(settings: Settings | None = None, rng_seed: int = 0) -> BuildL
         language_provider=FakeLanguageProvider(),
         wordlist_store=FakeWordListStore(),
         rng=Random(rng_seed),
+        clock=FakeClock(),
     )
 
 
@@ -119,6 +121,7 @@ def test_lesson_prefers_weak_key_over_weak_transition():
         language_provider=FakeLanguageProvider(),
         wordlist_store=FakeWordListStore(),
         rng=Random(0),
+        clock=FakeClock(),
     )
     lesson = builder("qwerty")
     assert lesson.focus_reason == FocusReason(kind=FocusKind.KEY_WEAK)
@@ -166,6 +169,7 @@ def test_lesson_ignores_weak_same_key_transition_for_focus():
         language_provider=FakeLanguageProvider(),
         wordlist_store=FakeWordListStore(),
         rng=Random(0),
+        clock=FakeClock(),
     )
     lesson = builder("qwerty")
     assert lesson.focus_reason is None or lesson.focus_reason.kind in (
@@ -210,6 +214,7 @@ def test_lesson_uses_transition_focus_when_transitions_weak():
         language_provider=FakeLanguageProvider(),
         wordlist_store=FakeWordListStore(),
         rng=Random(0),
+        clock=FakeClock(),
     )
     lesson = builder("qwerty")
     pair_bigram = Bigram(a, s)
@@ -275,6 +280,7 @@ def test_build_lesson_eo_not_zero_confidence_when_counts_zeroed():
         language_provider=FakeLanguageProvider(),
         wordlist_store=FakeWordListStore(),
         rng=Random(0),
+        clock=FakeClock(),
     )
     lesson = builder(layout_name)
     assert lesson.focus_reason == FocusReason(kind=FocusKind.TRANSITION_WEAK, pair=eo_key)
@@ -437,9 +443,9 @@ def test_lesson_uses_transition_review_when_stale_and_mastered():
         language_provider=FakeLanguageProvider(),
         wordlist_store=FakeWordListStore(),
         rng=Random(0),
+        clock=FakeClock(),
     )
-    with patch("keystrike.application.build_lesson.time.time", return_value=now):
-        lesson = builder("qwerty")
+    lesson = builder("qwerty")
     assert lesson.focus_key == s
     assert lesson.focus_reason == FocusReason(kind=FocusKind.TRANSITION_REVIEW, pair=Bigram(a, s))
 
@@ -482,6 +488,7 @@ def test_lesson_wordlist_biases_weak_transition():
         language_provider=FakeLanguageProvider(),
         wordlist_store=FakeWordListStore(by_url={url: cached}),
         rng=Random(0),
+        clock=FakeClock(),
     )
     lesson = builder("qwerty")
     pair = chr(a) + chr(s)
@@ -537,6 +544,7 @@ def test_weak_transition_focus_over_represented_in_lesson_words():
         language_provider=FakeLanguageProvider(),
         wordlist_store=FakeWordListStore(),
         rng=Random(0),
+        clock=FakeClock(),
     )
     pair = chr(a) + chr(s)
     bigram_words = 0
@@ -562,6 +570,7 @@ def test_lesson_uses_cached_wordlist_when_configured():
         language_provider=FakeLanguageProvider(),
         wordlist_store=store,
         rng=Random(42),
+        clock=FakeClock(),
     )
     lesson = builder("qwerty")
     lesson_words = set(lesson.text.split())
@@ -580,6 +589,7 @@ def test_lesson_falls_back_to_markov_when_cache_missing():
         language_provider=FakeLanguageProvider(),
         wordlist_store=FakeWordListStore(by_url={url: exclusive}),
         rng=Random(42),
+        clock=FakeClock(),
     )
     assert "abcdefgh" in with_cache("qwerty").text
 
@@ -590,6 +600,7 @@ def test_lesson_falls_back_to_markov_when_cache_missing():
         language_provider=FakeLanguageProvider(),
         wordlist_store=FakeWordListStore(),
         rng=Random(42),
+        clock=FakeClock(),
     )
     assert "abcdefgh" not in without_cache("qwerty").text
 
@@ -606,6 +617,7 @@ def test_lesson_falls_back_when_alphabet_filters_all_words():
         language_provider=FakeLanguageProvider(),
         wordlist_store=store,
         rng=Random(42),
+        clock=FakeClock(),
     )
     lesson = builder("qwerty")
     assert all("z" not in word for word in lesson.text.split())
@@ -621,6 +633,7 @@ def test_lesson_uses_markov_when_url_saved_without_cache():
         language_provider=FakeLanguageProvider(),
         wordlist_store=FakeWordListStore(),
         rng=Random(0),
+        clock=FakeClock(),
     )
     lesson = builder("qwerty")
     assert lesson.text

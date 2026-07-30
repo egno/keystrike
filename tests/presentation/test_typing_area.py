@@ -8,7 +8,6 @@ from keystrike.presentation.theme import (
     STYLE_CORRECTED,
     STYLE_CURRENT,
     STYLE_PENDING,
-    STYLE_WRONG,
     STYLE_WRONG_CURRENT,
 )
 from keystrike.presentation.widgets.typing_area import (
@@ -49,7 +48,6 @@ def test_typing_color_constants():
     assert STYLE_CORRECT == "grey42"
     assert STYLE_CORRECTED == "dim yellow"
     assert STYLE_CURRENT == "bold underline"
-    assert STYLE_WRONG == "bold red"
 
 
 def test_cursor_position_uses_underline_not_block():

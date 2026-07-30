@@ -6,6 +6,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from random import Random
+from types import MappingProxyType
 
 from .models import Bigram, Layout
 
@@ -30,6 +31,11 @@ def transition_practice_weight(prev_cp: int, next_cp: int, layout: Layout) -> fl
 class TransitionTable:
     order: int
     transitions: Mapping[str, Mapping[str, int]]  # context -> next_char -> weight
+
+    def __post_init__(self) -> None:
+        # Freezing the dataclass only blocks attribute rebinding — wrap the
+        # dict field too so in-place mutation of its contents also raises.
+        object.__setattr__(self, "transitions", MappingProxyType(dict(self.transitions)))
 
     def sample(
         self,

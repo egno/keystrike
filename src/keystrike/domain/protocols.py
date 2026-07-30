@@ -54,7 +54,7 @@ class StatsRebuilder(Protocol):
 
 
 class AggregatesEnsurer(Protocol):
-    """Shape of `application.stats_use_cases.EnsureAggregates` — lets callers
+    """Shape of `application.stats_use_cases.GetOrRebuildAggregates` — lets callers
     depend on the behavior without importing application code."""
 
     def __call__(self, layout: str) -> Mapping[int, KeyStats]: ...

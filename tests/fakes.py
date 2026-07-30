@@ -11,7 +11,9 @@ from keystrike.domain.models import (
     LayoutAggregates,
     SessionResult,
     Settings,
+    SyncStatusReport,
 )
+from keystrike.domain.protocols import StatsRebuilder
 
 
 @dataclass(slots=True)
@@ -143,3 +145,52 @@ class FakeWordListStore:
         if url in self.by_url:
             return list(self.by_url[url])
         raise ValueError("download failed")
+
+
+@dataclass(slots=True)
+class FakeSyncStore:
+    """Deterministic stand-in for `infrastructure.sync_git.GitSyncGateway`.
+
+    `pulled_layouts` names the layouts `pull()` should invoke `rebuild` for
+    (simulating new sessions arriving from the remote for those layouts);
+    `pull_result`/`push_result` control the return values.
+    """
+
+    configured: bool = False
+    remote_url: str | None = None
+    pulled_layouts: list[str] = field(default_factory=list)
+    pull_result: int = 0
+    push_result: bool = True
+    status_report: SyncStatusReport | None = None
+    init_calls: list[str] = field(default_factory=list)
+    rebuilt_layouts: list[str] = field(default_factory=list)
+
+    def is_configured(self) -> bool:
+        return self.configured
+
+    def init(self, remote_url: str) -> None:
+        self.configured = True
+        self.remote_url = remote_url
+        self.init_calls.append(remote_url)
+
+    def pull(self, rebuild: StatsRebuilder) -> int:
+        for layout in self.pulled_layouts:
+            rebuild(layout)
+            self.rebuilt_layouts.append(layout)
+        return self.pull_result
+
+    def push(self) -> bool:
+        return self.push_result
+
+    def status(self) -> SyncStatusReport:
+        if self.status_report is not None:
+            return self.status_report
+        return SyncStatusReport(
+            configured=self.configured,
+            remote_url=self.remote_url,
+            git_status="clean",
+            local_sessions=0,
+            clone_sessions=0,
+            only_local=0,
+            only_clone=0,
+        )

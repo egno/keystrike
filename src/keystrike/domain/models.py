@@ -33,12 +33,16 @@ class SessionResult:
     words_completed: int = 0
     lang: str = "en"
     unlocked_keys: tuple[int, ...] = ()
-    # Left as a plain (mutable-in-place) dict rather than MappingProxyType-wrapped
-    # like Layout.keys/LayoutAggregates: infrastructure.session_repo_jsonl's
-    # `asdict(header)` deep-copies every field, and copy.deepcopy cannot pickle
-    # a mappingproxy. Freezing this one would break header persistence.
-    key_confidence: dict[int, float] = field(default_factory=_empty_key_confidence)
+    key_confidence: Mapping[int, float] = field(default_factory=_empty_key_confidence)
     target_speed_cpm: int = 0  # goal active at finish; 0 = legacy sessions
+
+    def __post_init__(self) -> None:
+        # Freezing the dataclass only blocks attribute rebinding — wrap the
+        # dict field too so in-place mutation of its contents also raises.
+        # infrastructure.session_repo_jsonl's header serialization builds its
+        # own plain dict rather than routing this mappingproxy through
+        # dataclasses.asdict/copy.deepcopy (which can't pickle a mappingproxy).
+        object.__setattr__(self, "key_confidence", MappingProxyType(dict(self.key_confidence)))
 
 
 @dataclass(frozen=True, slots=True)

@@ -7,7 +7,11 @@ from textual.screen import Screen
 from textual.widgets import Footer, Input, Label, Select, Static
 from textual.widgets.select import NoSelection
 
-from keystrike.application.settings_use_cases import SettingsValidationError, UpdateSettings
+from keystrike.application.settings_use_cases import (
+    SettingsUpdate,
+    SettingsValidationError,
+    UpdateSettings,
+)
 from keystrike.application.wordlist_use_cases import (
     DEFAULT_WORDLIST_URL,
     ClearWordList,
@@ -126,11 +130,11 @@ class SettingsScreen(Screen[None]):
     def action_clear_wordlist(self) -> None:
         self._do_clear()
 
-    def action_save(self) -> None:
+    def _collect_form_values(self) -> SettingsUpdate | None:
         speed_raw = self.query_one("#settings-speed", Input).value
         target_speed_value = self._parse_int_field(speed_raw, "Target speed")
         if target_speed_value is None:
-            return
+            return None
 
         speed_unit_select = cast(
             "Select[TargetSpeedUnit]",
@@ -138,7 +142,7 @@ class SettingsScreen(Screen[None]):
         )
         target_speed_unit = speed_unit_select.value
         if isinstance(target_speed_unit, NoSelection):
-            return
+            return None
         target_speed_cpm = (
             cpm_from_wpm(target_speed_value)
             if target_speed_unit == TargetSpeedUnit.WPM
@@ -148,7 +152,7 @@ class SettingsScreen(Screen[None]):
         alphabet_size_raw = self.query_one("#settings-alphabet-size", Input).value
         alphabet_size = self._parse_int_field(alphabet_size_raw, "Number of letters")
         if alphabet_size is None:
-            return
+            return None
 
         learn_daily_minutes_raw = self.query_one("#settings-learn-daily-minutes", Input).value
         learn_daily_minutes = self._parse_int_field(
@@ -156,22 +160,29 @@ class SettingsScreen(Screen[None]):
             "Daily learn minutes",
         )
         if learn_daily_minutes is None:
-            return
+            return None
 
         layout_select = cast("Select[str]", self.query_one("#settings-layout", Select))
         layout = layout_select.value
         if isinstance(layout, NoSelection):
             # Unreachable with allow_blank=False + an initial value, but keeps typing sound.
+            return None
+
+        return SettingsUpdate(
+            layout=layout,
+            target_speed_cpm=target_speed_cpm,
+            target_speed_unit=target_speed_unit,
+            alphabet_size=alphabet_size,
+            learn_daily_minutes=learn_daily_minutes,
+        )
+
+    def action_save(self) -> None:
+        values = self._collect_form_values()
+        if values is None:
             return
 
         try:
-            self._update_settings(
-                layout=layout,
-                target_speed_cpm=target_speed_cpm,
-                target_speed_unit=target_speed_unit,
-                alphabet_size=alphabet_size,
-                learn_daily_minutes=learn_daily_minutes,
-            )
+            self._update_settings(values)
         except SettingsValidationError as exc:
             self._show_error(str(exc))
             return

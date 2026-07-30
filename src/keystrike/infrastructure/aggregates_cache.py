@@ -11,29 +11,22 @@ from keystrike.domain.aggregate import without_same_key_transitions
 from keystrike.domain.models import Bigram, KeyStats, LayoutAggregates, TransitionStats
 
 from .atomic_write import atomic_write_text
+from .json_coerce import require_float, require_int
 from .paths import Paths
 
 
-def _as_int(v: object) -> int:
-    return int(v)  # type: ignore[arg-type]
-
-
-def _as_float(v: object) -> float:
-    return float(v)  # type: ignore[arg-type]
-
-
 def _coerce_samples(entry: dict[str, object]) -> int:
-    samples = _as_int(entry["samples"])
-    if samples <= 0 and _as_float(entry["mean_time_ns"]) > 0:
+    samples = require_int(entry, "samples")
+    if samples <= 0 and require_float(entry, "mean_time_ns") > 0:
         return 1
     return samples
 
 
 def _coerce_attempt_count(entry: dict[str, object]) -> int:
     samples = _coerce_samples(entry)
-    errors = _as_int(entry["error_count"])
+    errors = require_int(entry, "error_count")
     inferred = samples + errors
-    stored = _as_int(entry.get("attempt_count", inferred))
+    stored = require_int(entry, "attempt_count", inferred)
     if stored <= 0 and inferred > 0:
         return inferred
     return stored
@@ -53,36 +46,40 @@ class FileAggregatesCache:
             return None
         try:
             data = json.loads(file.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            return None
-        keys = data.get("keys", {})
-        transitions = data.get("transitions", {})
-        parsed_transitions = {
-            Bigram(int(entry["prev_cp"]), int(entry["next_cp"])): TransitionStats(
-                prev_cp=int(entry["prev_cp"]),
-                next_cp=int(entry["next_cp"]),
-                samples=_coerce_samples(entry),
-                mean_time_ns=float(entry["mean_time_ns"]),
-                error_count=int(entry["error_count"]),
-                last_seen=float(entry["last_seen"]),
-                attempt_count=_coerce_attempt_count(entry),
-            )
-            for entry in transitions.values()
-        }
-        return LayoutAggregates(
-            keys={
-                int(cp): KeyStats(
-                    codepoint=int(cp),
+            keys = data.get("keys", {})
+            transitions = data.get("transitions", {})
+            parsed_transitions = {
+                Bigram(
+                    require_int(entry, "prev_cp"),
+                    require_int(entry, "next_cp"),
+                ): TransitionStats(
+                    prev_cp=require_int(entry, "prev_cp"),
+                    next_cp=require_int(entry, "next_cp"),
                     samples=_coerce_samples(entry),
-                    mean_time_ns=float(entry["mean_time_ns"]),
-                    error_count=int(entry["error_count"]),
-                    last_seen=float(entry["last_seen"]),
+                    mean_time_ns=require_float(entry, "mean_time_ns"),
+                    error_count=require_int(entry, "error_count"),
+                    last_seen=require_float(entry, "last_seen"),
                     attempt_count=_coerce_attempt_count(entry),
                 )
-                for cp, entry in keys.items()
-            },
-            transitions=without_same_key_transitions(parsed_transitions),
-        )
+                for entry in transitions.values()
+            }
+            aggregates = LayoutAggregates(
+                keys={
+                    int(cp): KeyStats(
+                        codepoint=int(cp),
+                        samples=_coerce_samples(entry),
+                        mean_time_ns=require_float(entry, "mean_time_ns"),
+                        error_count=require_int(entry, "error_count"),
+                        last_seen=require_float(entry, "last_seen"),
+                        attempt_count=_coerce_attempt_count(entry),
+                    )
+                    for cp, entry in keys.items()
+                },
+                transitions=without_same_key_transitions(parsed_transitions),
+            )
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+            return None
+        return aggregates
 
     def put(self, layout: str, aggregates: LayoutAggregates) -> None:
         transitions = without_same_key_transitions(aggregates.transitions)

@@ -39,52 +39,38 @@ class TomlSettingsRepository:
         except tomllib.TOMLDecodeError:
             return Settings()
 
+        # Field list (and per-field cast) is derived from the Settings dataclass
+        # itself, mirroring save(), so load/save can't silently drift apart when
+        # a field is added/removed from Settings.
         defaults = Settings()
-        unit_raw = str(raw.get("target_speed_unit", defaults.target_speed_unit))
-        try:
-            target_speed_unit = TargetSpeedUnit(unit_raw)
-        except ValueError:
-            target_speed_unit = defaults.target_speed_unit
-        return Settings(
-            schema_version=int(raw.get("schema_version", defaults.schema_version)),
-            layout=str(raw.get("layout", defaults.layout)),
-            target_speed_cpm=int(raw.get("target_speed_cpm", defaults.target_speed_cpm)),
-            target_speed_unit=target_speed_unit,
-            alphabet_size=int(raw.get("alphabet_size", defaults.alphabet_size)),
-            confidence_session_window=int(
-                raw.get("confidence_session_window", defaults.confidence_session_window),
-            ),
-            min_confidence_attempts=int(
-                raw.get("min_confidence_attempts", defaults.min_confidence_attempts),
-            ),
-            min_transition_confidence_attempts=int(
-                raw.get(
-                    "min_transition_confidence_attempts",
-                    defaults.min_transition_confidence_attempts,
-                ),
-            ),
-            focus_char_boost=float(
-                raw.get("focus_char_boost", defaults.focus_char_boost),
-            ),
-            focus_word_boost=float(
-                raw.get("focus_word_boost", defaults.focus_word_boost),
-            ),
-            focus_bigram_word_boost=float(
-                raw.get("focus_bigram_word_boost", defaults.focus_bigram_word_boost),
-            ),
-            focus_transition_boost=float(
-                raw.get("focus_transition_boost", defaults.focus_transition_boost),
-            ),
-            focus_weak_extra_boost=float(
-                raw.get("focus_weak_extra_boost", defaults.focus_weak_extra_boost),
-            ),
-            lang=str(raw.get("lang", defaults.lang)),
-            learn_daily_minutes=int(
-                raw.get("learn_daily_minutes", defaults.learn_daily_minutes),
-            ),
-            wordlist_url=str(raw.get("wordlist_url", defaults.wordlist_url)),
-            updated_at=(str(raw["updated_at"]) if raw.get("updated_at") is not None else None),
-        )
+        values: dict[str, object] = {}
+        for f in dataclasses.fields(Settings):
+            if f.name == "updated_at":
+                # Written fresh on save(), not defaulted — only round-tripped here.
+                raw_updated = raw.get("updated_at")
+                values[f.name] = str(raw_updated) if raw_updated is not None else None
+                continue
+            default = getattr(defaults, f.name)
+            if f.type is TargetSpeedUnit:
+                try:
+                    values[f.name] = TargetSpeedUnit(str(raw.get(f.name, default)))
+                except ValueError:
+                    values[f.name] = default
+            elif f.type is bool:
+                values[f.name] = bool(raw.get(f.name, default))
+            elif f.type is int:
+                values[f.name] = int(raw.get(f.name, default))
+            elif f.type is float:
+                values[f.name] = float(raw.get(f.name, default))
+            elif f.type is str:
+                values[f.name] = str(raw.get(f.name, default))
+            else:
+                raise TypeError(f"unsupported settings field type: {f.type!r}")
+        # `values` is built dynamically off `dataclasses.fields(Settings)`, so
+        # pyright can't statically match each entry to its declared parameter
+        # type the way it could with a hand-written call — the per-field
+        # isinstance/cast dispatch above is what actually keeps this sound.
+        return Settings(**values)  # type: ignore[arg-type]
 
     def save(self, settings: Settings) -> None:
         # Field list is derived from the Settings dataclass itself (single

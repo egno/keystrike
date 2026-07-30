@@ -2,7 +2,6 @@
 
 STYLE_PENDING = "white"
 STYLE_CORRECT = "grey42"
-STYLE_WRONG = "bold red"
 STYLE_CURRENT = "bold underline"
 STYLE_WRONG_CURRENT = "bold red underline"
 STYLE_CORRECTED = "dim yellow"
@@ -10,5 +9,3 @@ STYLE_IDLE = "dim"
 STYLE_TREND_CONFIDENCE = "cyan"
 STYLE_TREND_SPEED = "green"
 STYLE_TREND_ACCURACY = "yellow"
-STYLE_DELTA_IMPROVE = "green"
-STYLE_DELTA_REGRESS = "red"

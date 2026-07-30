@@ -5,7 +5,7 @@ import pytest
 from keystrike.application.build_lesson import BuildLesson
 from keystrike.application.learn_budget_use_cases import GetDailyLearnBudget
 from keystrike.application.prepare_practice import PreparePracticeSession
-from keystrike.application.stats_use_cases import EnsureAggregates, RebuildAggregates
+from keystrike.application.stats_use_cases import GetOrRebuildAggregates, RebuildAggregates
 from keystrike.domain.enums import Mode
 from keystrike.domain.models import Keystroke, SessionResult, Settings
 from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS, CompositeLayoutRepository
@@ -51,6 +51,7 @@ def _prepare(*, settings: Settings | None = None) -> PreparePracticeSession:
             language_provider=FakeLanguageProvider(),
             wordlist_store=FakeWordListStore(),
             rng=Random(0),
+            clock=clock,
         ),
         get_daily_learn_budget=get_daily_learn_budget,
     )
@@ -92,7 +93,7 @@ def test_prepare_ensures_transitions_before_lesson():
         Keystroke(codepoint=ord("s"), typed=ord("x"), t_ns=600_000_000, correct=False),
     ]
     rebuild = RebuildAggregates(repo=session_repo, cache=cache, settings_repo=settings_repo)
-    ensure = EnsureAggregates(repo=session_repo, cache=cache, rebuild=rebuild)
+    ensure = GetOrRebuildAggregates(repo=session_repo, cache=cache, rebuild=rebuild)
     prepare = PreparePracticeSession(
         settings_repo=settings_repo,
         layout_repo=layout_repo,
@@ -103,6 +104,7 @@ def test_prepare_ensures_transitions_before_lesson():
             language_provider=FakeLanguageProvider(),
             wordlist_store=FakeWordListStore(),
             rng=Random(0),
+            clock=clock,
         ),
         get_daily_learn_budget=GetDailyLearnBudget(
             clock=clock,
@@ -152,6 +154,7 @@ def test_prepare_adaptive_still_builds_lesson_when_daily_goal_reached():
             language_provider=FakeLanguageProvider(),
             wordlist_store=FakeWordListStore(),
             rng=Random(0),
+            clock=clock,
         ),
         get_daily_learn_budget=GetDailyLearnBudget(
             clock=clock,
@@ -186,6 +189,7 @@ def test_prepare_uses_custom_toml_layout(paths):
             language_provider=FakeLanguageProvider(),
             wordlist_store=FakeWordListStore(),
             rng=Random(0),
+            clock=FakeClock(),
         ),
         get_daily_learn_budget=GetDailyLearnBudget(
             clock=FakeClock(),

@@ -1,21 +1,23 @@
 from keystrike.domain.confidence import (
     MIN_CONFIDENCE_ATTEMPTS,
     accuracy_of,
-    compute_unlocked,
     confidence_of,
-    focus_key_from_transition,
-    has_weak_unlocked_key,
     key_attempts,
     key_confidence,
-    practice_weight,
     review_urgency,
-    select_focus,
-    select_focus_transition,
     target_ms_per_char,
     transition_accuracy_of,
     transition_confidence_of,
 )
+from keystrike.domain.focus import (
+    focus_key_from_transition,
+    has_weak_unlocked_key,
+    practice_weight,
+    select_focus,
+    select_focus_transition,
+)
 from keystrike.domain.models import Bigram, KeyStats, TransitionStats
+from keystrike.domain.unlock import compute_unlocked
 
 
 def test_target_ms_per_char():

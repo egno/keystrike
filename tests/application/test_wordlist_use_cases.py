@@ -45,8 +45,9 @@ def test_import_wordlist_rejects_non_http_url():
 
 
 def test_import_wordlist_wraps_download_errors():
-    # FakeWordListStore raises RuntimeError (not ValueError) to verify wrapping.
-    store = FakeWordListStore(download_error=RuntimeError("network down"))
+    # OSError mirrors what FileWordListStore.download_and_cache actually raises
+    # for network/IO failures (ValueError covers bad-content failures).
+    store = FakeWordListStore(download_error=OSError("network down"))
     repo = FakeSettingsRepository(Settings())
     import_wordlist = ImportWordList(store=store, settings_repo=repo)
 

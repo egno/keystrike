@@ -1,5 +1,5 @@
-from keystrike.domain.confidence import FocusReason
 from keystrike.domain.enums import FocusKind
+from keystrike.domain.focus import FocusReason
 from keystrike.domain.models import Bigram
 from keystrike.infrastructure.bundled_layouts.colemak_dh import LAYOUT as COLEMAK_DH
 from keystrike.infrastructure.bundled_layouts.qwerty import LAYOUT as QWERTY

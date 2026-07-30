@@ -6,8 +6,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from keystrike.application.build_lesson import BuildLesson
-from keystrike.domain.confidence import FocusReason
 from keystrike.domain.enums import Mode
+from keystrike.domain.focus import FocusReason
 from keystrike.domain.models import Layout
 from keystrike.domain.null_adapters import NULL_AGGREGATES_ENSURER
 from keystrike.domain.protocols import (

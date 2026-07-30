@@ -17,6 +17,7 @@ from keystrike.domain.models import Layout, SessionResult
 from keystrike.domain.protocols import LayoutRepository, StatsRebuilder
 from keystrike.presentation.bindings import BACK_BINDINGS
 from keystrike.presentation.formatting.trends import (
+    char_label,
     format_aggregate_metric_trend_block,
     format_focus_confidence_trend_line,
     format_key_metric_trend_block,
@@ -24,11 +25,6 @@ from keystrike.presentation.formatting.trends import (
 from keystrike.presentation.widgets.kb_heatmap import KbHeatmap
 
 _View = Literal["overview", "key_detail"]
-
-
-def _char_label(codepoint: int) -> str:
-    ch = chr(codepoint)
-    return ch if ch.isprintable() and not ch.isspace() else f"U+{codepoint:04X}"
 
 
 class StatsScreen(Screen[None]):
@@ -173,7 +169,7 @@ class StatsScreen(Screen[None]):
             codepoint,
             current_target_speed_cpm=self._current_target_speed_cpm,
         )
-        label = _char_label(codepoint)
+        label = char_label(codepoint)
         detail = format_key_metric_trend_block(
             title=f"'{label}'",
             headers=self._trend_history,

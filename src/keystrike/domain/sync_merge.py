@@ -14,15 +14,14 @@ from __future__ import annotations
 import datetime as dt
 import tomllib
 from dataclasses import dataclass
-from typing import Any
 
 
-def index_session_ids(entries: list[dict[str, Any]]) -> set[str]:
+def index_session_ids(entries: list[dict[str, object]]) -> set[str]:
     """Session ids present in a parsed sessions index."""
     return {str(entry["session_id"]) for entry in entries}
 
 
-def index_layouts(entries: list[dict[str, Any]]) -> set[str]:
+def index_layouts(entries: list[dict[str, object]]) -> set[str]:
     """Distinct layout names referenced by a parsed sessions index."""
     return {str(entry["layout"]) for entry in entries}
 
@@ -40,7 +39,7 @@ class SessionImportPlan:
 def plan_missing_sessions(
     *,
     local_session_ids: set[str],
-    remote_entries: list[dict[str, Any]],
+    remote_entries: list[dict[str, object]],
     remote_lines: list[str],
 ) -> list[SessionImportPlan]:
     """Decide which remote sessions are missing locally and need importing.
@@ -57,7 +56,12 @@ def plan_missing_sessions(
         session_id = str(entry["session_id"])
         if session_id in seen:
             continue
-        started_at = float(entry["started_at"])
+        started_at_raw = entry["started_at"]
+        if not isinstance(started_at_raw, (int, float)):
+            raise TypeError(
+                f"expected numeric started_at, got {type(started_at_raw).__name__}",
+            )
+        started_at = float(started_at_raw)
         month = dt.datetime.fromtimestamp(started_at, tz=dt.UTC).strftime("%Y-%m")
         plans.append(
             SessionImportPlan(

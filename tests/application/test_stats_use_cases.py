@@ -1,10 +1,10 @@
 from keystrike.application.stats_use_cases import (
-    EnsureAggregates,
     GetAggregateMetricTrends,
     GetHeatmap,
     GetHistory,
     GetKeyMetricTrends,
     GetLearningRate,
+    GetOrRebuildAggregates,
     RebuildAggregates,
 )
 from keystrike.domain.aggregate import session_recency_weights
@@ -23,7 +23,12 @@ from keystrike.domain.models import (
     Settings,
     TransitionStats,
 )
-from tests.fakes import FakeAggregatesCache, FakeSessionRepository, FakeSettingsRepository
+from tests.fakes import (
+    FakeAggregatesCache,
+    FakeClock,
+    FakeSessionRepository,
+    FakeSettingsRepository,
+)
 
 
 def _header(session_id: str, started_at: float, layout: str = "qwerty") -> SessionResult:
@@ -148,7 +153,7 @@ def test_ensure_skips_when_cache_has_transitions():
         cache=cache,
         settings_repo=FakeSettingsRepository(),
     )
-    ensure = EnsureAggregates(repo=repo, cache=cache, rebuild=rebuild)
+    ensure = GetOrRebuildAggregates(repo=repo, cache=cache, rebuild=rebuild)
 
     keys = ensure("qwerty")
 
@@ -178,7 +183,7 @@ def test_ensure_rebuilds_when_transitions_missing_but_sessions_exist():
         cache=cache,
         settings_repo=FakeSettingsRepository(),
     )
-    ensure = EnsureAggregates(repo=repo, cache=cache, rebuild=rebuild)
+    ensure = GetOrRebuildAggregates(repo=repo, cache=cache, rebuild=rebuild)
 
     ensure("qwerty")
 
@@ -258,18 +263,17 @@ def test_rebuild_aggregates_respects_settings_window():
 def test_get_heatmap_empty_cache_returns_empty_view():
     cache = FakeAggregatesCache()
     settings_repo = FakeSettingsRepository()
-    get_heatmap = GetHeatmap(cache=cache, settings_repo=settings_repo)
+    get_heatmap = GetHeatmap(cache=cache, settings_repo=settings_repo, clock=FakeClock())
     view = get_heatmap("qwerty")
     assert view.confidence == {}
     assert view.urgency == {}
 
 
-def test_get_heatmap_confidence_ratio(monkeypatch):
+def test_get_heatmap_confidence_ratio():
     cache = FakeAggregatesCache()
     settings_repo = FakeSettingsRepository(Settings(target_speed_cpm=300))
     repo = FakeSessionRepository()
     now = 1_700_000_000.0
-    monkeypatch.setattr("keystrike.application.stats_use_cases.time.time", lambda: now)
     header = _header("s1", now)
     repo.save_header(header)
     repo.keystrokes["s1"] = [
@@ -290,7 +294,7 @@ def test_get_heatmap_confidence_ratio(monkeypatch):
         settings_repo=FakeSettingsRepository(),
     )("qwerty")
 
-    get_heatmap = GetHeatmap(cache=cache, settings_repo=settings_repo)
+    get_heatmap = GetHeatmap(cache=cache, settings_repo=settings_repo, clock=FakeClock(wall=now))
     view = get_heatmap("qwerty")
 
     # target_ms_per_char = 60000/300 = 200ms; mean_time = 200ms → confidence == 1.0
@@ -298,11 +302,10 @@ def test_get_heatmap_confidence_ratio(monkeypatch):
     assert view.urgency[ord("a")] == 0.0
 
 
-def test_get_heatmap_urgency_from_last_seen(monkeypatch):
+def test_get_heatmap_urgency_from_last_seen():
     cache = FakeAggregatesCache()
     settings_repo = FakeSettingsRepository(Settings(target_speed_cpm=300))
     now = 1_000_000.0
-    monkeypatch.setattr("keystrike.application.stats_use_cases.time.time", lambda: now)
     cache.put(
         "qwerty",
         LayoutAggregates(
@@ -318,7 +321,7 @@ def test_get_heatmap_urgency_from_last_seen(monkeypatch):
         ),
     )
 
-    view = GetHeatmap(cache=cache, settings_repo=settings_repo)("qwerty")
+    view = GetHeatmap(cache=cache, settings_repo=settings_repo, clock=FakeClock(wall=now))("qwerty")
 
     assert view.urgency[ord("a")] == 1.0
 

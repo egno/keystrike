@@ -19,13 +19,13 @@ from keystrike.application.session_use_cases import (
 from keystrike.domain.aggregate import combine_sessions
 from keystrike.domain.confidence import (
     CONFIDENCE_SESSION_WINDOW,
-    compute_unlocked,
     confidence_of,
     target_ms_per_char,
 )
 from keystrike.domain.enums import Mode, SessionState
 from keystrike.domain.learn_order import keyboard_order
 from keystrike.domain.models import SessionResult, Settings
+from keystrike.domain.unlock import compute_unlocked
 from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS
 from tests.fakes import (
     FakeClock,

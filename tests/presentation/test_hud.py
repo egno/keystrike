@@ -2,9 +2,9 @@ import pytest
 from textual.app import App
 from textual.widgets import Static
 
-from keystrike.domain.confidence import FocusReason
 from keystrike.domain.daily_learn import compute_daily_learn_budget
 from keystrike.domain.enums import FocusKind, Mode
+from keystrike.domain.focus import FocusReason
 from keystrike.domain.models import Bigram
 from keystrike.domain.session import (
     LEARN_IDLE_PAUSE_NS,

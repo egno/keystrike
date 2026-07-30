@@ -2,6 +2,7 @@ import pytest
 
 from keystrike.application.settings_use_cases import (
     CycleLayout,
+    SettingsUpdate,
     SettingsValidationError,
     UpdateSettings,
 )
@@ -26,11 +27,13 @@ def test_update_settings_persists_all_fields():
     update = UpdateSettings(repo=repo)
 
     result = update(
-        layout="dvorak",
-        target_speed_cpm=400,
-        target_speed_unit=TargetSpeedUnit.WPM,
-        alphabet_size=20,
-        learn_daily_minutes=15,
+        SettingsUpdate(
+            layout="dvorak",
+            target_speed_cpm=400,
+            target_speed_unit=TargetSpeedUnit.WPM,
+            alphabet_size=20,
+            learn_daily_minutes=15,
+        ),
     )
 
     assert result.layout == "dvorak"
@@ -58,11 +61,13 @@ def test_update_settings_preserves_confidence_fields_from_repo():
     update = UpdateSettings(repo=repo)
 
     result = update(
-        layout="qwerty",
-        target_speed_cpm=300,
-        target_speed_unit=TargetSpeedUnit.CPM,
-        alphabet_size=16,
-        learn_daily_minutes=10,
+        SettingsUpdate(
+            layout="qwerty",
+            target_speed_cpm=300,
+            target_speed_unit=TargetSpeedUnit.CPM,
+            alphabet_size=16,
+            learn_daily_minutes=10,
+        ),
     )
 
     assert result.confidence_session_window == 8
@@ -76,11 +81,13 @@ def test_update_settings_rejects_non_positive_speed():
 
     with pytest.raises(SettingsValidationError):
         update(
-            layout="qwerty",
-            target_speed_cpm=0,
-            target_speed_unit=TargetSpeedUnit.CPM,
-            alphabet_size=16,
-            learn_daily_minutes=10,
+            SettingsUpdate(
+                layout="qwerty",
+                target_speed_cpm=0,
+                target_speed_unit=TargetSpeedUnit.CPM,
+                alphabet_size=16,
+                learn_daily_minutes=10,
+            ),
         )
 
     assert repo.settings == Settings()  # unchanged
@@ -92,11 +99,13 @@ def test_update_settings_rejects_negative_alphabet_size():
 
     with pytest.raises(SettingsValidationError):
         update(
-            layout="qwerty",
-            target_speed_cpm=300,
-            target_speed_unit=TargetSpeedUnit.CPM,
-            alphabet_size=-1,
-            learn_daily_minutes=10,
+            SettingsUpdate(
+                layout="qwerty",
+                target_speed_cpm=300,
+                target_speed_unit=TargetSpeedUnit.CPM,
+                alphabet_size=-1,
+                learn_daily_minutes=10,
+            ),
         )
 
     assert repo.settings == Settings()  # unchanged
@@ -108,11 +117,13 @@ def test_update_settings_rejects_negative_learn_daily_minutes():
 
     with pytest.raises(SettingsValidationError):
         update(
-            layout="qwerty",
-            target_speed_cpm=300,
-            target_speed_unit=TargetSpeedUnit.CPM,
-            alphabet_size=16,
-            learn_daily_minutes=-1,
+            SettingsUpdate(
+                layout="qwerty",
+                target_speed_cpm=300,
+                target_speed_unit=TargetSpeedUnit.CPM,
+                alphabet_size=16,
+                learn_daily_minutes=-1,
+            ),
         )
 
     assert repo.settings == Settings()

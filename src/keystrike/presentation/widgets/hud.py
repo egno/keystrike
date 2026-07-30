@@ -2,11 +2,12 @@ from textual.app import ComposeResult
 from textual.widget import Widget
 from textual.widgets import Static
 
-from keystrike.domain.confidence import FocusReason
-from keystrike.domain.daily_learn import DailyLearnBudget, format_daily_learn_display
+from keystrike.domain.daily_learn import DailyLearnBudget, daily_learn_display
+from keystrike.domain.focus import FocusReason
 from keystrike.domain.null_adapters import NULL_DAILY_LEARN_BUDGET
 from keystrike.domain.protocols import Clock, DailyLearnBudgetProvider
 from keystrike.domain.session import Session, active_typing_duration_ns, is_typing_idle
+from keystrike.presentation.theme import STYLE_IDLE
 from keystrike.presentation.widgets.kb_heatmap import focus_reason_label, focus_transition_pair
 
 
@@ -17,11 +18,12 @@ def learn_timer_dimmed(session: Session, now_ns: int) -> bool:
 
 
 def _format_daily_learn_segment(budget: DailyLearnBudget, *, dim: bool) -> str:
-    segment = format_daily_learn_display(budget, label="   Learn:")
-    if not segment:
+    display = daily_learn_display(budget)
+    if not display.shown:
         return ""
-    colored = f"[green]{segment}[/]" if budget.limit_reached else segment
-    return f"[dim]{colored}[/]" if dim else colored
+    segment = f"   Learn: [bold]{display.used_minutes:.1f}[/]/{display.limit_minutes:g} min"
+    colored = f"[green]{segment}[/]" if display.limit_reached else segment
+    return f"[{STYLE_IDLE}]{colored}[/]" if dim else colored
 
 
 def _format_focus_segment(focus_key: int | None, focus_reason: FocusReason | None) -> str:

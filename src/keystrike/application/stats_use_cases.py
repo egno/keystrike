@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 
@@ -17,7 +16,12 @@ from keystrike.domain.confidence import (
     target_ms_per_char,
 )
 from keystrike.domain.models import KeyStats, SessionResult
-from keystrike.domain.protocols import AggregatesCache, SessionRepository, SettingsRepository
+from keystrike.domain.protocols import (
+    AggregatesCache,
+    Clock,
+    SessionRepository,
+    SettingsRepository,
+)
 from keystrike.domain.regression import estimate_sessions_to_goal
 
 _NS_PER_MS = 1e6
@@ -44,7 +48,7 @@ class RebuildAggregates:
 
 
 @dataclass(slots=True)
-class EnsureAggregates:
+class GetOrRebuildAggregates:
     """Query: current per-key aggregates for a layout.
 
     Rebuilds first (via ``rebuild``) only when the cache is missing or lacks
@@ -79,6 +83,7 @@ class GetHeatmap:
 
     cache: AggregatesCache
     settings_repo: SettingsRepository
+    clock: Clock
 
     def __call__(self, layout: str) -> HeatmapView:
         aggregates = self.cache.get(layout)
@@ -87,7 +92,7 @@ class GetHeatmap:
         stats = aggregates.keys
         settings = self.settings_repo.load()
         target = target_ms_per_char(settings.target_speed_cpm)
-        now = time.time()
+        now = self.clock.wall_epoch()
         return HeatmapView(
             confidence={
                 cp: confidence_of(

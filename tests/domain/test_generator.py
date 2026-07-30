@@ -59,7 +59,7 @@ def test_generate_lesson_char_weights_bias_toward_weak_key():
 
 def test_generate_word_uses_wordlist_when_provided():
     generator = AdaptiveGenerator(table=_uniform_table("xyz"), rng=Random(0))
-    words = ["cab", "bad", "dab"]
+    words = ("cab", "bad", "dab")
     for _ in range(10):
         word = generator.generate_word(frozenset("abcd"), LessonWeighting(words=words))
         assert word in words
@@ -75,14 +75,14 @@ def test_generate_word_falls_back_when_wordlist_outside_alphabet():
     generator = AdaptiveGenerator(table=_uniform_table("abc"), rng=Random(0))
     word = generator.generate_word(
         frozenset("abc"),
-        LessonWeighting(words=["xyz", "qrs"]),
+        LessonWeighting(words=("xyz", "qrs")),
     )
     assert set(word) <= {"a", "b", "c"}
 
 
 def test_generate_wordlist_char_weights_bias():
     generator = AdaptiveGenerator(table=_uniform_table("ab"), rng=Random(0))
-    words = ["aaa", "bbb"]
+    words = ("aaa", "bbb")
     counts = {"a": 0, "b": 0}
     for _ in range(50):
         word = generator.generate_word(
@@ -95,7 +95,7 @@ def test_generate_wordlist_char_weights_bias():
 
 def test_generate_wordlist_transition_weights_bias():
     generator = AdaptiveGenerator(table=_uniform_table("abcd"), rng=Random(0))
-    words = ["cab", "cad"]
+    words = ("cab", "cad")
     counts = {"cab": 0, "cad": 0}
     for _ in range(50):
         word = generator.generate_word(
@@ -125,7 +125,7 @@ def test_wordlist_weight_for_word_combines_char_and_transition_weights():
 
 def test_generate_lesson_wordlist_transition_weights_bias():
     generator = AdaptiveGenerator(table=_uniform_table("as"), rng=Random(0))
-    words = ["asa", "ass", "sas", "ssa"]
+    words = ("asa", "ass", "sas", "ssa")
     ssa_count = 0
     for seed in range(50):
         generator.rng = Random(seed)
@@ -148,7 +148,7 @@ def test_generate_lesson_wordlist_transition_weights_bias():
 
 def test_generate_lesson_focus_wordlist_overweights_focus_char():
     generator = AdaptiveGenerator(table=_uniform_table("ab"), rng=Random(0))
-    words = ["aaa", "bbb"]
+    words = ("aaa", "bbb")
     focus_counts = 0
     for seed in range(40):
         generator.rng = Random(seed)
@@ -187,7 +187,7 @@ def test_generate_lesson_injects_focus_bigram():
             frozenset("abc"),
             focus_char="c",
             word_count=4,
-            focus_bigram=(ord("a"), ord("z")),
+            focus_bigram=Bigram(ord("a"), ord("z")),
         )
         assert "az" in lesson.replace(" ", "")
 

@@ -323,7 +323,7 @@ async def test_import_prefilled_default_url():
 @pytest.mark.asyncio
 async def test_import_shows_error_on_wordlist_error():
     app = App()
-    store = FakeWordListStore(download_error=RuntimeError("network down"))
+    store = FakeWordListStore(download_error=OSError("network down"))
     screen, settings_repo, _store = _build_screen(wordlist_store=store)
     async with app.run_test() as pilot:
         await app.push_screen(screen)

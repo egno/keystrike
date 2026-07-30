@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from random import Random
 
-from .confidence import FOCUS_BIGRAM_WORD_BOOST, FOCUS_WORD_BOOST
+from .focus import FOCUS_BIGRAM_WORD_BOOST, FOCUS_WORD_BOOST
 from .markov import TransitionTable
 from .models import Bigram, Layout
 from .word_bounds import MAX_WORD_LEN, MIN_WORD_LEN
@@ -28,9 +28,15 @@ class LessonWeighting:
     char_weights: Mapping[str, float] | None = None
     transition_weights: Mapping[Bigram, float] | None = None
     layout: Layout | None = None
-    words: list[str] | None = None
+    words: tuple[str, ...] | None = None
     focus_word_boost: float = FOCUS_WORD_BOOST
     focus_bigram_word_boost: float = FOCUS_BIGRAM_WORD_BOOST
+
+    def __post_init__(self) -> None:
+        # Freezing the dataclass only blocks attribute rebinding — wrap the
+        # list field too so in-place mutation of its contents also raises.
+        if self.words is not None:
+            object.__setattr__(self, "words", tuple(self.words))
 
 
 def wordlist_weight_for_word(
@@ -109,12 +115,12 @@ class AdaptiveGenerator:
         *,
         word_count: int = DEFAULT_WORD_COUNT,
         weighting: LessonWeighting | None = None,
-        focus_bigram: tuple[int, int] | None = None,
+        focus_bigram: Bigram | None = None,
     ) -> str:
         weighting = weighting or LessonWeighting()
         focus_bigram_str: str | None = None
         if focus_bigram is not None:
-            focus_bigram_str = chr(focus_bigram[0]) + chr(focus_bigram[1])
+            focus_bigram_str = focus_bigram.chars()
         wordlist_weights: list[float] | None = None
         if weighting.words and (weighting.char_weights or weighting.transition_weights):
             wordlist_weights = [
@@ -131,7 +137,7 @@ class AdaptiveGenerator:
             for _ in range(word_count)
         ]
         if focus_bigram is not None:
-            prev_char, next_char = chr(focus_bigram[0]), chr(focus_bigram[1])
+            prev_char, next_char = chr(focus_bigram.prev_cp), chr(focus_bigram.next_cp)
             bigram = prev_char + next_char
             if not any(bigram in w for w in lesson_words):
                 idx = self.rng.randrange(len(lesson_words))

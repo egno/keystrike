@@ -3,8 +3,8 @@ from textual.app import ComposeResult
 from textual.widget import Widget
 from textual.widgets import Static
 
-from keystrike.domain.confidence import FocusReason
 from keystrike.domain.enums import FocusKind
+from keystrike.domain.focus import FocusReason
 from keystrike.domain.models import Bigram, Layout
 
 _ROWS = 3

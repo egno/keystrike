@@ -14,11 +14,11 @@ from keystrike.application.session_use_cases import (
 )
 from keystrike.application.settings_use_cases import CycleLayout, UpdateSettings
 from keystrike.application.stats_use_cases import (
-    EnsureAggregates,
     GetAggregateMetricTrends,
     GetHeatmap,
     GetHistory,
     GetKeyMetricTrends,
+    GetOrRebuildAggregates,
     RebuildAggregates,
 )
 from keystrike.application.sync_use_cases import GetSyncStatus, InitSync, PullSync, PushSync
@@ -94,12 +94,12 @@ def build() -> KeystrikeApp:
         cache=aggregates_cache,
         settings_repo=settings_repo,
     )
-    ensure_aggregates = EnsureAggregates(
+    ensure_aggregates = GetOrRebuildAggregates(
         repo=session_repo,
         cache=aggregates_cache,
         rebuild=rebuild_aggregates,
     )
-    get_heatmap = GetHeatmap(cache=aggregates_cache, settings_repo=settings_repo)
+    get_heatmap = GetHeatmap(cache=aggregates_cache, settings_repo=settings_repo, clock=clock)
     get_history = GetHistory(repo=session_repo)
     get_key_metric_trends = GetKeyMetricTrends(
         repo=session_repo,
@@ -128,6 +128,7 @@ def build() -> KeystrikeApp:
         language_provider=language_provider,
         wordlist_store=wordlist_store,
         rng=Random(),
+        clock=clock,
     )
     prepare_practice = PreparePracticeSession(
         settings_repo=settings_repo,

@@ -3,7 +3,6 @@ from dataclasses import dataclass, field, replace
 
 from keystrike.domain.aggregate import combine_sessions, session_recency_weights
 from keystrike.domain.confidence import (
-    compute_unlocked,
     confidence_of,
     target_ms_per_char,
 )
@@ -11,7 +10,11 @@ from keystrike.domain.enums import Mode, SessionState
 from keystrike.domain.generator import typical_chars_per_word
 from keystrike.domain.learn_order import keyboard_order
 from keystrike.domain.models import Keystroke, SessionResult
-from keystrike.domain.null_adapters import NullSessionRepository
+from keystrike.domain.null_adapters import (
+    NULL_LAYOUT_REPOSITORY,
+    NULL_SETTINGS_REPOSITORY,
+    NullSessionRepository,
+)
 from keystrike.domain.protocols import (
     Clock,
     IdGenerator,
@@ -27,6 +30,7 @@ from keystrike.domain.session import (
     note_keystroke_for_timer,
     skip_leading_whitespace,
 )
+from keystrike.domain.unlock import compute_unlocked
 
 
 @dataclass(slots=True)
@@ -172,8 +176,8 @@ def _sync_alphabet_size(unlocked_keys: tuple[int, ...], settings_repo: SettingsR
 class FinishSession:
     clock: Clock
     repo: SessionRepository = field(default_factory=NullSessionRepository)
-    settings_repo: SettingsRepository | None = None
-    layout_repo: LayoutRepository | None = None
+    settings_repo: SettingsRepository = NULL_SETTINGS_REPOSITORY
+    layout_repo: LayoutRepository = NULL_LAYOUT_REPOSITORY
 
     def __call__(self, session: Session) -> SessionResult:
         session.state = SessionState.COMPLETE
@@ -183,20 +187,16 @@ class FinishSession:
             else 0
         )
 
-        target_speed_cpm = 0
-        unlocked_keys: tuple[int, ...] = ()
-        key_confidence: dict[int, float] = {}
-        if self.settings_repo is not None and self.layout_repo is not None:
-            settings = self.settings_repo.load()
-            target_speed_cpm = settings.target_speed_cpm
-            unlocked_keys, key_confidence = _snapshot_unlock_state(
-                session,
-                duration_ns,
-                repo=self.repo,
-                settings_repo=self.settings_repo,
-                layout_repo=self.layout_repo,
-            )
-            _sync_alphabet_size(unlocked_keys, self.settings_repo)
+        settings = self.settings_repo.load()
+        target_speed_cpm = settings.target_speed_cpm
+        unlocked_keys, key_confidence = _snapshot_unlock_state(
+            session,
+            duration_ns,
+            repo=self.repo,
+            settings_repo=self.settings_repo,
+            layout_repo=self.layout_repo,
+        )
+        _sync_alphabet_size(unlocked_keys, self.settings_repo)
 
         result = SessionResult(
             schema_version=3,
@@ -332,11 +332,9 @@ class GetSessionBaseline:
     """
 
     repo: SessionRepository
-    settings_repo: SettingsRepository | None = None
+    settings_repo: SettingsRepository = NULL_SETTINGS_REPOSITORY
 
     def __call__(self, result: SessionResult) -> SessionStatsBaseline | None:
-        if self.settings_repo is None:
-            return None
         window = self.settings_repo.load().confidence_session_window
         return confidence_window_session_baseline(self.repo, result, window=window)
 

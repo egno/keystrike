@@ -15,7 +15,6 @@ import subprocess
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 from keystrike.domain.models import SyncStatusReport
 from keystrike.domain.protocols import StatsRebuilder
@@ -48,11 +47,11 @@ class SyncConfig:
     remote_url: str
 
 
-def _read_index(path: Path) -> tuple[list[dict[str, Any]], list[str]]:
+def _read_index(path: Path) -> tuple[list[dict[str, object]], list[str]]:
     """Load a sessions index file into parsed entries + matching raw lines."""
     if not path.is_file():
         return [], []
-    entries: list[dict[str, Any]] = []
+    entries: list[dict[str, object]] = []
     lines: list[str] = []
     with path.open(encoding="utf-8") as fh:
         for raw in fh:

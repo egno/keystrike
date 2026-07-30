@@ -20,34 +20,38 @@ class SettingsValidationError(ValueError):
     """Raised by UpdateSettings when a proposed change is invalid."""
 
 
+@dataclass(frozen=True, slots=True)
+class SettingsUpdate:
+    """Proposed new values for the settings screen's editable fields, bundled
+    so `UpdateSettings.__call__` takes one parameter instead of five."""
+
+    layout: str
+    target_speed_cpm: int
+    target_speed_unit: TargetSpeedUnit
+    alphabet_size: int
+    learn_daily_minutes: int
+
+
 @dataclass(slots=True)
 class UpdateSettings:
     repo: SettingsRepository
 
-    def __call__(
-        self,
-        *,
-        layout: str,
-        target_speed_cpm: int,
-        target_speed_unit: TargetSpeedUnit,
-        alphabet_size: int,
-        learn_daily_minutes: int,
-    ) -> Settings:
-        if target_speed_cpm <= 0:
+    def __call__(self, update: SettingsUpdate) -> Settings:
+        if update.target_speed_cpm <= 0:
             raise SettingsValidationError("Target speed must be a positive integer.")
-        if target_speed_unit not in TargetSpeedUnit:
+        if update.target_speed_unit not in TargetSpeedUnit:
             raise SettingsValidationError("Target speed unit must be wpm or cpm.")
-        if alphabet_size < 0:
+        if update.alphabet_size < 0:
             raise SettingsValidationError("Number of letters must be zero or more.")
-        if learn_daily_minutes < 0:
+        if update.learn_daily_minutes < 0:
             raise SettingsValidationError("Daily learn minutes must be zero or more.")
         updated = replace(
             self.repo.load(),
-            layout=layout,
-            target_speed_cpm=target_speed_cpm,
-            target_speed_unit=target_speed_unit,
-            alphabet_size=alphabet_size,
-            learn_daily_minutes=learn_daily_minutes,
+            layout=update.layout,
+            target_speed_cpm=update.target_speed_cpm,
+            target_speed_unit=update.target_speed_unit,
+            alphabet_size=update.alphabet_size,
+            learn_daily_minutes=update.learn_daily_minutes,
         )
         self.repo.save(updated)
         return updated

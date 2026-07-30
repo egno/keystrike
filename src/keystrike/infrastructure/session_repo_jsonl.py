@@ -6,13 +6,13 @@ from __future__ import annotations
 import datetime as dt
 import json
 from collections.abc import Iterator
-from dataclasses import asdict
 from pathlib import Path
 from typing import cast
 
 from keystrike.domain.enums import Mode, migrate_legacy_mode
 from keystrike.domain.models import Keystroke, SessionResult
 
+from .json_coerce import coerce_float, coerce_int, require_float, require_int, require_str
 from .paths import Paths
 
 
@@ -107,21 +107,27 @@ def _read_keystrokes(file: Path) -> Iterator[Keystroke]:
 
 
 def _header_to_dict(h: SessionResult) -> dict[str, object]:
-    d = asdict(h)
-    # Mode is a StrEnum → str; tuple → list for JSON.
-    d["mode"] = str(h.mode)
-    d["lesson_alphabet"] = list(h.lesson_alphabet)
-    d["unlocked_keys"] = list(h.unlocked_keys)
-    d["key_confidence"] = {str(k): v for k, v in h.key_confidence.items()}
-    return d
-
-
-def _as_int(v: object) -> int:
-    return int(v)  # type: ignore[arg-type]
-
-
-def _as_float(v: object) -> float:
-    return float(v)  # type: ignore[arg-type]
+    # Built field-by-field rather than via `dataclasses.asdict(h)`: asdict
+    # falls back to `copy.deepcopy` for non-dataclass/list/tuple/dict values,
+    # and deepcopy cannot pickle `key_confidence`'s `mappingproxy` wrapper.
+    # A shallow `dict(...)` here sidesteps that entirely.
+    return {
+        "schema_version": h.schema_version,
+        "session_id": h.session_id,
+        "started_at": h.started_at,
+        "duration_ns": h.duration_ns,
+        "layout": h.layout,
+        "mode": str(h.mode),  # Mode is a StrEnum → str
+        "lesson_alphabet": list(h.lesson_alphabet),
+        "focus_key": h.focus_key,
+        "total_keystrokes": h.total_keystrokes,
+        "correct_keystrokes": h.correct_keystrokes,
+        "words_completed": h.words_completed,
+        "lang": h.lang,
+        "unlocked_keys": list(h.unlocked_keys),
+        "key_confidence": {str(k): v for k, v in h.key_confidence.items()},
+        "target_speed_cpm": h.target_speed_cpm,
+    }
 
 
 def _parse_mode(raw: object) -> Mode:
@@ -134,25 +140,27 @@ def _parse_key_confidence(raw: object) -> dict[int, float]:
     out: dict[int, float] = {}
     mapping = cast("dict[object, object]", raw)
     for k, v in mapping.items():
-        out[_as_int(k)] = _as_float(v)
+        out[coerce_int(k, label="key_confidence key")] = coerce_float(
+            v, label="key_confidence value"
+        )
     return out
 
 
 def _header_from_dict(d: dict[str, object]) -> SessionResult:
     return SessionResult(
-        schema_version=_as_int(d["schema_version"]),
-        session_id=str(d["session_id"]),
-        started_at=_as_float(d["started_at"]),
-        duration_ns=_as_int(d["duration_ns"]),
-        layout=str(d["layout"]),
+        schema_version=require_int(d, "schema_version"),
+        session_id=require_str(d, "session_id"),
+        started_at=require_float(d, "started_at"),
+        duration_ns=require_int(d, "duration_ns"),
+        layout=require_str(d, "layout"),
         mode=_parse_mode(d["mode"]),
         lesson_alphabet=tuple(d["lesson_alphabet"]),  # type: ignore[arg-type]
-        focus_key=_as_int(d["focus_key"]) if d.get("focus_key") is not None else None,
-        total_keystrokes=_as_int(d["total_keystrokes"]),
-        correct_keystrokes=_as_int(d["correct_keystrokes"]),
-        words_completed=_as_int(d.get("words_completed", 0)),
-        lang=str(d.get("lang", "en")),
+        focus_key=require_int(d, "focus_key") if d.get("focus_key") is not None else None,
+        total_keystrokes=require_int(d, "total_keystrokes"),
+        correct_keystrokes=require_int(d, "correct_keystrokes"),
+        words_completed=require_int(d, "words_completed", 0),
+        lang=require_str(d, "lang", "en"),
         unlocked_keys=tuple(d.get("unlocked_keys", ())),  # type: ignore[arg-type]
         key_confidence=_parse_key_confidence(d.get("key_confidence", {})),
-        target_speed_cpm=_as_int(d.get("target_speed_cpm", 0)),
+        target_speed_cpm=require_int(d, "target_speed_cpm", 0),
     )
