@@ -15,7 +15,6 @@ from keystrike.presentation.formatting.trends import format_session_stats_line
 from keystrike.presentation.services import PracticeServices
 from keystrike.presentation.widgets.hud import HUD
 from keystrike.presentation.widgets.kb_heatmap import (
-    HeatmapDisplay,
     KbHeatmap,
     build_heatmap_display,
     focus_transition_pair,
@@ -74,15 +73,15 @@ class PracticeScreen(Screen[None]):
             yield self._hud
             yield self._typing_area
             if self._prep.layout_obj is not None and self._prep.lesson_heatmap is not None:
-                self._kb_heatmap = KbHeatmap(
-                    HeatmapDisplay(
-                        self._prep.layout_obj,
-                        self._prep.lesson_heatmap,
-                        focus=self._prep.focus_key,
-                        focus_transition=focus_transition_pair(self._prep.focus_reason),
-                    )
+                display = build_heatmap_display(
+                    self._prep.layout_obj,
+                    self._prep.lesson_heatmap,
+                    focus=self._prep.focus_key,
+                    focus_transition=focus_transition_pair(self._prep.focus_reason),
                 )
-                yield self._kb_heatmap
+                if display is not None:
+                    self._kb_heatmap = KbHeatmap(display)
+                    yield self._kb_heatmap
             yield Static(
                 self._focus_note_text(),
                 id="focus-note",

@@ -3,7 +3,6 @@ from keystrike.application.stats_use_cases import (
     GetHeatmap,
     GetHistory,
     GetKeyMetricTrends,
-    GetLearningRate,
     GetOrRebuildAggregates,
     RebuildAggregates,
 )
@@ -324,58 +323,6 @@ def test_get_heatmap_urgency_from_last_seen():
     view = GetHeatmap(cache=cache, settings_repo=settings_repo, clock=FakeClock(wall=now))("qwerty")
 
     assert view.urgency[ord("a")] == 1.0
-
-
-def test_get_learning_rate_no_data_returns_none():
-    repo = FakeSessionRepository()
-    settings_repo = FakeSettingsRepository()
-    get_rate = GetLearningRate(repo=repo, settings_repo=settings_repo)
-    assert get_rate("qwerty", ord("a")) is None
-
-
-def test_get_learning_rate_reads_deltas_across_sessions_chronologically():
-    repo = FakeSessionRepository()
-    settings_repo = FakeSettingsRepository(Settings(target_speed_cpm=300))  # target 200ms
-
-    for i, delta_ms in enumerate([300, 250, 210]):
-        session_id = f"s{i}"
-        repo.save_header(_header(session_id, started_at=float(i)))
-        repo.keystrokes[session_id] = [
-            Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
-            Keystroke(
-                codepoint=ord("a"),
-                typed=ord("a"),
-                t_ns=delta_ms * 1_000_000,
-                correct=True,
-            ),
-        ]
-
-    get_rate = GetLearningRate(repo=repo, settings_repo=settings_repo)
-    result = get_rate("qwerty", ord("a"))
-
-    assert result is not None
-    assert result > 0
-
-
-def test_get_learning_rate_already_at_target_returns_zero():
-    repo = FakeSessionRepository()
-    settings_repo = FakeSettingsRepository(Settings(target_speed_cpm=300))  # target 200ms
-
-    for i, delta_ms in enumerate([200, 190]):
-        session_id = f"s{i}"
-        repo.save_header(_header(session_id, started_at=float(i)))
-        repo.keystrokes[session_id] = [
-            Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
-            Keystroke(
-                codepoint=ord("a"),
-                typed=ord("a"),
-                t_ns=delta_ms * 1_000_000,
-                correct=True,
-            ),
-        ]
-
-    get_rate = GetLearningRate(repo=repo, settings_repo=settings_repo)
-    assert get_rate("qwerty", ord("a")) == 0
 
 
 def test_get_history_sorted_newest_first_and_limited():

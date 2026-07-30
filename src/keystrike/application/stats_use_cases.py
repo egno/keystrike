@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
+from typing import NamedTuple
 
-from keystrike.domain.aggregate import combine_sessions, per_key_deltas
+from keystrike.domain.aggregate import combine_sessions
 from keystrike.domain.confidence import (
     accuracy_of,
     confidence_of,
@@ -22,9 +23,16 @@ from keystrike.domain.protocols import (
     SessionRepository,
     SettingsRepository,
 )
-from keystrike.domain.regression import estimate_sessions_to_goal
 
 _NS_PER_MS = 1e6
+
+
+class SessionMetrics(NamedTuple):
+    """Per-session metrics: speed confidence, accuracy, and overall confidence."""
+
+    speed: float
+    accuracy: float
+    confidence: float
 
 
 @dataclass(slots=True)
@@ -118,28 +126,6 @@ class GetHistory:
         return headers[:limit]
 
 
-@dataclass(slots=True)
-class GetLearningRate:
-    """Sessions-to-goal estimate for one key: fit a curve to its most recent
-    per-attempt timings (across the last few sessions) and see how many more
-    attempts, at the observed trend, until it reaches the target speed."""
-
-    repo: SessionRepository
-    settings_repo: SettingsRepository
-
-    def __call__(self, layout: str, codepoint: int, max_sessions: int = 10) -> int | None:
-        target_ns = target_ms_per_char(self.settings_repo.load().target_speed_cpm) * _NS_PER_MS
-        headers = sorted(self.repo.iter_headers(layout), key=lambda h: h.started_at)
-        recent_headers = headers[-max_sessions:]
-
-        samples: list[float] = []
-        for header in recent_headers:
-            deltas = per_key_deltas(self.repo.load_keystrokes(header.session_id))
-            samples.extend(deltas.get(codepoint, []))
-
-        return estimate_sessions_to_goal(samples, target_ns)
-
-
 def _normalize_speed_to_current_goal(
     speed: float,
     stored_target_cpm: int,
@@ -221,7 +207,7 @@ def _accumulate_windowed_trends(
     layout: str,
     current_target_speed_cpm: int,
     compute: Callable[[Mapping[int, KeyStats], float, int], tuple[float, float, float]],
-) -> tuple[list[float], list[float], list[float]]:
+) -> list[SessionMetrics]:
     """Shared windowed-replay accumulation for per-session trend lines.
 
     ``compute`` receives the combined per-key stats, the session's own target
@@ -239,11 +225,9 @@ def _accumulate_windowed_trends(
         key=lambda h: h.started_at,
     )
     if not all_headers:
-        return [], [], []
+        return []
 
-    speeds: list[float] = []
-    accuracies: list[float] = []
-    confidences: list[float] = []
+    metrics: list[SessionMetrics] = []
     for header, combined, session_target in _windowed_session_replays(
         repo,
         all_headers,
@@ -258,11 +242,9 @@ def _accumulate_windowed_trends(
                 current_target_speed_cpm,
             ),
         )
-        speeds.append(speed)
-        accuracies.append(accuracy)
-        confidences.append(confidence)
+        metrics.append(SessionMetrics(speed=speed, accuracy=accuracy, confidence=confidence))
 
-    return speeds, accuracies, confidences
+    return metrics
 
 
 def _key_metric_trends(
@@ -272,7 +254,7 @@ def _key_metric_trends(
     codepoint: int,
     *,
     current_target_speed_cpm: int = 0,
-) -> tuple[list[float], list[float], list[float]]:
+) -> list[SessionMetrics]:
     def compute(
         combined: Mapping[int, KeyStats],
         session_target: float,
@@ -308,7 +290,7 @@ def _aggregate_metric_trends(
     layout: str,
     *,
     current_target_speed_cpm: int = 0,
-) -> tuple[list[float], list[float], list[float]]:
+) -> list[SessionMetrics]:
     def compute(
         combined: Mapping[int, KeyStats],
         session_target: float,
@@ -346,13 +328,15 @@ class GetKeyMetricTrends:
         *,
         current_target_speed_cpm: int = 0,
     ) -> tuple[list[float], list[float]]:
-        speeds, accuracies, _ = _key_metric_trends(
+        metrics = _key_metric_trends(
             self.repo,
             self.settings_repo,
             layout,
             codepoint,
             current_target_speed_cpm=current_target_speed_cpm,
         )
+        speeds = [m.speed for m in metrics]
+        accuracies = [m.accuracy for m in metrics]
         return speeds, accuracies
 
 
@@ -373,10 +357,13 @@ class GetAggregateMetricTrends:
         *,
         current_target_speed_cpm: int = 0,
     ) -> tuple[list[float], list[float], list[float]]:
-        speeds, accuracies, confidences = _aggregate_metric_trends(
+        metrics = _aggregate_metric_trends(
             self.repo,
             self.settings_repo,
             layout,
             current_target_speed_cpm=current_target_speed_cpm,
         )
+        confidences = [m.confidence for m in metrics]
+        speeds = [m.speed for m in metrics]
+        accuracies = [m.accuracy for m in metrics]
         return confidences, speeds, accuracies

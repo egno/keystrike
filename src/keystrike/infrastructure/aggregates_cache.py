@@ -16,7 +16,7 @@ from keystrike.domain.models import Bigram, KeyStats, LayoutAggregates, Transiti
 
 from .atomic_write import atomic_write_text
 from .json_coerce import require_float, require_int
-from .paths import Paths
+from .paths import Paths, sanitize_layout_name
 
 
 def _coerce_samples(entry: dict[str, object]) -> int:
@@ -64,7 +64,7 @@ class FileAggregatesCache:
         self._paths = paths
 
     def _file(self, layout: str) -> Path:
-        safe = layout.replace("/", "_").replace("\\", "_")
+        safe = sanitize_layout_name(layout)
         return self._paths.cache_dir / f"aggregates-{safe}.json"
 
     def get(self, layout: str) -> LayoutAggregates | None:

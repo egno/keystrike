@@ -46,14 +46,6 @@ def value_sparkline(values: Sequence[float]) -> str:
     )
 
 
-def wpm_sparkline(headers: Sequence[SessionResult], *, limit: int = 20) -> str:
-    """Unicode sparkline of WPM per session, oldest→newest."""
-    ordered = _recent(headers, limit)
-    if not ordered:
-        return ""
-    return value_sparkline([compute_wpm(h) for h in ordered])
-
-
 def _display_confidence(
     stored_conf: float,
     stored_target_cpm: int,
@@ -64,40 +56,6 @@ def _display_confidence(
     return stored_conf * (
         target_ms_per_char(current_target_cpm) / target_ms_per_char(stored_target_cpm)
     )
-
-
-def focus_confidence_values(
-    headers: Sequence[SessionResult],
-    *,
-    limit: int = 20,
-    current_target_speed_cpm: int = 0,
-) -> list[float]:
-    ordered = _recent(headers, limit)
-    return [
-        _display_confidence(
-            h.key_confidence.get(h.focus_key, 0.0) if h.focus_key is not None else 0.0,
-            h.target_speed_cpm,
-            current_target_speed_cpm,
-        )
-        for h in ordered
-    ]
-
-
-def focus_confidence_sparkline(
-    headers: Sequence[SessionResult],
-    *,
-    limit: int = 20,
-    current_target_speed_cpm: int = 0,
-) -> str:
-    """Unicode sparkline of focus-key confidence per session, oldest→newest."""
-    values = focus_confidence_values(
-        headers,
-        limit=limit,
-        current_target_speed_cpm=current_target_speed_cpm,
-    )
-    if not values:
-        return ""
-    return value_sparkline(values)
 
 
 def key_confidence_values(
@@ -145,18 +103,6 @@ def _focus_char_label(focus_key: int | None) -> str:
     if focus_key is None:
         return "?"
     return char_label(focus_key)
-
-
-def format_wpm_trend_line(headers: Sequence[SessionResult], *, limit: int = 20) -> str:
-    ordered = _recent(headers, limit)
-    if not ordered:
-        return ""
-    wpms = [compute_wpm(h) for h in ordered]
-    spark = wpm_sparkline(headers, limit=limit)
-    return (
-        f"[bold]WPM trend[/] ({len(wpms)} sessions)  {spark}  "
-        f"[dim]latest {wpms[-1]:.0f}  peak {max(wpms):.0f}[/]"
-    )
 
 
 def format_focus_confidence_trend_line(
@@ -218,26 +164,6 @@ def _assemble_metric_line(
     return line
 
 
-def _format_metric_trend_line_inline(
-    label: str,
-    color: str,
-    values: Sequence[float],
-    spark: str,
-    *,
-    format_value: Callable[[float], str] | None = None,
-    suffix: str = "",
-) -> str:
-    """One metric per line, session count inline, sparkline unpadded."""
-    if not values:
-        return ""
-    fmt = format_value or _default_metric_value
-    session_part = f" ({len(values)} sessions)  "
-    values_part = f"latest {fmt(values[-1])}  peak {fmt(max(values))}"
-    return _assemble_metric_line(
-        label, session_part, spark, values_part, color=color, suffix=suffix
-    )
-
-
 def _format_metric_trend_line_grid(
     label: str,
     color: str,
@@ -263,15 +189,6 @@ def _format_metric_trend_line_grid(
     )
 
 
-def format_confidence_trend_line(values: Sequence[float]) -> str:
-    return _format_metric_trend_line_inline(
-        "confidence",
-        STYLE_TREND_CONFIDENCE,
-        values,
-        value_sparkline(values),
-    )
-
-
 def _format_confidence_trend_line_grid(values: Sequence[float], *, spark_width: int = 20) -> str:
     return _format_metric_trend_line_grid(
         "confidence",
@@ -279,42 +196,6 @@ def _format_confidence_trend_line_grid(values: Sequence[float], *, spark_width: 
         values,
         value_sparkline(values),
         spark_width=spark_width,
-    )
-
-
-def format_key_confidence_trend_line(
-    headers: Sequence[SessionResult],
-    codepoint: int,
-    *,
-    limit: int = 20,
-    current_target_speed_cpm: int = 0,
-    cumulative: float | None = None,
-) -> str:
-    ordered = _recent(headers, limit)
-    if not ordered:
-        return ""
-    values = key_confidence_values(
-        headers,
-        codepoint,
-        limit=limit,
-        current_target_speed_cpm=current_target_speed_cpm,
-    )
-    spark = key_confidence_sparkline(
-        headers,
-        codepoint,
-        limit=limit,
-        current_target_speed_cpm=current_target_speed_cpm,
-    )
-    char = char_label(codepoint)
-    suffix = ""
-    if cumulative is not None:
-        suffix = f"[dim {STYLE_TREND_CONFIDENCE}]cumulative {cumulative:.2f}[/]"
-    return _format_metric_trend_line_inline(
-        f"'{char}' confidence",
-        STYLE_TREND_CONFIDENCE,
-        values,
-        spark,
-        suffix=suffix,
     )
 
 
@@ -357,15 +238,6 @@ def _format_key_confidence_trend_line_grid(
     )
 
 
-def format_key_speed_trend_line(values: Sequence[float]) -> str:
-    return _format_metric_trend_line_inline(
-        "speed",
-        STYLE_TREND_SPEED,
-        values,
-        value_sparkline(values),
-    )
-
-
 def _format_key_speed_trend_line_grid(values: Sequence[float], *, spark_width: int = 20) -> str:
     return _format_metric_trend_line_grid(
         "speed",
@@ -373,17 +245,6 @@ def _format_key_speed_trend_line_grid(values: Sequence[float], *, spark_width: i
         values,
         value_sparkline(values),
         spark_width=spark_width,
-    )
-
-
-def format_key_accuracy_trend_line(values: Sequence[float]) -> str:
-    pct_values = [v * 100 for v in values]
-    return _format_metric_trend_line_inline(
-        "accuracy",
-        STYLE_TREND_ACCURACY,
-        pct_values,
-        value_sparkline(pct_values),
-        format_value=lambda v: f"{v:.1f}%",
     )
 
 

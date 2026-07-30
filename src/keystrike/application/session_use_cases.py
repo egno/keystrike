@@ -236,14 +236,6 @@ def count_words_completed(text: str, position: int) -> int:
     return text[:position].count(" ")
 
 
-def compute_cpm(result: SessionResult) -> float:
-    """Correct characters per minute."""
-    minutes = result.duration_ns / 1e9 / 60.0
-    if minutes <= 0:
-        return 0.0
-    return result.correct_keystrokes / minutes
-
-
 def _words_for_wpm(result: SessionResult) -> float:
     if result.words_completed > 0:
         return float(result.words_completed)

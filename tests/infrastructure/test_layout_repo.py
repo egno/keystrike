@@ -78,3 +78,21 @@ def test_uses_filename_stem_as_id_not_name_field(paths: Paths):
     assert "display_name" not in repo.list_available()
     layout = repo.get("file_stem")
     assert layout.name == "display_name"
+
+
+def test_path_traversal_attack_rejected(paths: Paths):
+    """Regression test: path traversal in layout names is sanitized.
+
+    A malicious layout name like "../../evil" should not escape layouts_dir.
+    The sanitization should replace ".." with "_" so it becomes safe.
+    """
+    paths.layouts_dir.mkdir(parents=True)
+    # Create a decoy file outside layouts_dir that we should NOT be able to read
+    (paths.config_dir / "secret.toml").write_text(
+        'name = "secret"\nlearn_order = "a"\n', encoding="utf-8"
+    )
+
+    repo = CompositeLayoutRepository(paths)
+    # Attempt to read the secret file via path traversal should fail gracefully
+    with pytest.raises(KeyError):
+        repo.get("../../secret")

@@ -1,4 +1,5 @@
 import subprocess
+from collections.abc import Callable
 from typing import NoReturn
 
 import typer
@@ -40,45 +41,41 @@ def _sync_err(exc: BaseException) -> NoReturn:
     raise typer.Exit(code=1) from exc
 
 
+def _run_sync[T](fn: Callable[[], T]) -> T:
+    """Wrap a sync operation with consistent error handling."""
+    try:
+        return fn()
+    except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
+        _sync_err(exc)
+
+
 @sync_app.command("init")
 def sync_init(
     repo_url: str = typer.Argument(..., help="Private git remote URL (HTTPS or SSH)"),
 ) -> None:
     """One-time setup: clone remote, merge local data, write sync.toml."""
-    try:
-        build_sync().init(repo_url)
-    except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
-        _sync_err(exc)
+    _run_sync(lambda: build_sync().init(repo_url))
     typer.echo(f"sync initialized ({repo_url})")
 
 
 @sync_app.command()
 def pull() -> None:
     """Pull remote, union-merge sessions/settings locally, rebuild stats cache."""
-    try:
-        imported = build_sync().pull()
-    except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
-        _sync_err(exc)
+    imported = _run_sync(lambda: build_sync().pull())
     typer.echo(f"pull complete: {imported} session(s) imported")
 
 
 @sync_app.command()
 def push() -> None:
     """Merge local data into clone and push to remote."""
-    try:
-        pushed = build_sync().push()
-    except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
-        _sync_err(exc)
+    pushed = _run_sync(lambda: build_sync().push())
     typer.echo("push complete" if pushed else "push skipped (nothing to commit)")
 
 
 @sync_app.command()
 def status() -> None:
     """Show sync remote and session diff summary."""
-    try:
-        st = build_sync().status()
-    except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
-        _sync_err(exc)
+    st = _run_sync(lambda: build_sync().status())
     if not st.configured:
         typer.echo("sync not configured — run: keystrike sync init <repo-url>")
         raise typer.Exit(code=1)

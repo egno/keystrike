@@ -13,7 +13,7 @@ from .bundled_layouts.colemak_dh import LAYOUT as _COLEMAK_DH
 from .bundled_layouts.dvorak import LAYOUT as _DVORAK
 from .bundled_layouts.qwerty import LAYOUT as _QWERTY
 from .layout_toml import load_layout_toml
-from .paths import Paths
+from .paths import Paths, sanitize_layout_name
 
 BUNDLED_LAYOUTS: Mapping[str, Layout] = MappingProxyType(
     {layout.name: layout for layout in (_QWERTY, _DVORAK, _COLEMAK, _COLEMAK_DH)},
@@ -35,7 +35,8 @@ class CompositeLayoutRepository:
         bundled = self._bundled.get(name)
         if bundled is not None:
             return bundled
-        file = self._paths.layouts_dir / f"{name}.toml"
+        safe_name = sanitize_layout_name(name)
+        file = self._paths.layouts_dir / f"{safe_name}.toml"
         if not file.exists():
             raise KeyError(f"unknown layout: {name!r}")
         return load_layout_toml(file)

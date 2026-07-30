@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass
 
 from keystrike.application.build_lesson import BuildLesson
@@ -16,8 +15,6 @@ from keystrike.domain.protocols import (
     LayoutRepository,
     SettingsRepository,
 )
-
-PrepareNextSession = Callable[[], "SessionPrep | None"]
 
 
 @dataclass(frozen=True, slots=True)

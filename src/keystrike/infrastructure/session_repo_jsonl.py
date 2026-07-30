@@ -11,6 +11,7 @@ from typing import cast
 
 from keystrike.domain.enums import Mode, migrate_legacy_mode
 from keystrike.domain.models import Keystroke, SessionResult
+from keystrike.domain.sync_merge import validate_session_id
 
 from .json_coerce import coerce_float, coerce_int, require_float, require_int, require_str
 from .paths import Paths
@@ -39,6 +40,7 @@ class JsonlSessionRepository:
     def append_keystrokes(
         self, session_id: str, started_at: float, keystrokes: Iterable[Keystroke]
     ) -> None:
+        validate_session_id(session_id)  # Reject path-traversal attempts
         file = self._paths.sessions_dir / _month_dir(started_at) / f"{session_id}.jsonl"
         file.parent.mkdir(parents=True, exist_ok=True)
         with file.open("a", encoding="utf-8") as fh:
@@ -97,6 +99,7 @@ class JsonlSessionRepository:
         self._indexed = True
 
     def load_keystrokes(self, session_id: str) -> Iterator[Keystroke]:
+        validate_session_id(session_id)  # Reject path-traversal attempts
         self._ensure_index()
         header = self._session_index.get(session_id)
         if header is None:
@@ -189,9 +192,11 @@ def _parse_key_confidence(raw: object) -> dict[int, float]:
 
 
 def _header_from_dict(d: dict[str, object]) -> SessionResult:
+    session_id = require_str(d, "session_id")
+    validate_session_id(session_id)  # Reject path-traversal attempts
     return SessionResult(
         schema_version=require_int(d, "schema_version"),
-        session_id=require_str(d, "session_id"),
+        session_id=session_id,
         started_at=require_float(d, "started_at"),
         duration_ns=require_int(d, "duration_ns"),
         layout=require_str(d, "layout"),

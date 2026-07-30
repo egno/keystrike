@@ -50,6 +50,15 @@ def default_paths() -> Paths:
     )
 
 
+def sanitize_layout_name(name: str) -> str:
+    """Sanitize layout name to prevent path traversal attacks.
+
+    Removes path separators and parent directory references.
+    This ensures layout names cannot escape their designated directory.
+    """
+    return name.replace("..", "_").replace("/", "_").replace("\\", "_")
+
+
 def ensure_dirs(paths: Paths) -> None:
     for p in (
         paths.config_dir,

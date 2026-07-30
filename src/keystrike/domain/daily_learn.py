@@ -21,8 +21,13 @@ class DailyLearnBudget:
     limit_reached: bool
 
 
+def _resolve_tz(tz: dt.tzinfo | None) -> dt.tzinfo:
+    """Resolve timezone fallback: explicit value, system local, or UTC."""
+    return tz or dt.datetime.now().astimezone().tzinfo or dt.UTC
+
+
 def session_local_date(started_at: float, tz: dt.tzinfo | None = None) -> dt.date:
-    tz = tz or dt.datetime.now().astimezone().tzinfo or dt.UTC
+    tz = _resolve_tz(tz)
     return dt.datetime.fromtimestamp(started_at, tz=tz).date()
 
 
@@ -32,7 +37,7 @@ def daily_learn_duration_ns(
     *,
     tz: dt.tzinfo | None = None,
 ) -> int:
-    tz = tz or dt.datetime.now().astimezone().tzinfo or dt.UTC
+    tz = _resolve_tz(tz)
     total = 0
     for header in headers:
         if header.mode is not Mode.ADAPTIVE:

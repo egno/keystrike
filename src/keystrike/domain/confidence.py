@@ -126,10 +126,6 @@ def key_attempts(key_stats: KeyStats) -> int:
     return _attempts(key_stats)
 
 
-def transition_attempts(transition_stats: TransitionStats) -> int:
-    return _attempts(transition_stats)
-
-
 def is_same_key_transition(prev_cp: int, next_cp: int) -> bool:
     """Same physical key twice (e.g. ee, ss) — excluded from transition analysis."""
     return prev_cp == next_cp

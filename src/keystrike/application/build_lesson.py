@@ -69,6 +69,14 @@ class FocusExplanation:
     accuracy: float | None = None
 
 
+@dataclass(slots=True, frozen=True)
+class LessonProgress:
+    unlocked: tuple[int, ...]
+    focus: int
+    state: LessonState
+    focus_bigram: Bigram | None
+
+
 def _key_focus_metrics(
     focus: int,
     stats: Mapping[int, KeyStats],
@@ -204,7 +212,7 @@ class Lesson:
 def _lesson_progress(
     layout_name: str,
     ctx: _LessonContext,
-) -> tuple[tuple[int, ...], int, LessonState, Bigram | None]:
+) -> LessonProgress:
     order = keyboard_order(ctx.layout)
     unlocked = compute_unlocked(
         order,
@@ -263,7 +271,12 @@ def _lesson_progress(
         alphabet_size=ctx.settings.alphabet_size,
         target_speed_cpm=ctx.settings.target_speed_cpm,
     )
-    return unlocked, focus, state, focus_bigram
+    return LessonProgress(
+        unlocked=unlocked,
+        focus=focus,
+        state=state,
+        focus_bigram=focus_bigram,
+    )
 
 
 def _compute_weights(
@@ -341,30 +354,32 @@ class BuildLesson:
 
     def __call__(self, layout_name: str) -> Lesson:
         ctx = self._load_context(layout_name)
-        unlocked, focus, state, focus_bigram = _lesson_progress(layout_name, ctx)
-        focus_confidence = _resolve_focus_confidence(focus, focus_bigram, ctx)
+        progress = _lesson_progress(layout_name, ctx)
+        focus_confidence = _resolve_focus_confidence(progress.focus, progress.focus_bigram, ctx)
         char_weights, transition_weights = _compute_weights(
-            state,
-            focus,
-            focus_bigram,
+            progress.state,
+            progress.focus,
+            progress.focus_bigram,
             focus_confidence,
-            unlocked=unlocked,
+            unlocked=progress.unlocked,
             ctx=ctx,
         )
-        alphabet_chars = frozenset(chr(cp) for cp in unlocked)
+        alphabet_chars = frozenset(chr(cp) for cp in progress.unlocked)
         text = self._generate_text(
             ctx,
             alphabet_chars,
-            focus,
-            focus_bigram,
+            progress.focus,
+            progress.focus_bigram,
             char_weights=char_weights,
             transition_weights=transition_weights,
         )
-        urgency = _compute_urgency(ctx.stats, unlocked, ctx.now)
-        explanation = _compute_focus_explanation(focus, focus_bigram, focus_confidence, ctx)
+        urgency = _compute_urgency(ctx.stats, progress.unlocked, ctx.now)
+        explanation = _compute_focus_explanation(
+            progress.focus, progress.focus_bigram, focus_confidence, ctx
+        )
         return Lesson(
             text=text,
-            state=state,
+            state=progress.state,
             urgency=urgency,
             focus_reason=explanation.reason,
             focus_confidence=focus_confidence if explanation.reason else None,

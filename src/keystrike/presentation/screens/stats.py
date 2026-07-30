@@ -18,7 +18,6 @@ from keystrike.presentation.formatting.trends import (
 )
 from keystrike.presentation.services import StatsServices
 from keystrike.presentation.widgets.kb_heatmap import (
-    HeatmapDisplay,
     KbHeatmap,
     build_heatmap_display,
 )
@@ -75,17 +74,22 @@ class StatsScreen(Screen[None]):
             title += "  [dim](ortholinear)[/]"
         self.query_one("#stats-title", Static).update(title)
 
-        self._kb_heatmap = KbHeatmap(
-            HeatmapDisplay(layout, heatmap_view.confidence, urgency=heatmap_view.urgency)
+        display = build_heatmap_display(
+            layout,
+            heatmap_view.confidence,
+            urgency=heatmap_view.urgency,
         )
+        if display is not None:
+            self._kb_heatmap = KbHeatmap(display)
         self.query_one(Vertical).mount(
             Static("[dim]vs current goal[/]", id="stats-heatmap-caption"),
             Static(
                 "[dim]Press a key on the heatmap for letter stats · Esc to return[/]",
                 id="stats-heatmap-hint",
             ),
-            self._kb_heatmap,
         )
+        if self._kb_heatmap is not None:
+            self.query_one(Vertical).mount(self._kb_heatmap)
 
         self._trend_history = self._services.get_history(
             self._layout_name,

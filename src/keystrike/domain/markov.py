@@ -14,7 +14,7 @@ _DIFFERENT_HAND_BOOST = 1.5
 _DIFFERENT_FINGER_SAME_HAND_BOOST = 1.2
 
 
-def transition_practice_weight(prev_cp: int, next_cp: int, layout: Layout) -> float:
+def ergonomic_transition_boost(prev_cp: int, next_cp: int, layout: Layout) -> float:
     """Ergonomics bias for bigram transitions during practice text sampling."""
     prev = layout.keys.get(prev_cp)
     nxt = layout.keys.get(next_cp)
@@ -59,7 +59,7 @@ class TransitionTable:
         frequencies entirely.
 
         When `layout` is set, each candidate is also scaled by
-        `transition_practice_weight` from the last char in `context`.
+        `ergonomic_transition_boost` from the last char in `context`.
 
         `transition_weights` (keyed by `Bigram(prev_cp, next_cp)`) multiplies
         each candidate by the learner's measured confidence on that pair.
@@ -80,7 +80,7 @@ class TransitionTable:
                 for c, w in candidates:
                     weight = w * (char_weights.get(c, 1.0) if char_weights else 1.0)
                     if layout is not None and prev_cp is not None:
-                        weight *= transition_practice_weight(prev_cp, ord(c), layout)
+                        weight *= ergonomic_transition_boost(prev_cp, ord(c), layout)
                     if transition_weights is not None and prev_cp is not None:
                         weight *= transition_weights.get(Bigram(prev_cp, ord(c)), 1.0)
                     weights.append(weight)

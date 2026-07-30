@@ -17,6 +17,23 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Literal
 
+# Crockford base32 alphabet used in ULID generation (from infrastructure/id_gen.py)
+_ULID_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
+_ULID_LENGTH = 26
+
+
+def validate_session_id(session_id: str) -> None:
+    """Validate that session_id is a properly-formatted ULID.
+
+    ULIDs are 26 characters of Crockford base32 (no path separators, no `.`,
+    no `..` sequences that could enable path traversal). Rejects malformed
+    session_ids at the domain layer so they don't reach filesystem operations.
+    """
+    if len(session_id) != _ULID_LENGTH:
+        raise ValueError(f"session_id must be {_ULID_LENGTH} characters, got {len(session_id)}")
+    if not all(c in _ULID_ALPHABET for c in session_id):
+        raise ValueError(f"session_id contains invalid characters; only {_ULID_ALPHABET!r} allowed")
+
 
 @dataclass(frozen=True, slots=True)
 class SessionIndexEntry:
@@ -31,8 +48,10 @@ class SessionIndexEntry:
         started_at = raw["started_at"]
         if not isinstance(started_at, (int, float)):
             raise TypeError(f"expected numeric 'started_at', got {type(started_at).__name__}")
+        session_id = str(raw["session_id"])
+        validate_session_id(session_id)
         return cls(
-            session_id=str(raw["session_id"]),
+            session_id=session_id,
             layout=str(raw["layout"]),
             started_at=float(started_at),
         )

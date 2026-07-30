@@ -47,6 +47,11 @@ def _write_index(path: Path, *entries: dict[str, object]) -> None:
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+# Valid 26-character ULIDs for testing (Crockford base32 alphabet)
+_VALID_ULID_A = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+_VALID_ULID_B = "01ARZ3NDEKTSV4RRFFQ69G5FBV"
+
+
 def _header(sid: str, layout: str = "qwerty") -> dict[str, object]:
     return {
         "schema_version": 1,
@@ -67,21 +72,25 @@ def test_read_index_session_ids_missing_file_is_empty(tree: dict[str, Path]) -> 
 
 
 def test_read_index_session_ids_reads_existing_ids(tree: dict[str, Path]) -> None:
-    _write_index(tree["local_index"], _header("A"), _header("B"))
-    assert read_index_session_ids(tree["local_index"]) == {"A", "B"}
+    _write_index(tree["local_index"], _header(_VALID_ULID_A), _header(_VALID_ULID_B))
+    assert read_index_session_ids(tree["local_index"]) == {_VALID_ULID_A, _VALID_ULID_B}
 
 
 def test_iter_layouts_from_index(tree: dict[str, Path]) -> None:
-    _write_index(tree["local_index"], _header("A", layout="qwerty"), _header("B", layout="dvorak"))
+    _write_index(
+        tree["local_index"],
+        _header(_VALID_ULID_A, layout="qwerty"),
+        _header(_VALID_ULID_B, layout="dvorak"),
+    )
     assert iter_layouts_from_index(tree["local_index"]) == {"qwerty", "dvorak"}
 
 
 def test_session_union_imports_missing_remote_only(tree: dict[str, Path]) -> None:
-    _write_index(tree["local_index"], _header("A"))
-    _write_index(tree["remote_index"], _header("A"), _header("B"))
+    _write_index(tree["local_index"], _header(_VALID_ULID_A))
+    _write_index(tree["remote_index"], _header(_VALID_ULID_A), _header(_VALID_ULID_B))
     month = "2023-11"
     (tree["remote_sessions"] / month).mkdir()
-    (tree["remote_sessions"] / month / "B.jsonl").write_text(
+    (tree["remote_sessions"] / month / f"{_VALID_ULID_B}.jsonl").write_text(
         '{"codepoint": 97, "typed": 97, "t_ns": 0, "correct": true}\n',
         encoding="utf-8",
     )
@@ -93,17 +102,19 @@ def test_session_union_imports_missing_remote_only(tree: dict[str, Path]) -> Non
         remote_index=tree["remote_index"],
     )
 
-    assert imported == ["B"]
-    assert read_index_session_ids(tree["local_index"]) == {"A", "B"}
-    assert (tree["local_sessions"] / month / "B.jsonl").exists()
+    assert imported == [_VALID_ULID_B]
+    assert read_index_session_ids(tree["local_index"]) == {_VALID_ULID_A, _VALID_ULID_B}
+    assert (tree["local_sessions"] / month / f"{_VALID_ULID_B}.jsonl").exists()
 
 
 def test_session_union_skips_duplicate_local_ids(tree: dict[str, Path]) -> None:
-    _write_index(tree["local_index"], _header("A"))
-    _write_index(tree["remote_index"], _header("A"), _header("B"))
+    _write_index(tree["local_index"], _header(_VALID_ULID_A))
+    _write_index(tree["remote_index"], _header(_VALID_ULID_A), _header(_VALID_ULID_B))
     month = "2023-11"
     (tree["remote_sessions"] / month).mkdir()
-    (tree["remote_sessions"] / month / "B.jsonl").write_text("{}\n", encoding="utf-8")
+    (tree["remote_sessions"] / month / f"{_VALID_ULID_B}.jsonl").write_text(
+        "{}\n", encoding="utf-8"
+    )
 
     import_missing_sessions(
         local_sessions_dir=tree["local_sessions"],
@@ -113,12 +124,12 @@ def test_session_union_skips_duplicate_local_ids(tree: dict[str, Path]) -> None:
     )
 
     lines = tree["local_index"].read_text().splitlines()
-    assert lines.count(json.dumps(_header("A"))) == 1
-    assert json.dumps(_header("B")) in lines
+    assert lines.count(json.dumps(_header(_VALID_ULID_A))) == 1
+    assert json.dumps(_header(_VALID_ULID_B)) in lines
 
 
 def test_session_union_skips_entries_whose_file_is_missing(tree: dict[str, Path]) -> None:
-    _write_index(tree["remote_index"], _header("B"))
+    _write_index(tree["remote_index"], _header(_VALID_ULID_B))
     # No B.jsonl on disk anywhere.
 
     imported = import_missing_sessions(
@@ -139,6 +150,54 @@ def test_session_union_no_remote_index_is_noop(tree: dict[str, Path]) -> None:
         remote_index=tree["remote_index"],
     )
     assert imported == []
+
+
+def test_session_union_skips_path_traversal_session_ids(tree: dict[str, Path]) -> None:
+    """Path traversal attempts in session_id are skipped during import, not exploited."""
+    # Valid entry that should be imported
+    valid_entry = _header(_VALID_ULID_A)
+    # Malicious entries with path traversal attempts (will fail validation in from_dict)
+    evil_entries: list[dict[str, object]] = [
+        {"session_id": "../../etc/passwd", "started_at": 1_700_000_000.0, "layout": "qwerty"},
+        {"session_id": "../../../tmp/bad", "started_at": 1_700_000_000.0, "layout": "qwerty"},
+        {"session_id": "ABC", "started_at": 1_700_000_000.0, "layout": "qwerty"},  # too short
+        # invalid char
+        {
+            "session_id": "ABC!DEF0123456789ABCDEFG",
+            "started_at": 1_700_000_000.0,
+            "layout": "qwerty",
+        },
+    ]
+
+    # Write remote index with mix of valid and invalid entries
+    _write_index(tree["remote_index"], valid_entry, *evil_entries)
+
+    # Create the session file for the valid entry
+    month = "2023-11"
+    (tree["remote_sessions"] / month).mkdir()
+    (tree["remote_sessions"] / month / f"{_VALID_ULID_A}.jsonl").write_text(
+        '{"codepoint": 97, "typed": 97, "t_ns": 0, "correct": true}\n',
+        encoding="utf-8",
+    )
+
+    # Import should succeed, but only with the valid entry
+    imported = import_missing_sessions(
+        local_sessions_dir=tree["local_sessions"],
+        remote_sessions_dir=tree["remote_sessions"],
+        local_index=tree["local_index"],
+        remote_index=tree["remote_index"],
+    )
+
+    # Only the valid ULID is imported; malicious entries are silently skipped
+    assert imported == [_VALID_ULID_A]
+
+    # Local index should only contain the valid entry
+    local_ids = read_index_session_ids(tree["local_index"])
+    assert local_ids == {_VALID_ULID_A}
+
+    # Malicious paths are not created on disk
+    assert not (tree["local_sessions"] / "etc" / "passwd").exists()
+    assert not (tree["local_sessions"] / "tmp" / "bad").exists()
 
 
 def test_settings_lww_prefers_updated_at(tree: dict[str, Path]) -> None:
