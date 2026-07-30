@@ -10,7 +10,6 @@ from random import Random
 
 from keystrike.domain.aggregate import transition_key
 from keystrike.domain.confidence import (
-    FOCUS_CHAR_BOOST,
     accuracy_of,
     compute_unlocked,
     confidence_of,
@@ -155,6 +154,8 @@ def _lesson_progress(
         stats,
         target,
         min_attempts=settings.min_confidence_attempts,
+        transitions=transitions,
+        min_transition_attempts=settings.min_transition_confidence_attempts,
     )
     focus_bigram = (
         select_focus_transition(
@@ -230,7 +231,7 @@ class BuildLesson:
             )
             for k in state.keys
         }
-        char_weights[chr(focus)] *= FOCUS_CHAR_BOOST
+        char_weights[chr(focus)] *= settings.focus_char_boost
         transition_weights = {
             transition_key(prev, nxt): transition_practice_weight(
                 transition_confidence_of(
@@ -249,6 +250,24 @@ class BuildLesson:
             for prev in unlocked
             for nxt in unlocked
         }
+        if focus_bigram is not None:
+            prev_cp, next_cp = focus_bigram
+            pair_key = transition_key(prev_cp, next_cp)
+            transition_weights[pair_key] *= settings.focus_transition_boost
+            focus_confidence = transition_confidence_of(
+                prev_cp,
+                next_cp,
+                transitions,
+                target,
+                min_attempts=settings.min_transition_confidence_attempts,
+            )
+            if focus_confidence < _CONFIDENCE_GOOD:
+                transition_weights[pair_key] *= settings.focus_weak_extra_boost
+                char_weights[chr(focus)] *= settings.focus_weak_extra_boost
+        elif confidence_of(
+            focus, stats, target, min_attempts=settings.min_confidence_attempts,
+        ) < _CONFIDENCE_GOOD:
+            char_weights[chr(focus)] *= settings.focus_weak_extra_boost
         dict_words: list[str] | None = None
         if settings.wordlist_url:
             cached = self.wordlist_store.load(settings.wordlist_url)
@@ -265,6 +284,8 @@ class BuildLesson:
             transition_weights=transition_weights,
             focus_bigram=focus_bigram,
             words=dict_words,
+            focus_word_boost=settings.focus_word_boost,
+            focus_bigram_word_boost=settings.focus_bigram_word_boost,
         )
 
         urgency = {

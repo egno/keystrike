@@ -26,7 +26,7 @@ from keystrike.application.wordlist_use_cases import (
     ImportWordList,
 )
 from keystrike.domain.enums import Mode, SessionState
-from keystrike.domain.models import SessionResult, Settings
+from keystrike.domain.models import Keystroke, SessionResult, Settings
 from keystrike.domain.session import LEARN_IDLE_PAUSE_NS, active_typing_duration_ns, is_typing_idle
 from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS
 from keystrike.presentation.screens.home import HomeScreen
@@ -54,13 +54,13 @@ def _build_app(
     *,
     clock: FakeClock | None = None,
     settings: Settings | None = None,
-    headers: list[SessionResult] | None = None,
+    session_repo: FakeSessionRepository | None = None,
 ) -> tuple[KeystrikeApp, FakeClock, FakeSessionRepository, FakeSettingsRepository]:
     clock = clock or FakeClock(
         wall=dt.datetime(2026, 7, 28, 12, 0, tzinfo=_TZ).timestamp(),
     )
     id_gen = FakeIdGenerator()
-    session_repo = FakeSessionRepository(headers=headers or [])
+    session_repo = session_repo or FakeSessionRepository()
     settings_repo = FakeSettingsRepository(settings or Settings())
     layout_repo = FakeLayoutRepository(dict(BUNDLED_LAYOUTS))
     cache = FakeAggregatesCache()
@@ -76,11 +76,15 @@ def _build_app(
     get_daily_learn_budget = GetDailyLearnBudget(
         clock=clock, repo=session_repo, settings_repo=settings_repo, tz=_TZ,
     )
+    rebuild_aggregates = RebuildAggregates(
+        repo=session_repo, cache=cache, settings_repo=settings_repo,
+    )
     prepare_practice = PreparePracticeSession(
         settings_repo=settings_repo,
         layout_repo=layout_repo,
         build_lesson=build_lesson,
         get_daily_learn_budget=get_daily_learn_budget,
+        rebuild_aggregates=rebuild_aggregates,
     )
 
     app = KeystrikeApp(
@@ -96,9 +100,7 @@ def _build_app(
         settings_repo=settings_repo,
         layout_repo=layout_repo,
         prepare_practice=prepare_practice,
-        rebuild_aggregates=RebuildAggregates(
-            repo=session_repo, cache=cache, settings_repo=settings_repo,
-        ),
+        rebuild_aggregates=rebuild_aggregates,
         get_heatmap=GetHeatmap(cache=cache, settings_repo=settings_repo),
         get_history=GetHistory(repo=session_repo),
         get_key_metric_trends=GetKeyMetricTrends(
@@ -216,12 +218,54 @@ async def test_adaptive_allowed_when_daily_learn_goal_reached():
         total_keystrokes=1,
         correct_keystrokes=1,
     )
-    app, _clock, _repo, _settings = _build_app(headers=[header])
+    session_repo = FakeSessionRepository()
+    session_repo.save_header(header)
+    app, _clock, _repo, _settings = _build_app(session_repo=session_repo)
     async with app.run_test() as pilot:
         await pilot.press("enter")
         await pilot.pause()
 
         assert isinstance(app.screen, PracticeScreen)
+
+
+@pytest.mark.asyncio
+async def test_adaptive_practice_shows_transition_focus_note():
+    clock = FakeClock(wall=1_700_000_000.0)
+    session_repo = FakeSessionRepository()
+    session_repo.save_header(
+        SessionResult(
+            schema_version=3,
+            session_id="s1",
+            started_at=clock.wall_epoch(),
+            duration_ns=60_000_000_000,
+            layout="qwerty",
+            mode=Mode.ADAPTIVE,
+            lesson_alphabet=(ord("a"), ord("s")),
+            focus_key=ord("s"),
+            total_keystrokes=4,
+            correct_keystrokes=3,
+        ),
+    )
+    session_repo.keystrokes["s1"] = [
+        Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
+        Keystroke(codepoint=ord("s"), typed=ord("s"), t_ns=100_000_000, correct=True),
+        Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=500_000_000, correct=True),
+        Keystroke(codepoint=ord("s"), typed=ord("x"), t_ns=600_000_000, correct=False),
+    ]
+    app, _clock, _repo, _settings = _build_app(
+        clock=clock,
+        settings=Settings(alphabet_size=2),
+        session_repo=session_repo,
+    )
+    async with app.run_test() as pilot:
+        await pilot.press("enter")
+        await pilot.pause()
+        practice = app.screen
+        assert isinstance(practice, PracticeScreen)
+        note = str(practice.query_one("#focus-note", Static).content)
+        assert "weak transition" in note
+        assert "speed " in note
+        assert "accuracy " in note
 
 
 @pytest.mark.asyncio

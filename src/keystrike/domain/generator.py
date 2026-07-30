@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from random import Random
 
-from .confidence import FOCUS_WORD_BOOST
+from .confidence import FOCUS_BIGRAM_WORD_BOOST, FOCUS_WORD_BOOST
 from .markov import TransitionTable
 from .models import Layout
 from .word_bounds import MAX_WORD_LEN, MIN_WORD_LEN
@@ -22,6 +22,9 @@ def wordlist_weight_for_word(
     char_weights: Mapping[str, float] | None = None,
     transition_weights: Mapping[str, float] | None = None,
     focus_char: str | None = None,
+    focus_bigram: str | None = None,
+    focus_word_boost: float = FOCUS_WORD_BOOST,
+    focus_bigram_word_boost: float = FOCUS_BIGRAM_WORD_BOOST,
 ) -> float:
     """Score a dictionary word for adaptive sampling — mirrors Markov biasing."""
     if not char_weights and not transition_weights:
@@ -35,8 +38,10 @@ def wordlist_weight_for_word(
             for i in range(len(word) - 1)
         )
         weight = bigram_weight if not char_weights else weight * bigram_weight
-    if focus_char and focus_char in word:
-        weight *= FOCUS_WORD_BOOST
+    if focus_bigram and focus_bigram in word:
+        weight *= focus_bigram_word_boost
+    elif focus_char and focus_char in word:
+        weight *= focus_word_boost
     return weight
 
 
@@ -101,7 +106,12 @@ class AdaptiveGenerator:
         transition_weights: Mapping[str, float] | None = None,
         focus_bigram: tuple[int, int] | None = None,
         words: list[str] | None = None,
+        focus_word_boost: float = FOCUS_WORD_BOOST,
+        focus_bigram_word_boost: float = FOCUS_BIGRAM_WORD_BOOST,
     ) -> str:
+        focus_bigram_str: str | None = None
+        if focus_bigram is not None:
+            focus_bigram_str = chr(focus_bigram[0]) + chr(focus_bigram[1])
         wordlist_weights: list[float] | None = None
         if words and (char_weights or transition_weights):
             wordlist_weights = [
@@ -110,6 +120,9 @@ class AdaptiveGenerator:
                     char_weights=char_weights,
                     transition_weights=transition_weights,
                     focus_char=focus_char,
+                    focus_bigram=focus_bigram_str,
+                    focus_word_boost=focus_word_boost,
+                    focus_bigram_word_boost=focus_bigram_word_boost,
                 )
                 for w in words
             ]

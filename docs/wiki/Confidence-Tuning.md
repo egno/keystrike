@@ -2,11 +2,12 @@
 
 Keystrike's adaptive engine uses **confidence** — min(speed, accuracy), scaled by how
 much you've practiced — to decide which keys unlock, which key or bigram gets
-focus, and how the stats heatmap colors each key. Three settings control how
-aggressively the engine trusts your recent performance.
+focus, and how the stats heatmap colors each key. Settings in this page control how
+aggressively the engine trusts your recent performance and how strongly it
+biases lesson text toward the current focus key or bigram.
 
 Edit `{config_dir}/settings.toml` directly (see [Git sync](Git-sync) for the
-path on your OS). These three fields are **not** on the Settings screen — saving
+path on your OS). These fields are **not** on the Settings screen — saving
 layout, speed, or other UI settings will not change them.
 
 ## Settings
@@ -16,8 +17,13 @@ layout, speed, or other UI settings will not change them.
 | Confidence session window | `confidence_session_window` | `10` | How many recent sessions are replayed into rolling per-key stats used for confidence, unlocks, focus, and the heatmap. |
 | Min key attempts | `min_confidence_attempts` | `10` | Minimum presses on a key before its confidence reaches full weight. Below this, confidence ramps linearly (fewer attempts → lower score). |
 | Min bigram attempts | `min_transition_confidence_attempts` | `4` | Same ramp for letter-pair (transition) confidence. Default is lower because bigrams are practiced less often than single keys. |
+| Focus char boost | `focus_char_boost` | `3.0` | Multiplier on the focus key's char weight when building lesson sampling weights. |
+| Focus word boost | `focus_word_boost` | `3.0` | Extra multiplier on dictionary/Markov words that contain the focus character. |
+| Focus bigram word boost | `focus_bigram_word_boost` | `4.0` | Extra multiplier on words containing the focus letter pair (when transition focus is active). |
+| Focus transition boost | `focus_transition_boost` | `4.0` | Multiplier on the focus bigram's transition weight. |
+| Focus weak extra boost | `focus_weak_extra_boost` | `1.5` | Additional multiplier when focus confidence is below 1.0 (weak key or weak transition). |
 
-Valid ranges: window and both attempt floors are **1–100**.
+Valid ranges: window and both attempt floors are **1–100**. Boost multipliers should be **≥ 1.0**.
 
 Confidence uses **min(speed, accuracy)**, not their product: a key must be both
 fast enough and accurate enough to read as mastered. Speed is `target_ms /
@@ -29,6 +35,11 @@ Example (defaults shown):
 confidence_session_window = 10
 min_confidence_attempts = 10
 min_transition_confidence_attempts = 4
+focus_char_boost = 3.0
+focus_word_boost = 3.0
+focus_bigram_word_boost = 4.0
+focus_transition_boost = 4.0
+focus_weak_extra_boost = 1.5
 ```
 
 ## What each setting affects

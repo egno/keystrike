@@ -32,6 +32,11 @@ def test_round_trip(paths):
         confidence_session_window=8,
         min_confidence_attempts=12,
         min_transition_confidence_attempts=5,
+        focus_char_boost=2.5,
+        focus_word_boost=5.0,
+        focus_bigram_word_boost=6.0,
+        focus_transition_boost=3.5,
+        focus_weak_extra_boost=2.0,
     )
     repo.save(original)
     loaded = repo.load()
@@ -40,6 +45,11 @@ def test_round_trip(paths):
     assert loaded.confidence_session_window == 8
     assert loaded.min_confidence_attempts == 12
     assert loaded.min_transition_confidence_attempts == 5
+    assert loaded.focus_char_boost == 2.5
+    assert loaded.focus_word_boost == 5.0
+    assert loaded.focus_bigram_word_boost == 6.0
+    assert loaded.focus_transition_boost == 3.5
+    assert loaded.focus_weak_extra_boost == 2.0
     assert loaded.updated_at is not None
 
 

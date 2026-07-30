@@ -1,4 +1,5 @@
 from random import Random
+from unittest.mock import patch
 
 from keystrike.application.build_lesson import BuildLesson
 from keystrike.domain.aggregate import transition_key
@@ -118,6 +119,54 @@ def test_lesson_uses_transition_focus_when_transitions_weak():
     assert pair in lesson.text.replace(" ", "")
 
 
+def test_lesson_falls_back_to_key_focus_without_transitions():
+    layout = BUNDLED_LAYOUTS["qwerty"]
+    focus = keyboard_order(layout)[0]
+    lesson = _build_lesson(Settings(alphabet_size=1))("qwerty")
+    assert lesson.focus_key == focus
+    assert lesson.focus_reason == "weak"
+    assert "transition" not in (lesson.focus_reason or "")
+
+
+def test_lesson_uses_transition_review_when_stale_and_mastered():
+    layout = BUNDLED_LAYOUTS["qwerty"]
+    order = keyboard_order(layout)
+    a, s = order[0], order[1]
+    now = 1_700_000_000.0
+    five_days = 5 * 86_400.0
+    at_target = 200_000_000.0
+    transitions = {
+        transition_key(a, a): TransitionStats(
+            a, a, 10, at_target, 0, now, attempt_count=10,
+        ),
+        transition_key(a, s): TransitionStats(
+            a, s, 10, at_target, 0, now - five_days, attempt_count=10,
+        ),
+        transition_key(s, a): TransitionStats(
+            s, a, 10, at_target, 0, now, attempt_count=10,
+        ),
+        transition_key(s, s): TransitionStats(
+            s, s, 10, at_target, 0, now, attempt_count=10,
+        ),
+    }
+    cache = FakeAggregatesCache(
+        by_layout={"qwerty": LayoutAggregates(keys={}, transitions=transitions)},
+    )
+    builder = BuildLesson(
+        layout_repo=FakeLayoutRepository(dict(BUNDLED_LAYOUTS)),
+        aggregates_cache=cache,
+        settings_repo=FakeSettingsRepository(Settings(alphabet_size=2)),
+        language_provider=FakeLanguageProvider(),
+        wordlist_store=FakeWordListStore(),
+        rng=Random(0),
+    )
+    with patch("keystrike.application.build_lesson.time.time", return_value=now):
+        lesson = builder("qwerty")
+    pair = chr(a) + chr(s)
+    assert lesson.focus_key == s
+    assert lesson.focus_reason == f"{pair} review transition"
+
+
 def test_lesson_wordlist_biases_weak_transition():
     layout = BUNDLED_LAYOUTS["qwerty"]
     order = keyboard_order(layout)
@@ -162,6 +211,44 @@ def test_lesson_wordlist_biases_weak_transition():
                 as_word_count += 1
     assert as_word_count + ssa_count == 50 * 12
     assert as_word_count > ssa_count * 2
+
+
+def test_weak_transition_focus_over_represented_in_lesson_words():
+    """Weak focus bigram should land in many lesson words, not just the injected one."""
+    layout = BUNDLED_LAYOUTS["qwerty"]
+    order = keyboard_order(layout)
+    a, s = order[0], order[1]
+    now = 1_700_000_000.0
+    fast = 100_000_000.0
+    transitions = {
+        transition_key(a, a): TransitionStats(a, a, 10, fast, 0, now, attempt_count=10),
+        transition_key(a, s): TransitionStats(
+            a, s, 10, 400_000_000.0, 0, now, attempt_count=10,
+        ),
+        transition_key(s, a): TransitionStats(s, a, 10, fast, 0, now, attempt_count=10),
+        transition_key(s, s): TransitionStats(s, s, 10, fast, 0, now, attempt_count=10),
+    }
+    cache = FakeAggregatesCache(
+        by_layout={"qwerty": LayoutAggregates(keys={}, transitions=transitions)},
+    )
+    builder = BuildLesson(
+        layout_repo=FakeLayoutRepository(dict(BUNDLED_LAYOUTS)),
+        aggregates_cache=cache,
+        settings_repo=FakeSettingsRepository(Settings(alphabet_size=2)),
+        language_provider=FakeLanguageProvider(),
+        wordlist_store=FakeWordListStore(),
+        rng=Random(0),
+    )
+    pair = chr(a) + chr(s)
+    bigram_words = 0
+    total_words = 0
+    for seed in range(100):
+        builder.rng = Random(seed)
+        words = builder("qwerty").text.split()
+        total_words += len(words)
+        bigram_words += sum(1 for word in words if pair in word)
+    rate = bigram_words / total_words
+    assert rate >= 0.25, f"focus bigram in {rate:.1%} of words, expected >= 25%"
 
 
 def test_lesson_uses_cached_wordlist_when_configured():

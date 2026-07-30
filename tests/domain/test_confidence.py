@@ -175,6 +175,33 @@ def test_compute_unlocked_stalls_when_threshold_not_met():
     assert unlocked == (1,)
 
 
+def test_compute_unlocked_stalls_on_weak_measured_transition():
+    learn_order = tuple(ord(c) for c in "eabcdfghm")
+    stats = {cp: _stats(cp, mean_time_ns=100_000_000.0) for cp in learn_order[:8]}
+    transitions = {
+        "ee": TransitionStats(
+            ord("e"), ord("e"), samples=10, mean_time_ns=400_000_000.0,
+            error_count=0, last_seen=0.0, attempt_count=10,
+        ),
+    }
+    unlocked = compute_unlocked(
+        learn_order, alphabet_size=8, stats=stats, target=200.0, transitions=transitions,
+    )
+    assert unlocked == learn_order[:8]
+    assert ord("m") not in unlocked
+
+
+def test_compute_unlocked_advances_when_measured_transitions_meet_threshold():
+    learn_order = tuple(ord(c) for c in "eabcdfghm")
+    stats = {cp: _stats(cp, mean_time_ns=100_000_000.0) for cp in learn_order[:8]}
+    transitions = {
+        "ee": _transition(ord("e"), ord("e"), 100_000_000.0, attempt_count=10),
+    }
+    unlocked = compute_unlocked(
+        learn_order, alphabet_size=8, stats=stats, target=200.0, transitions=transitions,
+    )
+    assert unlocked == learn_order[:9]
+    assert unlocked[-1] == ord("m")
 def test_select_focus_picks_weakest_unlocked_key():
     stats = {
         1: _stats(1, mean_time_ns=100_000_000.0),  # confidence 2.0
@@ -272,6 +299,23 @@ def test_select_focus_transition_picks_stale_over_slightly_weaker_recent():
 
 def test_select_focus_transition_returns_none_without_data():
     assert select_focus_transition((1, 2), {}, target=200.0, now=1000.0) is None
+
+
+def test_select_focus_transition_ignores_unmeasured_pairs():
+    unlocked = (ord("a"), ord("b"), ord("c"))
+    now = 1_700_000_000.0
+    fast = 100_000_000.0
+    transitions = {
+        "ab": _transition(ord("a"), ord("b"), 400_000_000.0, last_seen=now, attempt_count=10),
+        "bc": _transition(ord("b"), ord("c"), fast, last_seen=now, attempt_count=10),
+    }
+    assert select_focus_transition(unlocked, transitions, 200.0, now) == (ord("a"), ord("b"))
+
+
+def test_select_focus_transition_returns_none_when_no_measured_unlocked_pairs():
+    unlocked = (ord("a"), ord("b"))
+    transitions = {"yz": _transition(ord("y"), ord("z"), 100_000_000.0, last_seen=1_700_000_000.0)}
+    assert select_focus_transition(unlocked, transitions, 200.0, now=1_700_000_000.0) is None
 
 
 def test_focus_key_from_transition_uses_next_endpoint():

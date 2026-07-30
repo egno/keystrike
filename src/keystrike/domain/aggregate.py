@@ -168,10 +168,11 @@ def combine_sessions(
     """
     if not sessions:
         return LayoutAggregates(keys={}, transitions={})
-    weights = session_recency_weights(len(sessions), decay=recency_decay)
-    key_maps = [aggregate_session(header, keystrokes) for header, keystrokes in sessions]
+    materialized = [(header, list(keystrokes)) for header, keystrokes in sessions]
+    weights = session_recency_weights(len(materialized), decay=recency_decay)
+    key_maps = [aggregate_session(header, keystrokes) for header, keystrokes in materialized]
     transition_maps = [
-        aggregate_transitions(header, keystrokes) for header, keystrokes in sessions
+        aggregate_transitions(header, keystrokes) for header, keystrokes in materialized
     ]
     return LayoutAggregates(
         keys=_combine_key_maps_weighted(key_maps, weights),

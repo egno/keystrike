@@ -8,10 +8,12 @@ from dataclasses import dataclass
 from keystrike.application.build_lesson import BuildLesson
 from keystrike.domain.enums import Mode
 from keystrike.domain.models import Layout
+from keystrike.domain.null_adapters import NULL_STATS_REBUILDER
 from keystrike.domain.protocols import (
     DailyLearnBudgetProvider,
     LayoutRepository,
     SettingsRepository,
+    StatsRebuilder,
 )
 
 PrepareNextSession = Callable[[], "SessionPrep | None"]
@@ -38,9 +40,11 @@ class PreparePracticeSession:
     layout_repo: LayoutRepository
     build_lesson: BuildLesson
     get_daily_learn_budget: DailyLearnBudgetProvider
+    rebuild_aggregates: StatsRebuilder = NULL_STATS_REBUILDER
 
     def __call__(self) -> SessionPrep | None:
         settings = self.settings_repo.load()
+        self.rebuild_aggregates.ensure(settings.layout)
         lesson = self.build_lesson(settings.layout)
         return SessionPrep(
             target_text=lesson.text,

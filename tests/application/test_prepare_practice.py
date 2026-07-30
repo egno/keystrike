@@ -5,8 +5,9 @@ import pytest
 from keystrike.application.build_lesson import BuildLesson
 from keystrike.application.learn_budget_use_cases import GetDailyLearnBudget
 from keystrike.application.prepare_practice import PreparePracticeSession
+from keystrike.application.stats_use_cases import RebuildAggregates
 from keystrike.domain.enums import Mode
-from keystrike.domain.models import SessionResult, Settings
+from keystrike.domain.models import Keystroke, SessionResult, Settings
 from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS, CompositeLayoutRepository
 from keystrike.infrastructure.paths import Paths
 from tests.fakes import (
@@ -58,6 +59,60 @@ def test_prepare_adaptive_builds_lesson():
     assert prep.focus_key is not None
     assert prep.layout_obj is not None
     assert prep.lesson_heatmap is not None
+
+
+def test_prepare_ensures_transitions_before_lesson():
+    clock = FakeClock()
+    session_repo = FakeSessionRepository()
+    settings_repo = FakeSettingsRepository(Settings(alphabet_size=2))
+    layout_repo = FakeLayoutRepository(dict(BUNDLED_LAYOUTS))
+    cache = FakeAggregatesCache()
+    session_repo.save_header(
+        SessionResult(
+            schema_version=3,
+            session_id="s1",
+            started_at=clock.wall_epoch(),
+            duration_ns=60_000_000_000,
+            layout="qwerty",
+            mode=Mode.ADAPTIVE,
+            lesson_alphabet=(ord("a"), ord("s")),
+            focus_key=ord("s"),
+            total_keystrokes=4,
+            correct_keystrokes=3,
+        ),
+    )
+    session_repo.keystrokes["s1"] = [
+        Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
+        Keystroke(codepoint=ord("s"), typed=ord("s"), t_ns=100_000_000, correct=True),
+        Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=500_000_000, correct=True),
+        Keystroke(codepoint=ord("s"), typed=ord("x"), t_ns=600_000_000, correct=False),
+    ]
+    rebuild = RebuildAggregates(repo=session_repo, cache=cache, settings_repo=settings_repo)
+    prepare = PreparePracticeSession(
+        settings_repo=settings_repo,
+        layout_repo=layout_repo,
+        build_lesson=BuildLesson(
+            layout_repo=layout_repo,
+            aggregates_cache=cache,
+            settings_repo=settings_repo,
+            language_provider=FakeLanguageProvider(),
+            wordlist_store=FakeWordListStore(),
+            rng=Random(0),
+        ),
+        get_daily_learn_budget=GetDailyLearnBudget(
+            clock=clock, repo=session_repo, settings_repo=settings_repo,
+        ),
+        rebuild_aggregates=rebuild,
+    )
+
+    prep = prepare()
+
+    assert prep is not None
+    cached = cache.get("qwerty")
+    assert cached is not None
+    assert cached.transitions
+    assert prep.focus_reason is not None
+    assert prep.focus_reason.endswith(" weak transition")
 
 
 def test_prepare_adaptive_still_builds_lesson_when_daily_goal_reached():

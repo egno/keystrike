@@ -201,6 +201,16 @@ def test_combine_sessions_recent_errors_weigh_more_on_confidence():
     )
 
 
+def test_combine_sessions_includes_transitions_from_iterators():
+    keys = iter([
+        Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
+        Keystroke(codepoint=ord("b"), typed=ord("b"), t_ns=100_000_000, correct=True),
+    ])
+    out = combine_sessions([(_session(), keys)])
+    assert out.keys[ord("b")].samples == 1
+    assert out.transitions["ab"].samples == 1
+
+
 def test_per_transition_deltas_tracks_prev_to_next_pair():
     keys = [
         Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),

@@ -59,6 +59,21 @@ class TomlSettingsRepository:
                     defaults.min_transition_confidence_attempts,
                 ),
             ),
+            focus_char_boost=float(
+                raw.get("focus_char_boost", defaults.focus_char_boost),
+            ),
+            focus_word_boost=float(
+                raw.get("focus_word_boost", defaults.focus_word_boost),
+            ),
+            focus_bigram_word_boost=float(
+                raw.get("focus_bigram_word_boost", defaults.focus_bigram_word_boost),
+            ),
+            focus_transition_boost=float(
+                raw.get("focus_transition_boost", defaults.focus_transition_boost),
+            ),
+            focus_weak_extra_boost=float(
+                raw.get("focus_weak_extra_boost", defaults.focus_weak_extra_boost),
+            ),
             lang=str(raw.get("lang", defaults.lang)),
             learn_daily_minutes=int(
                 raw.get("learn_daily_minutes", defaults.learn_daily_minutes),
@@ -83,6 +98,11 @@ class TomlSettingsRepository:
                 "min_transition_confidence_attempts",
                 settings.min_transition_confidence_attempts,
             ),
+            ("focus_char_boost", settings.focus_char_boost),
+            ("focus_word_boost", settings.focus_word_boost),
+            ("focus_bigram_word_boost", settings.focus_bigram_word_boost),
+            ("focus_transition_boost", settings.focus_transition_boost),
+            ("focus_weak_extra_boost", settings.focus_weak_extra_boost),
             ("learn_daily_minutes", settings.learn_daily_minutes),
             ("lang", settings.lang),
         ]

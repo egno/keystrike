@@ -13,7 +13,14 @@ from keystrike.domain.confidence import (
     SESSION_RECENCY_DECAY,
 )
 from keystrike.domain.enums import Mode
-from keystrike.domain.models import KeyStats, Keystroke, LayoutAggregates, SessionResult, Settings
+from keystrike.domain.models import (
+    KeyStats,
+    Keystroke,
+    LayoutAggregates,
+    SessionResult,
+    Settings,
+    TransitionStats,
+)
 from tests.fakes import FakeAggregatesCache, FakeSessionRepository, FakeSettingsRepository
 
 
@@ -66,6 +73,91 @@ def test_rebuild_aggregates_uses_confidence_session_window():
     assert cache.get("dvorak") is None
 
 
+def test_rebuild_aggregates_populates_transitions():
+    repo = FakeSessionRepository()
+    cache = FakeAggregatesCache()
+    repo.save_header(_header("s1", 1_700_000_000.0))
+    repo.keystrokes["s1"] = [
+        Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
+        Keystroke(codepoint=ord("b"), typed=ord("b"), t_ns=100_000_000, correct=True),
+    ]
+
+    RebuildAggregates(
+        repo=repo,
+        cache=cache,
+        settings_repo=FakeSettingsRepository(),
+    )("qwerty")
+
+    cached = cache.get("qwerty")
+    assert cached is not None
+    ab = cached.transitions.get("ab")
+    assert ab is not None
+    assert ab.samples == 1
+    assert ab.mean_time_ns == 100_000_000.0
+
+
+def test_ensure_skips_when_cache_has_transitions():
+    repo = FakeSessionRepository()
+    cache = FakeAggregatesCache(
+        by_layout={
+            "qwerty": LayoutAggregates(
+                keys={ord("a"): KeyStats(ord("a"), 1, 100_000_000.0, 0, 1.0, attempt_count=1)},
+                transitions={
+                    "ab": TransitionStats(
+                        ord("a"),
+                        ord("b"),
+                        1,
+                        100_000_000.0,
+                        0,
+                        1.0,
+                        attempt_count=1,
+                    ),
+                },
+            ),
+        },
+    )
+    rebuild = RebuildAggregates(
+        repo=repo,
+        cache=cache,
+        settings_repo=FakeSettingsRepository(),
+    )
+
+    keys = rebuild.ensure("qwerty")
+
+    cached = cache.get("qwerty")
+    assert cached is not None
+    assert keys == cached.keys
+    assert cached.transitions
+
+
+def test_ensure_rebuilds_when_transitions_missing_but_sessions_exist():
+    repo = FakeSessionRepository()
+    cache = FakeAggregatesCache(
+        by_layout={
+            "qwerty": LayoutAggregates(
+                keys={ord("a"): KeyStats(ord("a"), 1, 100_000_000.0, 0, 1.0, attempt_count=1)},
+                transitions={},
+            ),
+        },
+    )
+    repo.save_header(_header("s1", 1_700_000_000.0))
+    repo.keystrokes["s1"] = [
+        Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
+        Keystroke(codepoint=ord("b"), typed=ord("b"), t_ns=100_000_000, correct=True),
+    ]
+    rebuild = RebuildAggregates(
+        repo=repo,
+        cache=cache,
+        settings_repo=FakeSettingsRepository(),
+    )
+
+    rebuild.ensure("qwerty")
+
+    cached = cache.get("qwerty")
+    assert cached is not None
+    assert cached.transitions.get("ab") is not None
+
+
 def test_rebuild_aggregates_drops_sessions_outside_window():
     repo = FakeSessionRepository()
     cache = FakeAggregatesCache()
@@ -88,7 +180,9 @@ def test_rebuild_aggregates_drops_sessions_outside_window():
     )
 
     result = RebuildAggregates(
-        repo=repo, cache=cache, settings_repo=FakeSettingsRepository(),
+        repo=repo,
+        cache=cache,
+        settings_repo=FakeSettingsRepository(),
     )("qwerty")
 
     assert ord("a") in result
@@ -156,7 +250,9 @@ def test_get_heatmap_confidence_ratio(monkeypatch):
         ],
     ]
     RebuildAggregates(
-        repo=repo, cache=cache, settings_repo=FakeSettingsRepository(),
+        repo=repo,
+        cache=cache,
+        settings_repo=FakeSettingsRepository(),
     )("qwerty")
 
     get_heatmap = GetHeatmap(cache=cache, settings_repo=settings_repo)
@@ -209,7 +305,10 @@ def test_get_learning_rate_reads_deltas_across_sessions_chronologically():
         repo.keystrokes[session_id] = [
             Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
             Keystroke(
-                codepoint=ord("a"), typed=ord("a"), t_ns=delta_ms * 1_000_000, correct=True,
+                codepoint=ord("a"),
+                typed=ord("a"),
+                t_ns=delta_ms * 1_000_000,
+                correct=True,
             ),
         ]
 
@@ -230,7 +329,10 @@ def test_get_learning_rate_already_at_target_returns_zero():
         repo.keystrokes[session_id] = [
             Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
             Keystroke(
-                codepoint=ord("a"), typed=ord("a"), t_ns=delta_ms * 1_000_000, correct=True,
+                codepoint=ord("a"),
+                typed=ord("a"),
+                t_ns=delta_ms * 1_000_000,
+                correct=True,
             ),
         ]
 
@@ -257,14 +359,20 @@ def test_get_key_metric_trends_tracks_speed_and_accuracy():
     repo.keystrokes["s1"] = [
         Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
         Keystroke(
-            codepoint=ord("a"), typed=ord("a"), t_ns=400_000_000, correct=True,
+            codepoint=ord("a"),
+            typed=ord("a"),
+            t_ns=400_000_000,
+            correct=True,
         ),
     ]
     repo.save_header(_header("s2", 2.0))
     repo.keystrokes["s2"] = [
         Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
         Keystroke(
-            codepoint=ord("a"), typed=ord("a"), t_ns=200_000_000, correct=True,
+            codepoint=ord("a"),
+            typed=ord("a"),
+            t_ns=200_000_000,
+            correct=True,
         ),
     ]
 
@@ -315,7 +423,10 @@ def test_get_key_metric_trends_normalizes_speed_to_current_goal():
     repo.keystrokes["s1"] = [
         Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
         Keystroke(
-            codepoint=ord("a"), typed=ord("a"), t_ns=200_000_000, correct=True,
+            codepoint=ord("a"),
+            typed=ord("a"),
+            t_ns=200_000_000,
+            correct=True,
         ),
     ]
 
@@ -338,7 +449,10 @@ def test_get_key_metric_trends_limits_to_confidence_session_window():
         repo.keystrokes[session_id] = [
             Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
             Keystroke(
-                codepoint=ord("a"), typed=ord("a"), t_ns=200_000_000, correct=True,
+                codepoint=ord("a"),
+                typed=ord("a"),
+                t_ns=200_000_000,
+                correct=True,
             ),
         ]
 
@@ -357,11 +471,17 @@ def test_get_aggregate_metric_trends_aggregates_all_keys():
     repo.keystrokes["s1"] = [
         Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
         Keystroke(
-            codepoint=ord("a"), typed=ord("a"), t_ns=400_000_000, correct=True,
+            codepoint=ord("a"),
+            typed=ord("a"),
+            t_ns=400_000_000,
+            correct=True,
         ),
         Keystroke(codepoint=ord("b"), typed=ord("b"), t_ns=500_000_000, correct=True),
         Keystroke(
-            codepoint=ord("b"), typed=ord("x"), t_ns=600_000_000, correct=False,
+            codepoint=ord("b"),
+            typed=ord("x"),
+            t_ns=600_000_000,
+            correct=False,
         ),
     ]
 

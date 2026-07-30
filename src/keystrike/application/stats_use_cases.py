@@ -43,6 +43,15 @@ class RebuildAggregates:
         self.cache.put(layout, combined)
         return combined.keys
 
+    def ensure(self, layout: str) -> dict[int, KeyStats]:
+        """Rebuild only when cache is missing or lacks transitions despite session history."""
+        cached = self.cache.get(layout)
+        if cached is not None and cached.transitions:
+            return cached.keys
+        if cached is not None and not any(self.repo.iter_headers(layout)):
+            return cached.keys
+        return self(layout)
+
 
 @dataclass(frozen=True, slots=True)
 class HeatmapView:

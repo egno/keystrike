@@ -23,9 +23,12 @@ MIN_CONFIDENCE_ATTEMPTS = 10
 MIN_TRANSITION_CONFIDENCE_ATTEMPTS = 4
 # Confidence scores are rounded before thresholds, focus, heatmap, and UI.
 CONFIDENCE_DECIMALS = 2
-# ponytail: fixed multipliers; upgrade to settings if users want tunable focus intensity
+# Defaults for Settings and generator call sites; tunable via settings.toml.
 FOCUS_CHAR_BOOST = 3.0
-FOCUS_WORD_BOOST = 2.0
+FOCUS_WORD_BOOST = 3.0
+FOCUS_BIGRAM_WORD_BOOST = 4.0
+FOCUS_TRANSITION_BOOST = 4.0
+FOCUS_WEAK_EXTRA_BOOST = 1.5
 
 
 def round_confidence(value: float) -> float:
@@ -102,6 +105,29 @@ def confidence_of(
     )
 
 
+def _measured_transitions_meet_threshold(
+    unlocked: Sequence[int],
+    transitions: Mapping[str, TransitionStats],
+    target: float,
+    *,
+    threshold: float,
+    min_attempts: int,
+) -> bool:
+    """True when every measured bigram among unlocked keys meets threshold."""
+    for prev in unlocked:
+        for nxt in unlocked:
+            if chr(prev) + chr(nxt) not in transitions:
+                continue
+            if (
+                transition_confidence_of(
+                    prev, nxt, transitions, target, min_attempts=min_attempts,
+                )
+                < threshold
+            ):
+                return False
+    return True
+
+
 def compute_unlocked(
     learn_order: Sequence[int],
     alphabet_size: int,
@@ -110,16 +136,29 @@ def compute_unlocked(
     *,
     threshold: float = 1.0,
     min_attempts: int = MIN_CONFIDENCE_ATTEMPTS,
+    transitions: Mapping[str, TransitionStats] | None = None,
+    min_transition_attempts: int = MIN_TRANSITION_CONFIDENCE_ATTEMPTS,
 ) -> tuple[int, ...]:
     """The first `alphabet_size` keys are always unlocked; each further key in
-    `learn_order` unlocks only once every currently-unlocked key meets
-    `threshold`."""
+    `learn_order` unlocks only once every currently-unlocked key and every
+    measured bigram among them meets `threshold`."""
     forced_count = min(alphabet_size, len(learn_order))
     unlocked = list(learn_order[:forced_count])
     for codepoint in learn_order[forced_count:]:
         if not all(
             confidence_of(k, stats, target, min_attempts=min_attempts) >= threshold
             for k in unlocked
+        ):
+            break
+        if (
+            transitions is not None
+            and not _measured_transitions_meet_threshold(
+                unlocked,
+                transitions,
+                target,
+                threshold=threshold,
+                min_attempts=min_transition_attempts,
+            )
         ):
             break
         unlocked.append(codepoint)
@@ -282,7 +321,12 @@ def select_focus_transition(
     """Weakest unlocked bigram by transition confidence; None when no transition data."""
     if not transitions:
         return None
-    pairs = [(prev, nxt) for prev in unlocked for nxt in unlocked]
+    pairs = [
+        (prev, nxt)
+        for prev in unlocked
+        for nxt in unlocked
+        if chr(prev) + chr(nxt) in transitions
+    ]
     if not pairs:
         return None
     return min(

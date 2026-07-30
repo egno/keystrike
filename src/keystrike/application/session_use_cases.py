@@ -144,17 +144,19 @@ def _snapshot_unlock_state(
         (header, repo.load_keystrokes(header.session_id)) for header in prior_headers
     ]
     sessions.append((draft, session.keystrokes))
-    stats = combine_sessions(sessions).keys
+    combined = combine_sessions(sessions)
     target = target_ms_per_char(settings.target_speed_cpm)
     unlocked = compute_unlocked(
         keyboard_order(layout),
         settings.alphabet_size,
-        stats,
+        combined.keys,
         target,
         min_attempts=settings.min_confidence_attempts,
+        transitions=combined.transitions,
+        min_transition_attempts=settings.min_transition_confidence_attempts,
     )
     return unlocked, {
-        cp: confidence_of(cp, stats, target, min_attempts=settings.min_confidence_attempts)
+        cp: confidence_of(cp, combined.keys, target, min_attempts=settings.min_confidence_attempts)
         for cp in unlocked
     }
 

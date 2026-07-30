@@ -427,7 +427,7 @@ def test_finish_session_bumps_alphabet_size_when_unlocked_set_grows(clock, id_ge
     start = StartSession(clock=clock, id_gen=id_gen)
     record = RecordKeystroke(clock=clock)
 
-    warmup = "".join(chr(cp) for cp in order[:5] for _ in range(10))
+    warmup = "".join(chr(cp) for _ in range(10) for cp in order[:5])
     warmup_session = start(
         warmup, layout="qwerty", mode=Mode.ADAPTIVE, focus_key=order[0],
     )

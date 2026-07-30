@@ -109,6 +109,11 @@ class Settings:
     confidence_session_window: int = 10  # sessions in rolling stats for confidence
     min_confidence_attempts: int = 10    # presses before key confidence reaches full weight
     min_transition_confidence_attempts: int = 4  # lower floor — bigrams are sparser
+    focus_char_boost: float = 3.0           # char weight multiplier for focus key
+    focus_word_boost: float = 3.0             # wordlist/Markov boost when focus char present
+    focus_bigram_word_boost: float = 4.0      # word boost when focus bigram present
+    focus_transition_boost: float = 4.0       # transition weight multiplier for focus pair
+    focus_weak_extra_boost: float = 1.5       # extra multiplier when focus confidence < 1.0
     lang: str = "en"
     learn_daily_minutes: int = 10        # adaptive mode daily goal (minutes); 0 = no goal
     wordlist_url: str = ""               # non-empty + cached file → real words; else Markov

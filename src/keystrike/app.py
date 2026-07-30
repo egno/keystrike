@@ -127,6 +127,7 @@ def build() -> KeystrikeApp:
         layout_repo=layout_repo,
         build_lesson=build_lesson,
         get_daily_learn_budget=get_daily_learn_budget,
+        rebuild_aggregates=rebuild_aggregates,
     )
 
     return KeystrikeApp(
