@@ -8,6 +8,7 @@ from keystrike.application.build_lesson import BuildLesson
 from keystrike.application.learn_budget_use_cases import GetDailyLearnBudget
 from keystrike.application.prepare_practice import PreparePracticeSession
 from keystrike.application.session_use_cases import (
+    AbortSession,
     FinishSession,
     GetSessionBaseline,
     RecordKeystroke,
@@ -35,13 +36,13 @@ from keystrike.presentation.screens.home import HomeScreen
 from keystrike.presentation.screens.practice import PracticeScreen
 from keystrike.presentation.screens.settings import SettingsScreen
 from keystrike.presentation.screens.stats import StatsScreen
-from keystrike.presentation.textual_app import (
+from keystrike.presentation.services import (
     HomeServices,
-    KeystrikeApp,
     PracticeServices,
     SettingsServices,
     StatsServices,
 )
+from keystrike.presentation.textual_app import KeystrikeApp
 from keystrike.presentation.widgets.hud import HUD
 from keystrike.presentation.widgets.kb_heatmap import KbHeatmap
 from tests.fakes import (
@@ -107,9 +108,8 @@ def _build_app(
     )
 
     app = KeystrikeApp(
-        settings_repo=settings_repo,
-        layout_repo=layout_repo,
         home=HomeServices(
+            settings_repo=settings_repo,
             cycle_layout=CycleLayout(settings_repo=settings_repo, layout_repo=layout_repo),
             get_daily_learn_budget=get_daily_learn_budget,
         ),
@@ -123,12 +123,15 @@ def _build_app(
                 settings_repo=settings_repo,
                 layout_repo=layout_repo,
             ),
+            abort=AbortSession(),
             prepare_practice=prepare_practice,
             get_session_baseline=GetSessionBaseline(repo=session_repo, settings_repo=settings_repo),
             rebuild_aggregates=rebuild_aggregates,
             get_daily_learn_budget=get_daily_learn_budget,
         ),
         stats=StatsServices(
+            settings_repo=settings_repo,
+            layout_repo=layout_repo,
             rebuild_aggregates=rebuild_aggregates,
             get_heatmap=GetHeatmap(cache=cache, settings_repo=settings_repo, clock=clock),
             get_history=GetHistory(repo=session_repo),
@@ -142,6 +145,8 @@ def _build_app(
             ),
         ),
         settings=SettingsServices(
+            settings_repo=settings_repo,
+            layout_repo=layout_repo,
             update_settings=UpdateSettings(repo=settings_repo),
             import_wordlist=ImportWordList(store=wordlist_store, settings_repo=settings_repo),
             clear_wordlist=ClearWordList(settings_repo=settings_repo),

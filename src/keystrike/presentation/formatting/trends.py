@@ -9,10 +9,16 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 
-from keystrike.application.session_use_cases import compute_wpm
+from keystrike.application.session_use_cases import (
+    SessionStatsBaseline,
+    compute_accuracy,
+    compute_wpm,
+)
 from keystrike.domain.confidence import target_ms_per_char
 from keystrike.domain.models import SessionResult
 from keystrike.presentation.theme import (
+    STYLE_DELTA_IMPROVE,
+    STYLE_DELTA_REGRESS,
     STYLE_TREND_ACCURACY,
     STYLE_TREND_CONFIDENCE,
     STYLE_TREND_SPEED,
@@ -470,4 +476,44 @@ def format_aggregate_metric_trend_block(
         speed_values,
         accuracy_values,
         spark_width=spark_width,
+    )
+
+
+def _format_metric_delta(
+    current: float,
+    previous: float,
+    *,
+    higher_is_better: bool = True,
+    suffix: str = "",
+) -> str:
+    delta = current - previous
+    if round(abs(delta), 1) == 0:
+        return ""
+    improved = delta > 0 if higher_is_better else delta < 0
+    color = STYLE_DELTA_IMPROVE if improved else STYLE_DELTA_REGRESS
+    arrow = "↑" if delta > 0 else "↓"
+    return f" [{color}]{arrow}{abs(delta):.1f}{suffix}[/]"
+
+
+def format_session_stats_line(
+    result: SessionResult,
+    *,
+    baseline: SessionStatsBaseline | None = None,
+) -> str:
+    wpm = compute_wpm(result)
+    acc = compute_accuracy(result) * 100
+    duration = result.duration_ns / 1e9
+    wpm_delta = ""
+    acc_delta = ""
+    if baseline is not None:
+        wpm_delta = _format_metric_delta(wpm, baseline.wpm)
+        acc_delta = _format_metric_delta(
+            acc,
+            baseline.accuracy_pct,
+            suffix="%",
+        )
+    return (
+        f"Last: WPM [bold]{wpm:5.1f}[/]{wpm_delta}  "
+        f"Acc [bold]{acc:5.1f}%[/]{acc_delta}  "
+        f"Time [bold]{duration:5.1f}s[/]"
     )

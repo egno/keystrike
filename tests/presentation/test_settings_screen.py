@@ -14,6 +14,7 @@ from keystrike.domain.generator import cpm_from_wpm, wpm_from_cpm
 from keystrike.domain.models import Settings
 from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS
 from keystrike.presentation.screens.settings import SettingsScreen
+from keystrike.presentation.services import SettingsServices
 from tests.fakes import FakeLayoutRepository, FakeSettingsRepository, FakeWordListStore
 
 
@@ -26,12 +27,14 @@ def _build_screen(*, wordlist_store: FakeWordListStore | None = None):
     clear_wordlist = ClearWordList(settings_repo=settings_repo)
     get_wordlist_cache_status = GetWordListCacheStatus(store=store)
     screen = SettingsScreen(
-        settings_repo=settings_repo,
-        layout_repo=layout_repo,
-        update_settings=update_settings,
-        import_wordlist=import_wordlist,
-        clear_wordlist=clear_wordlist,
-        get_wordlist_cache_status=get_wordlist_cache_status,
+        services=SettingsServices(
+            settings_repo=settings_repo,
+            layout_repo=layout_repo,
+            update_settings=update_settings,
+            import_wordlist=import_wordlist,
+            clear_wordlist=clear_wordlist,
+            get_wordlist_cache_status=get_wordlist_cache_status,
+        ),
     )
     return screen, settings_repo, store
 
@@ -58,12 +61,14 @@ async def test_settings_screen_refreshes_layout_select_on_resume():
     settings_repo = FakeSettingsRepository(Settings())
     store = FakeWordListStore()
     screen = SettingsScreen(
-        settings_repo=settings_repo,
-        layout_repo=layout_repo,
-        update_settings=UpdateSettings(repo=settings_repo),
-        import_wordlist=ImportWordList(store=store, settings_repo=settings_repo),
-        clear_wordlist=ClearWordList(settings_repo=settings_repo),
-        get_wordlist_cache_status=GetWordListCacheStatus(store=store),
+        services=SettingsServices(
+            settings_repo=settings_repo,
+            layout_repo=layout_repo,
+            update_settings=UpdateSettings(repo=settings_repo),
+            import_wordlist=ImportWordList(store=store, settings_repo=settings_repo),
+            clear_wordlist=ClearWordList(settings_repo=settings_repo),
+            get_wordlist_cache_status=GetWordListCacheStatus(store=store),
+        ),
     )
     async with app.run_test() as pilot:
         await app.push_screen(screen)
@@ -115,12 +120,14 @@ async def test_save_persists_custom_layout_from_dropdown():
     settings_repo = FakeSettingsRepository(Settings())
     store = FakeWordListStore()
     screen = SettingsScreen(
-        settings_repo=settings_repo,
-        layout_repo=layout_repo,
-        update_settings=UpdateSettings(repo=settings_repo),
-        import_wordlist=ImportWordList(store=store, settings_repo=settings_repo),
-        clear_wordlist=ClearWordList(settings_repo=settings_repo),
-        get_wordlist_cache_status=GetWordListCacheStatus(store=store),
+        services=SettingsServices(
+            settings_repo=settings_repo,
+            layout_repo=layout_repo,
+            update_settings=UpdateSettings(repo=settings_repo),
+            import_wordlist=ImportWordList(store=store, settings_repo=settings_repo),
+            clear_wordlist=ClearWordList(settings_repo=settings_repo),
+            get_wordlist_cache_status=GetWordListCacheStatus(store=store),
+        ),
     )
     async with app.run_test() as pilot:
         await app.push_screen(screen)
@@ -234,12 +241,14 @@ async def test_loads_wpm_display_value():
     clear_wordlist = ClearWordList(settings_repo=settings_repo)
     get_wordlist_cache_status = GetWordListCacheStatus(store=store)
     screen = SettingsScreen(
-        settings_repo=settings_repo,
-        layout_repo=layout_repo,
-        update_settings=update_settings,
-        import_wordlist=import_wordlist,
-        clear_wordlist=clear_wordlist,
-        get_wordlist_cache_status=get_wordlist_cache_status,
+        services=SettingsServices(
+            settings_repo=settings_repo,
+            layout_repo=layout_repo,
+            update_settings=update_settings,
+            import_wordlist=import_wordlist,
+            clear_wordlist=clear_wordlist,
+            get_wordlist_cache_status=get_wordlist_cache_status,
+        ),
     )
     async with app.run_test() as pilot:
         await app.push_screen(screen)
@@ -346,12 +355,14 @@ async def test_saved_url_without_cache_shows_markov_status():
     layout_repo = FakeLayoutRepository(dict(BUNDLED_LAYOUTS))
     store = FakeWordListStore()
     screen = SettingsScreen(
-        settings_repo=settings_repo,
-        layout_repo=layout_repo,
-        update_settings=UpdateSettings(repo=settings_repo),
-        import_wordlist=ImportWordList(store=store, settings_repo=settings_repo),
-        clear_wordlist=ClearWordList(settings_repo=settings_repo),
-        get_wordlist_cache_status=GetWordListCacheStatus(store=store),
+        services=SettingsServices(
+            settings_repo=settings_repo,
+            layout_repo=layout_repo,
+            update_settings=UpdateSettings(repo=settings_repo),
+            import_wordlist=ImportWordList(store=store, settings_repo=settings_repo),
+            clear_wordlist=ClearWordList(settings_repo=settings_repo),
+            get_wordlist_cache_status=GetWordListCacheStatus(store=store),
+        ),
     )
     async with app.run_test() as pilot:
         await app.push_screen(screen)
@@ -369,12 +380,14 @@ async def test_clear_removes_wordlist_and_uses_markov():
     layout_repo = FakeLayoutRepository(dict(BUNDLED_LAYOUTS))
     store = FakeWordListStore(by_url={url: ["hello"]})
     screen = SettingsScreen(
-        settings_repo=settings_repo,
-        layout_repo=layout_repo,
-        update_settings=UpdateSettings(repo=settings_repo),
-        import_wordlist=ImportWordList(store=store, settings_repo=settings_repo),
-        clear_wordlist=ClearWordList(settings_repo=settings_repo),
-        get_wordlist_cache_status=GetWordListCacheStatus(store=store),
+        services=SettingsServices(
+            settings_repo=settings_repo,
+            layout_repo=layout_repo,
+            update_settings=UpdateSettings(repo=settings_repo),
+            import_wordlist=ImportWordList(store=store, settings_repo=settings_repo),
+            clear_wordlist=ClearWordList(settings_repo=settings_repo),
+            get_wordlist_cache_status=GetWordListCacheStatus(store=store),
+        ),
     )
     async with app.run_test() as pilot:
         await app.push_screen(screen)

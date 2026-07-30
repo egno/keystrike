@@ -34,7 +34,9 @@ def _coerce_field(default: object, raw_value: object) -> object:
     if isinstance(default, TargetSpeedUnit):
         return TargetSpeedUnit(str(raw_value))
     if isinstance(default, bool):
-        return bool(raw_value)
+        if not isinstance(raw_value, bool):
+            raise TypeError(f"expected bool, got {type(raw_value).__name__}")
+        return raw_value
     if isinstance(default, int):
         return int(raw_value)  # type: ignore[call-overload]
     if isinstance(default, float):

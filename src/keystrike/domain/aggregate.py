@@ -220,18 +220,23 @@ def infer_key_stat_attempt_count(samples: int, error_count: int, attempt_count: 
     return attempt_count
 
 
+def _merge_pair(a: HasConfidenceFields, b: HasConfidenceFields) -> MergedFields:
+    """Unweighted merge of two same-key stats: the weight=1.0 case of
+    `_weighted_merge_fields`."""
+    return _weighted_merge_fields([(a, 1.0), (b, 1.0)])
+
+
 def merge_key_stats(a: KeyStats, b: KeyStats) -> KeyStats:
     if a.codepoint != b.codepoint:
         raise ValueError(f"codepoint mismatch: {a.codepoint} vs {b.codepoint}")
-    total = a.samples + b.samples
-    mean = (a.mean_time_ns * a.samples + b.mean_time_ns * b.samples) / total if total > 0 else 0.0
+    merged = _merge_pair(a, b)
     return KeyStats(
         codepoint=a.codepoint,
-        samples=total,
-        mean_time_ns=mean,
-        error_count=a.error_count + b.error_count,
-        last_seen=max(a.last_seen, b.last_seen),
-        attempt_count=a.attempt_count + b.attempt_count,
+        samples=merged.samples,
+        mean_time_ns=merged.mean_time_ns,
+        error_count=merged.error_count,
+        last_seen=merged.last_seen,
+        attempt_count=merged.attempt_count,
     )
 
 
@@ -336,16 +341,15 @@ def merge_transition_stats(a: TransitionStats, b: TransitionStats) -> Transition
         raise ValueError(
             f"transition mismatch: {a.prev_cp}→{a.next_cp} vs {b.prev_cp}→{b.next_cp}",
         )
-    total = a.samples + b.samples
-    mean = (a.mean_time_ns * a.samples + b.mean_time_ns * b.samples) / total if total > 0 else 0.0
+    merged = _merge_pair(a, b)
     return TransitionStats(
         prev_cp=a.prev_cp,
         next_cp=a.next_cp,
-        samples=total,
-        mean_time_ns=mean,
-        error_count=a.error_count + b.error_count,
-        last_seen=max(a.last_seen, b.last_seen),
-        attempt_count=a.attempt_count + b.attempt_count,
+        samples=merged.samples,
+        mean_time_ns=merged.mean_time_ns,
+        error_count=merged.error_count,
+        last_seen=merged.last_seen,
+        attempt_count=merged.attempt_count,
     )
 
 

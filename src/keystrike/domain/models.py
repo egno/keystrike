@@ -5,6 +5,19 @@ from typing import NamedTuple
 
 from .enums import Finger, Hand, Mode, TargetSpeedUnit
 
+# Tuning defaults shared with domain.confidence / domain.focus and mirrored as
+# Settings fields below. Declared here — the lowest-level domain module, with
+# no dependents to create a cycle — as the single source of truth so the two
+# sets of numbers can't silently drift apart.
+CONFIDENCE_SESSION_WINDOW = 10
+MIN_CONFIDENCE_ATTEMPTS = 10
+MIN_TRANSITION_CONFIDENCE_ATTEMPTS = 4
+FOCUS_CHAR_BOOST = 3.0
+FOCUS_WORD_BOOST = 3.0
+FOCUS_BIGRAM_WORD_BOOST = 4.0
+FOCUS_TRANSITION_BOOST = 4.0
+FOCUS_WEAK_EXTRA_BOOST = 1.5
+
 
 @dataclass(frozen=True, slots=True)
 class Keystroke:
@@ -139,14 +152,14 @@ class Settings:
     target_speed_cpm: int = 300  # ~46 wpm at typical generated word length
     target_speed_unit: TargetSpeedUnit = TargetSpeedUnit.WPM
     alphabet_size: int = 16  # letters force-unlocked from cold start
-    confidence_session_window: int = 10  # sessions in rolling stats for confidence
-    min_confidence_attempts: int = 10  # presses before key confidence reaches full weight
-    min_transition_confidence_attempts: int = 4  # lower floor — bigrams are sparser
-    focus_char_boost: float = 3.0  # char weight multiplier for focus key
-    focus_word_boost: float = 3.0  # wordlist/Markov boost when focus char present
-    focus_bigram_word_boost: float = 4.0  # word boost when focus bigram present
-    focus_transition_boost: float = 4.0  # transition weight multiplier for focus pair
-    focus_weak_extra_boost: float = 1.5  # extra multiplier when focus confidence < 1.0
+    confidence_session_window: int = CONFIDENCE_SESSION_WINDOW  # sessions in rolling stats
+    min_confidence_attempts: int = MIN_CONFIDENCE_ATTEMPTS  # presses before full weight
+    min_transition_confidence_attempts: int = MIN_TRANSITION_CONFIDENCE_ATTEMPTS  # bigrams sparser
+    focus_char_boost: float = FOCUS_CHAR_BOOST  # char weight multiplier for focus key
+    focus_word_boost: float = FOCUS_WORD_BOOST  # wordlist/Markov boost when focus char present
+    focus_bigram_word_boost: float = FOCUS_BIGRAM_WORD_BOOST  # word boost when focus bigram present
+    focus_transition_boost: float = FOCUS_TRANSITION_BOOST  # transition weight multiplier
+    focus_weak_extra_boost: float = FOCUS_WEAK_EXTRA_BOOST  # extra multiplier when confidence < 1.0
     lang: str = "en"
     learn_daily_minutes: int = 10  # adaptive mode daily goal (minutes); 0 = no goal
     wordlist_url: str = ""  # non-empty + cached file → real words; else Markov

@@ -8,7 +8,7 @@ not violate the "domain has no I/O" rule.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 
 from .daily_learn import DailyLearnBudget, compute_daily_learn_budget
 from .models import KeyStats, Keystroke, Layout, SessionResult, Settings
@@ -16,6 +16,11 @@ from .models import KeyStats, Keystroke, Layout, SessionResult, Settings
 
 class NullSessionRepository:
     def append_keystroke(self, session_id: str, started_at: float, k: Keystroke) -> None:
+        pass
+
+    def append_keystrokes(
+        self, session_id: str, started_at: float, keystrokes: Iterable[Keystroke]
+    ) -> None:
         pass
 
     def save_header(self, header: SessionResult) -> None:

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from itertools import count
 
@@ -61,6 +61,12 @@ class FakeSessionRepository:
     def append_keystroke(self, session_id: str, started_at: float, k: Keystroke) -> None:
         _ = started_at  # not used by the fake, but keeps protocol shape
         self.keystrokes.setdefault(session_id, []).append(k)
+
+    def append_keystrokes(
+        self, session_id: str, started_at: float, keystrokes: Iterable[Keystroke]
+    ) -> None:
+        _ = started_at  # not used by the fake, but keeps protocol shape
+        self.keystrokes.setdefault(session_id, []).extend(keystrokes)
 
     def save_header(self, header: SessionResult) -> None:
         self.headers.append(header)

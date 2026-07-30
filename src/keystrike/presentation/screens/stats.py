@@ -7,14 +7,8 @@ from textual.containers import Vertical
 from textual.screen import Screen
 from textual.widgets import Footer, Static
 
-from keystrike.application.stats_use_cases import (
-    GetAggregateMetricTrends,
-    GetHeatmap,
-    GetHistory,
-    GetKeyMetricTrends,
-)
+from keystrike.application.stats_use_cases import HeatmapView
 from keystrike.domain.models import Layout, SessionResult
-from keystrike.domain.protocols import LayoutRepository, StatsRebuilder
 from keystrike.presentation.bindings import BACK_BINDINGS
 from keystrike.presentation.formatting.trends import (
     char_label,
@@ -22,6 +16,7 @@ from keystrike.presentation.formatting.trends import (
     format_focus_confidence_trend_line,
     format_key_metric_trend_block,
 )
+from keystrike.presentation.services import StatsServices
 from keystrike.presentation.widgets.kb_heatmap import KbHeatmap
 
 _View = Literal["overview", "key_detail"]
@@ -42,30 +37,18 @@ class StatsScreen(Screen[None]):
         self,
         *,
         layout: str,
-        layout_repo: LayoutRepository,
-        rebuild_aggregates: StatsRebuilder,
-        get_heatmap: GetHeatmap,
-        get_history: GetHistory,
-        get_key_metric_trends: GetKeyMetricTrends,
-        get_aggregate_metric_trends: GetAggregateMetricTrends,
+        services: StatsServices,
         current_target_speed_cpm: int = 0,
         confidence_session_window: int = 10,
     ) -> None:
         super().__init__()
         self._layout_name = layout
-        self._layout_repo = layout_repo
-        self._rebuild_aggregates = rebuild_aggregates
-        self._get_heatmap = get_heatmap
-        self._get_history = get_history
-        self._get_key_metric_trends = get_key_metric_trends
-        self._get_aggregate_metric_trends = get_aggregate_metric_trends
+        self._services = services
         self._current_target_speed_cpm = current_target_speed_cpm
         self._confidence_session_window = confidence_session_window
         self._view: _View = "overview"
-        self._selected_cp: int | None = None
         self._layout: Layout | None = None
-        self._heatmap_confidence: dict[int, float] = {}
-        self._heatmap_urgency: dict[int, float] = {}
+        self._heatmap: HeatmapView | None = None
         self._trend_history: list[SessionResult] = []
         self._kb_heatmap: KbHeatmap | None = None
 
@@ -77,12 +60,11 @@ class StatsScreen(Screen[None]):
 
     def on_mount(self) -> None:
         self.focus()
-        self._rebuild_aggregates(self._layout_name)
-        heatmap_view = self._get_heatmap(self._layout_name)
-        layout = self._layout_repo.get(self._layout_name)
+        self._services.rebuild_aggregates(self._layout_name)
+        heatmap_view = self._services.get_heatmap(self._layout_name)
+        layout = self._services.layout_repo.get(self._layout_name)
         self._layout = layout
-        self._heatmap_confidence = heatmap_view.confidence
-        self._heatmap_urgency = heatmap_view.urgency
+        self._heatmap = heatmap_view
 
         title = f"[bold]Stats — {self._layout_name}[/]"
         if layout.ortholinear:
@@ -103,7 +85,7 @@ class StatsScreen(Screen[None]):
             self._kb_heatmap,
         )
 
-        self._trend_history = self._get_history(
+        self._trend_history = self._services.get_history(
             self._layout_name,
             limit=self._confidence_session_window,
         )
@@ -142,9 +124,11 @@ class StatsScreen(Screen[None]):
     def _render_overview(self) -> None:
         widget = self.query_one("#stats-trends", Static)
         limit = self._confidence_session_window
-        confidence_values, speed_values, accuracy_values = self._get_aggregate_metric_trends(
-            self._layout_name,
-            current_target_speed_cpm=self._current_target_speed_cpm,
+        confidence_values, speed_values, accuracy_values = (
+            self._services.get_aggregate_metric_trends(
+                self._layout_name,
+                current_target_speed_cpm=self._current_target_speed_cpm,
+            )
         )
         layout_block = format_aggregate_metric_trend_block(
             title="Layout",
@@ -164,7 +148,7 @@ class StatsScreen(Screen[None]):
     def _render_key_detail(self, codepoint: int) -> None:
         widget = self.query_one("#stats-trends", Static)
         limit = self._confidence_session_window
-        speed_values, accuracy_values = self._get_key_metric_trends(
+        speed_values, accuracy_values = self._services.get_key_metric_trends(
             self._layout_name,
             codepoint,
             current_target_speed_cpm=self._current_target_speed_cpm,
@@ -183,23 +167,21 @@ class StatsScreen(Screen[None]):
 
     def _show_overview(self) -> None:
         self._view = "overview"
-        self._selected_cp = None
         self._render_overview()
         KbHeatmap.update_or_none(
             self._kb_heatmap,
             self._layout,
-            self._heatmap_confidence,
-            urgency=self._heatmap_urgency,
+            self._heatmap.confidence if self._heatmap is not None else None,
+            urgency=self._heatmap.urgency if self._heatmap is not None else None,
         )
 
     def _show_key_detail(self, codepoint: int) -> None:
         self._view = "key_detail"
-        self._selected_cp = codepoint
         self._render_key_detail(codepoint)
         KbHeatmap.update_or_none(
             self._kb_heatmap,
             self._layout,
-            self._heatmap_confidence,
+            self._heatmap.confidence if self._heatmap is not None else None,
             focus=codepoint,
-            urgency=self._heatmap_urgency,
+            urgency=self._heatmap.urgency if self._heatmap is not None else None,
         )

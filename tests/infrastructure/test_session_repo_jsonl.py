@@ -181,3 +181,31 @@ def test_keystrokes_persisted_with_header_at_finish(paths):
     list(repo2.iter_headers("qwerty"))
     ks = list(repo2.load_keystrokes("S2"))
     assert len(ks) == 1
+
+
+def test_append_keystrokes_bulk_writes_all_in_one_open(paths):
+    repo = JsonlSessionRepository(paths)
+    header = _header(sid="S3")
+    keystrokes = [
+        Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
+        Keystroke(codepoint=ord("b"), typed=ord("b"), t_ns=100, correct=True),
+        Keystroke(codepoint=ord("c"), typed=ord("c"), t_ns=200, correct=False),
+    ]
+    repo.append_keystrokes(header.session_id, header.started_at, keystrokes)
+    repo.save_header(header)
+
+    repo2 = JsonlSessionRepository(paths)
+    list(repo2.iter_headers("qwerty"))
+    ks = list(repo2.load_keystrokes("S3"))
+    assert [k.codepoint for k in ks] == [ord("a"), ord("b"), ord("c")]
+    assert ks[2].correct is False
+
+
+def test_load_keystrokes_scan_fallback_when_sessions_dir_missing(tmp_path):
+    empty_paths = Paths(
+        config_dir=tmp_path / "config2",
+        data_dir=tmp_path / "data2",
+        log_dir=tmp_path / "logs2",
+    )
+    repo = JsonlSessionRepository(empty_paths)
+    assert list(repo.load_keystrokes("does-not-exist")) == []

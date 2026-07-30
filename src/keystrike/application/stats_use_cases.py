@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 
 from keystrike.domain.aggregate import combine_sessions, per_key_deltas
@@ -193,11 +193,33 @@ def _aggregate_confidence(
     return round_confidence(weighted_sum / total_weight)
 
 
-def _metric_trends(
+def _windowed_session_replays(
+    repo: SessionRepository,
+    all_headers: list[SessionResult],
+    window: int,
+    fallback_target: float,
+) -> Iterator[tuple[SessionResult, Mapping[int, KeyStats], float]]:
+    """Replay each session in the trailing window against its own trailing
+    confidence window, yielding the combined per-key stats as of that session."""
+    ordered = all_headers[-window:]
+    start_offset = len(all_headers) - len(ordered)
+    for rel_i, header in enumerate(ordered):
+        abs_i = start_offset + rel_i
+        window_headers = all_headers[max(0, abs_i - window + 1) : abs_i + 1]
+        sessions = [(h, repo.load_keystrokes(h.session_id)) for h in window_headers]
+        combined = combine_sessions(sessions).keys
+        if header.target_speed_cpm > 0:
+            session_target = target_ms_per_char(header.target_speed_cpm)
+        else:
+            session_target = fallback_target
+        yield header, combined, session_target
+
+
+def _key_metric_trends(
     repo: SessionRepository,
     settings_repo: SettingsRepository,
     layout: str,
-    codepoint: int | None,
+    codepoint: int,
     *,
     current_target_speed_cpm: int = 0,
 ) -> tuple[list[float], list[float], list[float]]:
@@ -213,61 +235,87 @@ def _metric_trends(
     if not all_headers:
         return [], [], []
 
-    ordered = all_headers[-window:]
-    start_offset = len(all_headers) - len(ordered)
+    speeds: list[float] = []
+    accuracies: list[float] = []
+    confidences: list[float] = []
+    for header, combined, session_target in _windowed_session_replays(
+        repo,
+        all_headers,
+        window,
+        fallback_target,
+    ):
+        key_stats = combined.get(codepoint)
+        if key_stats is None or (key_stats.samples == 0 and key_stats.error_count == 0):
+            speeds.append(0.0)
+            accuracies.append(0.0)
+            confidences.append(0.0)
+            continue
+        raw_speed = round_confidence(
+            key_confidence(session_target, key_stats.mean_time_ns),
+        )
+        speed = round_confidence(
+            _normalize_speed_to_current_goal(
+                raw_speed,
+                header.target_speed_cpm,
+                current_target_speed_cpm,
+            ),
+        )
+        accuracy = round_confidence(accuracy_of(key_stats))
+        confidence = confidence_of(
+            codepoint,
+            combined,
+            session_target,
+            min_attempts=min_attempts,
+        )
+
+        speeds.append(speed)
+        accuracies.append(accuracy)
+        confidences.append(confidence)
+
+    return speeds, accuracies, confidences
+
+
+def _aggregate_metric_trends(
+    repo: SessionRepository,
+    settings_repo: SettingsRepository,
+    layout: str,
+    *,
+    current_target_speed_cpm: int = 0,
+) -> tuple[list[float], list[float], list[float]]:
+    settings = settings_repo.load()
+    window = settings.confidence_session_window
+    fallback_target = target_ms_per_char(settings.target_speed_cpm)
+    min_attempts = settings.min_confidence_attempts
+
+    all_headers = sorted(
+        repo.iter_headers(layout),
+        key=lambda h: h.started_at,
+    )
+    if not all_headers:
+        return [], [], []
 
     speeds: list[float] = []
     accuracies: list[float] = []
     confidences: list[float] = []
-    for rel_i, header in enumerate(ordered):
-        abs_i = start_offset + rel_i
-        window_headers = all_headers[max(0, abs_i - window + 1) : abs_i + 1]
-        sessions = [(h, repo.load_keystrokes(h.session_id)) for h in window_headers]
-        combined = combine_sessions(sessions).keys
-
-        if header.target_speed_cpm > 0:
-            session_target = target_ms_per_char(header.target_speed_cpm)
-        else:
-            session_target = fallback_target
-
-        if codepoint is not None:
-            key_stats = combined.get(codepoint)
-            if key_stats is None or (key_stats.samples == 0 and key_stats.error_count == 0):
-                speeds.append(0.0)
-                accuracies.append(0.0)
-                confidences.append(0.0)
-                continue
-            raw_speed = round_confidence(
-                key_confidence(session_target, key_stats.mean_time_ns),
-            )
-            speed = round_confidence(
-                _normalize_speed_to_current_goal(
-                    raw_speed,
-                    header.target_speed_cpm,
-                    current_target_speed_cpm,
-                ),
-            )
-            accuracy = round_confidence(accuracy_of(key_stats))
-            confidence = confidence_of(
-                codepoint,
-                combined,
-                session_target,
-                min_attempts=min_attempts,
-            )
-        else:
-            speed, accuracy = _aggregate_speed_accuracy(combined, session_target)
-            speed = round_confidence(
-                _normalize_speed_to_current_goal(
-                    speed,
-                    header.target_speed_cpm,
-                    current_target_speed_cpm,
-                ),
-            )
-            confidence = _aggregate_confidence(
-                combined,
-                session_target,
-                min_attempts,
-            )
+    for header, combined, session_target in _windowed_session_replays(
+        repo,
+        all_headers,
+        window,
+        fallback_target,
+    ):
+        speed, accuracy = _aggregate_speed_accuracy(combined, session_target)
+        speed = round_confidence(
+            _normalize_speed_to_current_goal(
+                speed,
+                header.target_speed_cpm,
+                current_target_speed_cpm,
+            ),
+        )
+        confidence = _aggregate_confidence(
+            combined,
+            session_target,
+            min_attempts,
+        )
 
         speeds.append(speed)
         accuracies.append(accuracy)
@@ -295,7 +343,7 @@ class GetKeyMetricTrends:
         *,
         current_target_speed_cpm: int = 0,
     ) -> tuple[list[float], list[float]]:
-        speeds, accuracies, _ = _metric_trends(
+        speeds, accuracies, _ = _key_metric_trends(
             self.repo,
             self.settings_repo,
             layout,
@@ -322,11 +370,10 @@ class GetAggregateMetricTrends:
         *,
         current_target_speed_cpm: int = 0,
     ) -> tuple[list[float], list[float], list[float]]:
-        speeds, accuracies, confidences = _metric_trends(
+        speeds, accuracies, confidences = _aggregate_metric_trends(
             self.repo,
             self.settings_repo,
             layout,
-            None,
             current_target_speed_cpm=current_target_speed_cpm,
         )
         return confidences, speeds, accuracies

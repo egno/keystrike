@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 from typing import cast
 
@@ -34,20 +34,26 @@ class JsonlSessionRepository:
         self._indexed = False
 
     def append_keystroke(self, session_id: str, started_at: float, k: Keystroke) -> None:
+        self.append_keystrokes(session_id, started_at, (k,))
+
+    def append_keystrokes(
+        self, session_id: str, started_at: float, keystrokes: Iterable[Keystroke]
+    ) -> None:
         file = self._paths.sessions_dir / _month_dir(started_at) / f"{session_id}.jsonl"
         file.parent.mkdir(parents=True, exist_ok=True)
         with file.open("a", encoding="utf-8") as fh:
-            fh.write(
-                json.dumps(
-                    {
-                        "codepoint": k.codepoint,
-                        "typed": k.typed,
-                        "t_ns": k.t_ns,
-                        "correct": k.correct,
-                    }
+            for k in keystrokes:
+                fh.write(
+                    json.dumps(
+                        {
+                            "codepoint": k.codepoint,
+                            "typed": k.typed,
+                            "t_ns": k.t_ns,
+                            "correct": k.correct,
+                        }
+                    )
                 )
-            )
-            fh.write("\n")
+                fh.write("\n")
 
     def save_header(self, header: SessionResult) -> None:
         self._session_index[header.session_id] = header
@@ -94,6 +100,8 @@ class JsonlSessionRepository:
         self._ensure_index()
         header = self._session_index.get(session_id)
         if header is None:
+            if not self._paths.sessions_dir.exists():
+                return
             # Fall back: scan all month directories for the ulid.
             for month_dir in self._paths.sessions_dir.iterdir():
                 if not month_dir.is_dir():

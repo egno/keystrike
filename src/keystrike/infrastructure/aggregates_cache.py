@@ -25,8 +25,7 @@ def _coerce_samples(entry: dict[str, object]) -> int:
     return infer_key_stat_samples(samples, mean_time_ns)
 
 
-def _coerce_attempt_count(entry: dict[str, object]) -> int:
-    samples = _coerce_samples(entry)
+def _coerce_attempt_count(entry: dict[str, object], samples: int) -> int:
     errors = require_int(entry, "error_count")
     stored = require_int(entry, "attempt_count", samples + errors)
     return infer_key_stat_attempt_count(samples, errors, stored)
@@ -48,33 +47,36 @@ class FileAggregatesCache:
             data = json.loads(file.read_text(encoding="utf-8"))
             keys = data.get("keys", {})
             transitions = data.get("transitions", {})
-            parsed_transitions = {
-                Bigram(
+
+            def _transition(entry: dict[str, object]) -> tuple[Bigram, TransitionStats]:
+                samples = _coerce_samples(entry)
+                return Bigram(
                     require_int(entry, "prev_cp"),
                     require_int(entry, "next_cp"),
-                ): TransitionStats(
+                ), TransitionStats(
                     prev_cp=require_int(entry, "prev_cp"),
                     next_cp=require_int(entry, "next_cp"),
-                    samples=_coerce_samples(entry),
+                    samples=samples,
                     mean_time_ns=require_float(entry, "mean_time_ns"),
                     error_count=require_int(entry, "error_count"),
                     last_seen=require_float(entry, "last_seen"),
-                    attempt_count=_coerce_attempt_count(entry),
+                    attempt_count=_coerce_attempt_count(entry, samples),
                 )
-                for entry in transitions.values()
-            }
+
+            def _key(cp: str, entry: dict[str, object]) -> KeyStats:
+                samples = _coerce_samples(entry)
+                return KeyStats(
+                    codepoint=int(cp),
+                    samples=samples,
+                    mean_time_ns=require_float(entry, "mean_time_ns"),
+                    error_count=require_int(entry, "error_count"),
+                    last_seen=require_float(entry, "last_seen"),
+                    attempt_count=_coerce_attempt_count(entry, samples),
+                )
+
+            parsed_transitions = dict(_transition(entry) for entry in transitions.values())
             aggregates = LayoutAggregates(
-                keys={
-                    int(cp): KeyStats(
-                        codepoint=int(cp),
-                        samples=_coerce_samples(entry),
-                        mean_time_ns=require_float(entry, "mean_time_ns"),
-                        error_count=require_int(entry, "error_count"),
-                        last_seen=require_float(entry, "last_seen"),
-                        attempt_count=_coerce_attempt_count(entry),
-                    )
-                    for cp, entry in keys.items()
-                },
+                keys={int(cp): _key(cp, entry) for cp, entry in keys.items()},
                 transitions=without_same_key_transitions(parsed_transitions),
             )
         except (json.JSONDecodeError, KeyError, TypeError, ValueError):

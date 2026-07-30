@@ -7,6 +7,7 @@ from keystrike.application.build_lesson import BuildLesson
 from keystrike.application.learn_budget_use_cases import GetDailyLearnBudget
 from keystrike.application.prepare_practice import PreparePracticeSession
 from keystrike.application.session_use_cases import (
+    AbortSession,
     FinishSession,
     GetSessionBaseline,
     RecordKeystroke,
@@ -38,13 +39,13 @@ from keystrike.infrastructure.session_repo_jsonl import JsonlSessionRepository
 from keystrike.infrastructure.settings_repo_toml import TomlSettingsRepository
 from keystrike.infrastructure.sync_git import GitSyncGateway
 from keystrike.infrastructure.wordlist_store import FileWordListStore
-from keystrike.presentation.textual_app import (
+from keystrike.presentation.services import (
     HomeServices,
-    KeystrikeApp,
     PracticeServices,
     SettingsServices,
     StatsServices,
 )
+from keystrike.presentation.textual_app import KeystrikeApp
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,6 +95,7 @@ def build() -> KeystrikeApp:
         settings_repo=settings_repo,
         layout_repo=layout_repo,
     )
+    abort = AbortSession()
     get_session_baseline = GetSessionBaseline(repo=session_repo, settings_repo=settings_repo)
     rebuild_aggregates = RebuildAggregates(
         repo=session_repo,
@@ -145,9 +147,8 @@ def build() -> KeystrikeApp:
     )
 
     return KeystrikeApp(
-        settings_repo=settings_repo,
-        layout_repo=layout_repo,
         home=HomeServices(
+            settings_repo=settings_repo,
             cycle_layout=cycle_layout,
             get_daily_learn_budget=get_daily_learn_budget,
         ),
@@ -156,12 +157,15 @@ def build() -> KeystrikeApp:
             start=start,
             record=record,
             finish=finish,
+            abort=abort,
             prepare_practice=prepare_practice,
             get_session_baseline=get_session_baseline,
             rebuild_aggregates=rebuild_aggregates,
             get_daily_learn_budget=get_daily_learn_budget,
         ),
         stats=StatsServices(
+            settings_repo=settings_repo,
+            layout_repo=layout_repo,
             rebuild_aggregates=rebuild_aggregates,
             get_heatmap=get_heatmap,
             get_history=get_history,
@@ -169,6 +173,8 @@ def build() -> KeystrikeApp:
             get_aggregate_metric_trends=get_aggregate_metric_trends,
         ),
         settings=SettingsServices(
+            settings_repo=settings_repo,
+            layout_repo=layout_repo,
             update_settings=update_settings,
             import_wordlist=import_wordlist,
             clear_wordlist=clear_wordlist,

@@ -56,17 +56,30 @@ WORD_COUNT = 12
 _CONFIDENCE_GOOD = 1.0
 
 
+@dataclass(slots=True, frozen=True)
+class FocusMetrics:
+    speed: float
+    accuracy: float
+
+
+@dataclass(slots=True, frozen=True)
+class FocusExplanation:
+    reason: FocusReason | None
+    speed: float | None = None
+    accuracy: float | None = None
+
+
 def _key_focus_metrics(
     focus: int,
     stats: Mapping[int, KeyStats],
     target: float,
-) -> tuple[float, float]:
+) -> FocusMetrics:
     key_stats = stats.get(focus)
     if key_stats is None:
-        return 0.0, 0.0
-    return (
-        round_confidence(key_confidence(target, key_stats.mean_time_ns)),
-        round_confidence(accuracy_of(key_stats)),
+        return FocusMetrics(speed=0.0, accuracy=0.0)
+    return FocusMetrics(
+        speed=round_confidence(key_confidence(target, key_stats.mean_time_ns)),
+        accuracy=round_confidence(accuracy_of(key_stats)),
     )
 
 
@@ -75,13 +88,13 @@ def _transition_focus_metrics(
     next_cp: int,
     transitions: Mapping[Bigram, TransitionStats],
     target: float,
-) -> tuple[float, float]:
+) -> FocusMetrics:
     t_stats = transitions.get(Bigram(prev_cp, next_cp))
     if t_stats is None:
-        return 0.0, 0.0
-    return (
-        round_confidence(transition_confidence(target, t_stats.mean_time_ns)),
-        round_confidence(transition_accuracy_of(t_stats)),
+        return FocusMetrics(speed=0.0, accuracy=0.0)
+    return FocusMetrics(
+        speed=round_confidence(transition_confidence(target, t_stats.mean_time_ns)),
+        accuracy=round_confidence(transition_accuracy_of(t_stats)),
     )
 
 
@@ -105,11 +118,7 @@ def _focus_reason_for_confidence(
 def _resolve_focus_confidence(
     focus: int,
     focus_bigram: Bigram | None,
-    *,
-    stats: Mapping[int, KeyStats],
-    transitions: Mapping[Bigram, TransitionStats],
-    target: float,
-    settings: Settings,
+    ctx: _LessonContext,
 ) -> float:
     """The one confidence value the rest of lesson-building keys off of —
     computed once so weighting and the focus-reason explanation agree."""
@@ -117,29 +126,30 @@ def _resolve_focus_confidence(
         return transition_confidence_of(
             focus_bigram.prev_cp,
             focus_bigram.next_cp,
-            transitions,
-            target,
-            min_attempts=settings.min_transition_confidence_attempts,
+            ctx.transitions,
+            ctx.target,
+            min_attempts=ctx.settings.min_transition_confidence_attempts,
         )
-    return confidence_of(focus, stats, target, min_attempts=settings.min_confidence_attempts)
+    return confidence_of(
+        focus,
+        ctx.stats,
+        ctx.target,
+        min_attempts=ctx.settings.min_confidence_attempts,
+    )
 
 
 def _compute_focus_explanation(
     focus: int,
     focus_bigram: Bigram | None,
     focus_confidence: float,
-    *,
-    stats: Mapping[int, KeyStats],
-    transitions: Mapping[Bigram, TransitionStats],
-    target: float,
-    now: float,
-) -> tuple[FocusReason | None, float | None, float | None]:
+    ctx: _LessonContext,
+) -> FocusExplanation:
     """Why (if at all) today's focus is being called out, plus the raw
     speed/accuracy to show alongside it. Reuses `focus_confidence` rather
     than recomputing it (it was already needed for weighting)."""
     if focus_bigram is not None:
-        t_stats = transitions.get(focus_bigram)
-        urgency = review_urgency(t_stats.last_seen if t_stats else 0.0, now)
+        t_stats = ctx.transitions.get(focus_bigram)
+        urgency = review_urgency(t_stats.last_seen if t_stats else 0.0, ctx.now)
         reason = _focus_reason_for_confidence(
             focus_confidence,
             urgency,
@@ -148,17 +158,17 @@ def _compute_focus_explanation(
             pair=focus_bigram,
         )
         if reason is None:
-            return None, None, None
-        speed, accuracy = _transition_focus_metrics(
+            return FocusExplanation(reason=None)
+        metrics = _transition_focus_metrics(
             focus_bigram.prev_cp,
             focus_bigram.next_cp,
-            transitions,
-            target,
+            ctx.transitions,
+            ctx.target,
         )
-        return reason, speed, accuracy
+        return FocusExplanation(reason=reason, speed=metrics.speed, accuracy=metrics.accuracy)
 
-    key_stats = stats.get(focus)
-    urgency = review_urgency(key_stats.last_seen if key_stats else 0.0, now)
+    key_stats = ctx.stats.get(focus)
+    urgency = review_urgency(key_stats.last_seen if key_stats else 0.0, ctx.now)
     reason = _focus_reason_for_confidence(
         focus_confidence,
         urgency,
@@ -167,9 +177,9 @@ def _compute_focus_explanation(
         pair=None,
     )
     if reason is None:
-        return None, None, None
-    speed, accuracy = _key_focus_metrics(focus, stats, target)
-    return reason, speed, accuracy
+        return FocusExplanation(reason=None)
+    metrics = _key_focus_metrics(focus, ctx.stats, ctx.target)
+    return FocusExplanation(reason=reason, speed=metrics.speed, accuracy=metrics.accuracy)
 
 
 @dataclass(slots=True)
@@ -193,39 +203,33 @@ class Lesson:
 
 def _lesson_progress(
     layout_name: str,
-    layout: Layout,
-    stats: Mapping[int, KeyStats],
-    settings: Settings,
-    now: float,
-    *,
-    transitions: Mapping[Bigram, TransitionStats] | None = None,
+    ctx: _LessonContext,
 ) -> tuple[tuple[int, ...], int, LessonState, Bigram | None]:
-    target = target_ms_per_char(settings.target_speed_cpm)
-    order = keyboard_order(layout)
+    order = keyboard_order(ctx.layout)
     unlocked = compute_unlocked(
         order,
-        settings.alphabet_size,
-        stats,
-        target,
-        min_attempts=settings.min_confidence_attempts,
-        transitions=transitions,
-        min_transition_attempts=settings.min_transition_confidence_attempts,
+        ctx.settings.alphabet_size,
+        ctx.stats,
+        ctx.target,
+        min_attempts=ctx.settings.min_confidence_attempts,
+        transitions=ctx.transitions,
+        min_transition_attempts=ctx.settings.min_transition_confidence_attempts,
     )
     keys_need_focus = has_weak_unlocked_key(
         unlocked,
-        stats,
-        target,
+        ctx.stats,
+        ctx.target,
         threshold=_CONFIDENCE_GOOD,
-        min_attempts=settings.min_confidence_attempts,
+        min_attempts=ctx.settings.min_confidence_attempts,
     )
     focus_bigram: Bigram | None = None
-    if not keys_need_focus and transitions:
+    if not keys_need_focus and ctx.transitions:
         focus_bigram = select_focus_transition(
             unlocked,
-            transitions,
-            target,
-            now,
-            min_attempts=settings.min_transition_confidence_attempts,
+            ctx.transitions,
+            ctx.target,
+            ctx.now,
+            min_attempts=ctx.settings.min_transition_confidence_attempts,
         )
 
     if focus_bigram is not None:
@@ -233,10 +237,10 @@ def _lesson_progress(
     else:
         focus = select_focus(
             unlocked,
-            stats,
-            target,
-            now,
-            min_attempts=settings.min_confidence_attempts,
+            ctx.stats,
+            ctx.target,
+            ctx.now,
+            min_attempts=ctx.settings.min_confidence_attempts,
         )
 
     keys = tuple(
@@ -245,9 +249,9 @@ def _lesson_progress(
             unlocked=True,
             confidence=confidence_of(
                 cp,
-                stats,
-                target,
-                min_attempts=settings.min_confidence_attempts,
+                ctx.stats,
+                ctx.target,
+                min_attempts=ctx.settings.min_confidence_attempts,
             ),
             is_focus=(cp == focus),
         )
@@ -256,8 +260,8 @@ def _lesson_progress(
     state = LessonState(
         layout=layout_name,
         keys=keys,
-        alphabet_size=settings.alphabet_size,
-        target_speed_cpm=settings.target_speed_cpm,
+        alphabet_size=ctx.settings.alphabet_size,
+        target_speed_cpm=ctx.settings.target_speed_cpm,
     )
     return unlocked, focus, state, focus_bigram
 
@@ -269,11 +273,7 @@ def _compute_weights(
     focus_confidence: float,
     *,
     unlocked: tuple[int, ...],
-    stats: Mapping[int, KeyStats],
-    transitions: Mapping[Bigram, TransitionStats],
-    target: float,
-    settings: Settings,
-    now: float,
+    ctx: _LessonContext,
 ) -> tuple[dict[str, float], dict[Bigram, float]]:
     """Per-char and per-transition sampling weights for practice-text
     generation, biased toward weak/stale keys and boosted further for
@@ -282,27 +282,27 @@ def _compute_weights(
         chr(k.codepoint): practice_weight(
             k.confidence,
             urgency=review_urgency(
-                stats[k.codepoint].last_seen if k.codepoint in stats else 0.0,
-                now,
+                ctx.stats[k.codepoint].last_seen if k.codepoint in ctx.stats else 0.0,
+                ctx.now,
             ),
         )
         for k in state.keys
     }
-    char_weights[chr(focus)] *= settings.focus_char_boost
+    char_weights[chr(focus)] *= ctx.settings.focus_char_boost
     transition_weights = {
         Bigram(prev, nxt): transition_practice_weight(
             transition_confidence_of(
                 prev,
                 nxt,
-                transitions,
-                target,
-                min_attempts=settings.min_transition_confidence_attempts,
+                ctx.transitions,
+                ctx.target,
+                min_attempts=ctx.settings.min_transition_confidence_attempts,
             ),
             urgency=review_urgency(
-                transitions[Bigram(prev, nxt)].last_seen
-                if Bigram(prev, nxt) in transitions
+                ctx.transitions[Bigram(prev, nxt)].last_seen
+                if Bigram(prev, nxt) in ctx.transitions
                 else 0.0,
-                now,
+                ctx.now,
             ),
         )
         for prev in unlocked
@@ -310,12 +310,12 @@ def _compute_weights(
         if not is_same_key_transition(prev, nxt)
     }
     if focus_bigram is not None:
-        transition_weights[focus_bigram] *= settings.focus_transition_boost
+        transition_weights[focus_bigram] *= ctx.settings.focus_transition_boost
         if focus_confidence < _CONFIDENCE_GOOD:
-            transition_weights[focus_bigram] *= settings.focus_weak_extra_boost
-            char_weights[chr(focus)] *= settings.focus_weak_extra_boost
+            transition_weights[focus_bigram] *= ctx.settings.focus_weak_extra_boost
+            char_weights[chr(focus)] *= ctx.settings.focus_weak_extra_boost
     elif focus_confidence < _CONFIDENCE_GOOD:
-        char_weights[chr(focus)] *= settings.focus_weak_extra_boost
+        char_weights[chr(focus)] *= ctx.settings.focus_weak_extra_boost
     return char_weights, transition_weights
 
 
@@ -341,33 +341,15 @@ class BuildLesson:
 
     def __call__(self, layout_name: str) -> Lesson:
         ctx = self._load_context(layout_name)
-        unlocked, focus, state, focus_bigram = _lesson_progress(
-            layout_name,
-            ctx.layout,
-            ctx.stats,
-            ctx.settings,
-            ctx.now,
-            transitions=ctx.transitions,
-        )
-        focus_confidence = _resolve_focus_confidence(
-            focus,
-            focus_bigram,
-            stats=ctx.stats,
-            transitions=ctx.transitions,
-            target=ctx.target,
-            settings=ctx.settings,
-        )
+        unlocked, focus, state, focus_bigram = _lesson_progress(layout_name, ctx)
+        focus_confidence = _resolve_focus_confidence(focus, focus_bigram, ctx)
         char_weights, transition_weights = _compute_weights(
             state,
             focus,
             focus_bigram,
             focus_confidence,
             unlocked=unlocked,
-            stats=ctx.stats,
-            transitions=ctx.transitions,
-            target=ctx.target,
-            settings=ctx.settings,
-            now=ctx.now,
+            ctx=ctx,
         )
         alphabet_chars = frozenset(chr(cp) for cp in unlocked)
         text = self._generate_text(
@@ -379,23 +361,15 @@ class BuildLesson:
             transition_weights=transition_weights,
         )
         urgency = _compute_urgency(ctx.stats, unlocked, ctx.now)
-        reason, focus_speed, focus_accuracy = _compute_focus_explanation(
-            focus,
-            focus_bigram,
-            focus_confidence,
-            stats=ctx.stats,
-            transitions=ctx.transitions,
-            target=ctx.target,
-            now=ctx.now,
-        )
+        explanation = _compute_focus_explanation(focus, focus_bigram, focus_confidence, ctx)
         return Lesson(
             text=text,
             state=state,
             urgency=urgency,
-            focus_reason=reason,
-            focus_confidence=focus_confidence if reason else None,
-            focus_speed=focus_speed,
-            focus_accuracy=focus_accuracy,
+            focus_reason=explanation.reason,
+            focus_confidence=focus_confidence if explanation.reason else None,
+            focus_speed=explanation.speed,
+            focus_accuracy=explanation.accuracy,
         )
 
     def _load_context(self, layout_name: str) -> _LessonContext:

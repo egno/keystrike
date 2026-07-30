@@ -7,22 +7,12 @@ from textual.screen import Screen
 from textual.widgets import Footer, Input, Label, Select, Static
 from textual.widgets.select import NoSelection
 
-from keystrike.application.settings_use_cases import (
-    SettingsUpdate,
-    SettingsValidationError,
-    UpdateSettings,
-)
-from keystrike.application.wordlist_use_cases import (
-    DEFAULT_WORDLIST_URL,
-    ClearWordList,
-    GetWordListCacheStatus,
-    ImportWordList,
-    WordListError,
-)
+from keystrike.application.settings_use_cases import SettingsUpdate, SettingsValidationError
+from keystrike.application.wordlist_use_cases import DEFAULT_WORDLIST_URL, WordListError
 from keystrike.domain.enums import TargetSpeedUnit
 from keystrike.domain.generator import cpm_from_wpm, wpm_from_cpm
-from keystrike.domain.protocols import LayoutRepository, SettingsRepository
 from keystrike.presentation.bindings import BACK_BINDINGS, SAVE
+from keystrike.presentation.services import SettingsServices
 
 
 class SettingsScreen(Screen[None]):
@@ -44,26 +34,12 @@ class SettingsScreen(Screen[None]):
         *BACK_BINDINGS,
     ]
 
-    def __init__(
-        self,
-        *,
-        settings_repo: SettingsRepository,
-        layout_repo: LayoutRepository,
-        update_settings: UpdateSettings,
-        import_wordlist: ImportWordList,
-        clear_wordlist: ClearWordList,
-        get_wordlist_cache_status: GetWordListCacheStatus,
-    ) -> None:
+    def __init__(self, *, services: SettingsServices) -> None:
         super().__init__()
-        self._settings_repo = settings_repo
-        self._layout_repo = layout_repo
-        self._update_settings = update_settings
-        self._import_wordlist = import_wordlist
-        self._clear_wordlist = clear_wordlist
-        self._get_wordlist_cache_status = get_wordlist_cache_status
+        self._services = services
 
     def compose(self) -> ComposeResult:
-        settings = self._settings_repo.load()
+        settings = self._services.settings_repo.load()
         layouts = self._layout_select_options()
         with Vertical():
             yield Static("[bold]Settings[/]  [dim](Ctrl+S save, Esc/q back)[/]")
@@ -120,7 +96,7 @@ class SettingsScreen(Screen[None]):
         self._refresh_wordlist_status()
 
     def on_screen_resume(self) -> None:
-        settings = self._settings_repo.load()
+        settings = self._services.settings_repo.load()
         self.query_one("#settings-alphabet-size", Input).value = str(settings.alphabet_size)
         self._refresh_layout_select()
 
@@ -182,7 +158,7 @@ class SettingsScreen(Screen[None]):
             return
 
         try:
-            self._update_settings(values)
+            self._services.update_settings(values)
         except SettingsValidationError as exc:
             self._show_error(str(exc))
             return
@@ -197,7 +173,7 @@ class SettingsScreen(Screen[None]):
         return persisted_url or DEFAULT_WORDLIST_URL
 
     def _do_clear(self) -> None:
-        self._clear_wordlist()
+        self._services.clear_wordlist()
         self.query_one("#settings-error", Static).update("")
         self.query_one("#settings-wordlist-url", Input).value = DEFAULT_WORDLIST_URL
         self._refresh_wordlist_status()
@@ -205,13 +181,13 @@ class SettingsScreen(Screen[None]):
     def _do_import(self) -> None:
         url = self.query_one("#settings-wordlist-url", Input).value
         try:
-            count = self._import_wordlist(url)
+            count = self._services.import_wordlist(url)
         except WordListError as exc:
             self._show_error(str(exc))
             return
         self.query_one("#settings-error", Static).update("")
         self._refresh_wordlist_status(f"Imported {count} words.")
-        persisted = self._settings_repo.load().wordlist_url
+        persisted = self._services.settings_repo.load().wordlist_url
         self.query_one("#settings-wordlist-url", Input).value = self._display_wordlist_url(
             persisted,
         )
@@ -220,18 +196,18 @@ class SettingsScreen(Screen[None]):
         persisted = persisted_url.strip()
         if not persisted:
             return "[dim]Markov words.[/]"
-        count = self._get_wordlist_cache_status(persisted)
+        count = self._services.get_wordlist_cache_status(persisted)
         if count is not None:
             return f"[dim]{count} words cached.[/]"
         return "[dim]Not cached.[/]"
 
     def _refresh_wordlist_status(self, message: str | None = None) -> None:
-        persisted = self._settings_repo.load().wordlist_url
+        persisted = self._services.settings_repo.load().wordlist_url
         text = message or self._wordlist_status(persisted)
         self.query_one("#settings-wordlist-status", Static).update(text)
 
     def _layout_select_options(self) -> list[tuple[str, str]]:
-        return [(name, name) for name in self._layout_repo.list_available()]
+        return [(name, name) for name in self._services.layout_repo.list_available()]
 
     def _refresh_layout_select(self) -> None:
         layout_select = cast("Select[str]", self.query_one("#settings-layout", Select))

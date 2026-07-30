@@ -13,17 +13,32 @@ from __future__ import annotations
 
 import datetime as dt
 import tomllib
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from typing import Literal
 
 
-def index_session_ids(entries: list[dict[str, object]]) -> set[str]:
+def _entry_str(entry: Mapping[str, object], key: str) -> str:
+    """Read a required string field off a parsed session-index entry."""
+    return str(entry[key])
+
+
+def _entry_epoch(entry: Mapping[str, object], key: str) -> float:
+    """Read a required numeric (epoch seconds) field off a parsed session-index entry."""
+    value = entry[key]
+    if not isinstance(value, (int, float)):
+        raise TypeError(f"expected numeric {key!r}, got {type(value).__name__}")
+    return float(value)
+
+
+def index_session_ids(entries: Sequence[Mapping[str, object]]) -> set[str]:
     """Session ids present in a parsed sessions index."""
-    return {str(entry["session_id"]) for entry in entries}
+    return {_entry_str(entry, "session_id") for entry in entries}
 
 
-def index_layouts(entries: list[dict[str, object]]) -> set[str]:
+def index_layouts(entries: Sequence[Mapping[str, object]]) -> set[str]:
     """Distinct layout names referenced by a parsed sessions index."""
-    return {str(entry["layout"]) for entry in entries}
+    return {_entry_str(entry, "layout") for entry in entries}
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,7 +54,7 @@ class SessionImportPlan:
 def plan_missing_sessions(
     *,
     local_session_ids: set[str],
-    remote_entries: list[dict[str, object]],
+    remote_entries: Sequence[Mapping[str, object]],
     remote_lines: list[str],
 ) -> list[SessionImportPlan]:
     """Decide which remote sessions are missing locally and need importing.
@@ -53,15 +68,10 @@ def plan_missing_sessions(
     seen = set(local_session_ids)
     plans: list[SessionImportPlan] = []
     for entry, line in zip(remote_entries, remote_lines, strict=True):
-        session_id = str(entry["session_id"])
+        session_id = _entry_str(entry, "session_id")
         if session_id in seen:
             continue
-        started_at_raw = entry["started_at"]
-        if not isinstance(started_at_raw, (int, float)):
-            raise TypeError(
-                f"expected numeric started_at, got {type(started_at_raw).__name__}",
-            )
-        started_at = float(started_at_raw)
+        started_at = _entry_epoch(entry, "started_at")
         month = dt.datetime.fromtimestamp(started_at, tz=dt.UTC).strftime("%Y-%m")
         plans.append(
             SessionImportPlan(
@@ -99,7 +109,7 @@ def decide_settings_winner(
     remote_exists: bool,
     local_epoch: float,
     remote_epoch: float,
-) -> str:
+) -> Literal["local", "remote", "none"]:
     """Which settings file should win: `'local'`, `'remote'`, or `'none'`.
 
     Callers copy the winning file over the loser: when the result is

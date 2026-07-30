@@ -7,20 +7,12 @@ from textual.containers import Vertical
 from textual.screen import Screen
 from textual.widgets import Footer, Static
 
-from keystrike.application.prepare_practice import PrepareNextSession, SessionPrep
-from keystrike.application.session_use_cases import (
-    AbortSession,
-    FinishSession,
-    GetSessionBaseline,
-    RecordKeystroke,
-    StartSession,
-    format_session_stats_line,
-)
+from keystrike.application.prepare_practice import SessionPrep
 from keystrike.domain.models import SessionResult
-from keystrike.domain.null_adapters import NULL_DAILY_LEARN_BUDGET, NULL_STATS_REBUILDER
-from keystrike.domain.protocols import Clock, DailyLearnBudgetProvider, StatsRebuilder
 from keystrike.domain.session import leading_key_char, skip_leading_whitespace
 from keystrike.presentation.bindings import BACK_BINDINGS
+from keystrike.presentation.formatting.trends import format_session_stats_line
+from keystrike.presentation.services import PracticeServices
 from keystrike.presentation.widgets.hud import HUD
 from keystrike.presentation.widgets.kb_heatmap import (
     KbHeatmap,
@@ -54,28 +46,14 @@ class PracticeScreen(Screen[None]):
     def __init__(
         self,
         *,
-        start: StartSession,
-        record: RecordKeystroke,
-        finish: FinishSession,
-        clock: Clock,
+        services: PracticeServices,
         initial: SessionPrep,
-        prepare_next: PrepareNextSession,
-        get_session_baseline: GetSessionBaseline,
-        rebuild_aggregates: StatsRebuilder = NULL_STATS_REBUILDER,
-        get_daily_learn_budget: DailyLearnBudgetProvider = NULL_DAILY_LEARN_BUDGET,
     ) -> None:
         super().__init__()
-        self._start = start
-        self._record = record
-        self._finish = finish
-        self._clock = clock
-        self._prepare_next = prepare_next
-        self._get_session_baseline = get_session_baseline
-        self._rebuild_aggregates = rebuild_aggregates
-        self._get_daily_learn_budget = get_daily_learn_budget
+        self._services = services
         self._prep = initial
         self._kb_heatmap: KbHeatmap | None = None
-        self._session = self._start(
+        self._session = self._services.start(
             initial.target_text,
             layout=initial.layout,
             mode=initial.mode,
@@ -84,8 +62,8 @@ class PracticeScreen(Screen[None]):
         self._typing_area = TypingArea(self._session)
         self._hud = HUD(
             self._session,
-            clock,
-            get_daily_learn_budget=self._get_daily_learn_budget,
+            self._services.clock,
+            get_daily_learn_budget=self._services.get_daily_learn_budget,
             focus_reason=initial.focus_reason,
         )
 
@@ -135,11 +113,11 @@ class PracticeScreen(Screen[None]):
             return
 
         if key == "backspace":
-            self._record.backspace(self._session)
+            self._services.record.backspace(self._session)
         elif key == "space":
-            self._record(self._session, " ")
+            self._services.record(self._session, " ")
         elif char is not None and len(char) == 1 and char.isprintable():
-            self._record(self._session, char)
+            self._services.record(self._session, char)
         else:
             return
 
@@ -151,16 +129,16 @@ class PracticeScreen(Screen[None]):
             self._finish_session()
 
     def _finish_session(self) -> None:
-        result = self._finish(self._session)
-        self._rebuild_aggregates(result.layout)
+        result = self._services.finish(self._session)
+        self._services.rebuild_aggregates(result.layout)
         self._show_last_session_stats(result)
-        prep = self._prepare_next()
+        prep = self._services.prepare_practice()
         if prep is None:
             return
         self._begin_session(prep)
 
     def _show_last_session_stats(self, result: SessionResult) -> None:
-        baseline = self._get_session_baseline(result)
+        baseline = self._services.get_session_baseline(result)
         self.query_one("#last-session-stats", Static).update(
             format_session_stats_line(result, baseline=baseline),
         )
@@ -173,7 +151,7 @@ class PracticeScreen(Screen[None]):
 
     def _begin_session(self, prep: SessionPrep) -> None:
         self._prep = prep
-        self._session = self._start(
+        self._session = self._services.start(
             prep.target_text,
             layout=prep.layout,
             mode=prep.mode,
@@ -195,5 +173,5 @@ class PracticeScreen(Screen[None]):
         self._refresh_focus_note()
 
     def action_back(self) -> None:
-        AbortSession()(self._session)
+        self._services.abort(self._session)
         self.app.pop_screen()

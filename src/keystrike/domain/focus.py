@@ -17,14 +17,17 @@ from .confidence import (
     review_urgency,
 )
 from .enums import FocusKind
-from .models import Bigram, KeyStats, TransitionStats
+from .models import (
+    FOCUS_BIGRAM_WORD_BOOST,
+    FOCUS_WORD_BOOST,
+    Bigram,
+    KeyStats,
+    TransitionStats,
+)
 
-# Defaults for Settings and generator call sites; tunable via settings.toml.
-FOCUS_CHAR_BOOST = 3.0
-FOCUS_WORD_BOOST = 3.0
-FOCUS_BIGRAM_WORD_BOOST = 4.0
-FOCUS_TRANSITION_BOOST = 4.0
-FOCUS_WEAK_EXTRA_BOOST = 1.5
+# Re-exported for domain.generator, which imports these boost defaults from
+# this module rather than `domain.models` directly.
+__all__ = ["FOCUS_BIGRAM_WORD_BOOST", "FOCUS_WORD_BOOST"]
 
 _TRANSITION_KINDS = (FocusKind.TRANSITION_WEAK, FocusKind.TRANSITION_REVIEW)
 

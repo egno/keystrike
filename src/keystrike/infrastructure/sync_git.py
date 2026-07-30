@@ -1,51 +1,47 @@
-"""Git CLI adapter and merge orchestration for opt-in backup sync.
+"""Git-backed sync orchestration for opt-in backup sync.
 
-The actual filesystem I/O for merging (copying session files, settings,
-layouts) lives here; `domain/sync_merge.py` only decides *what* to do given
-already-loaded data. Each `*_execute`-style helper below reads inputs off
-disk, calls the matching pure domain function, and performs the resulting
-copy/write plan.
+Composes `GitClient` (raw git subprocess plumbing, in `git_client.py`) with
+the merge-execution I/O helpers (in `sync_merge_io.py`) to drive init/pull/push.
 """
 
 from __future__ import annotations
 
-import json
 import shutil
-import subprocess
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
 from keystrike.domain.models import SyncStatusReport
 from keystrike.domain.protocols import StatsRebuilder
-from keystrike.domain.sync_merge import (
-    decide_settings_winner,
-    index_layouts,
-    index_session_ids,
-    plan_layouts_to_copy,
-    plan_missing_sessions,
-    settings_epoch_from_toml,
-)
+from keystrike.infrastructure.git_client import GitClient, GitSyncError
 from keystrike.infrastructure.paths import Paths
+from keystrike.infrastructure.sync_merge_io import (
+    copy_file_if_exists,
+    copy_layouts_missing,
+    copy_layouts_to_remote,
+    import_missing_sessions,
+    iter_layouts_from_index,
+    read_index_session_ids,
+    resolve_settings_lww,
+)
 
 from .atomic_write import atomic_write_text
 
+__all__ = [
+    "GitClient",
+    "GitSyncError",
+    "GitSyncGateway",
+    "SyncConfig",
+    "copy_file_if_exists",
+    "copy_layouts_missing",
+    "copy_layouts_to_remote",
+    "import_missing_sessions",
+    "iter_layouts_from_index",
+    "read_index_session_ids",
+    "resolve_settings_lww",
+]
+
 _SYNC_REL_PATHS = ("settings.toml", "layouts", "sessions")
-
-# Network-bound git ops (clone/pull/push) can otherwise hang indefinitely
-# waiting on credentials, freezing the whole TUI.
-_GIT_TIMEOUT_S = 30
-
-
-class GitSyncError(RuntimeError):
-    """Raised when a git subprocess used for backup sync fails to run —
-    it hung past the timeout, the `git` binary isn't installed, or the
-    command itself exited non-zero (auth failure, network error, ...)."""
-
-    def __init__(self, message: str, *, stderr: str = "") -> None:
-        super().__init__(message)
-        self.stderr = stderr
-
 
 # Substrings of `git clone` stderr that indicate the remote simply doesn't
 # have any content yet (fresh bare repo, not-yet-created path) rather than a
@@ -65,181 +61,6 @@ def _is_missing_remote_error(stderr: str) -> bool:
 @dataclass(frozen=True, slots=True)
 class SyncConfig:
     remote_url: str
-
-
-def _read_index(path: Path) -> tuple[list[dict[str, object]], list[str]]:
-    """Load a sessions index file into parsed entries + matching raw lines."""
-    if not path.is_file():
-        return [], []
-    entries: list[dict[str, object]] = []
-    lines: list[str] = []
-    with path.open(encoding="utf-8") as fh:
-        for raw in fh:
-            line = raw.strip()
-            if not line:
-                continue
-            entries.append(json.loads(line))
-            lines.append(line)
-    return entries, lines
-
-
-def read_index_session_ids(index_path: Path) -> set[str]:
-    entries, _ = _read_index(index_path)
-    return index_session_ids(entries)
-
-
-def iter_layouts_from_index(index_path: Path) -> set[str]:
-    entries, _ = _read_index(index_path)
-    return index_layouts(entries)
-
-
-def import_missing_sessions(
-    *,
-    local_sessions_dir: Path,
-    remote_sessions_dir: Path,
-    local_index: Path,
-    remote_index: Path,
-) -> list[str]:
-    """Copy session files and append index entries present remotely but not locally."""
-    local_entries, _ = _read_index(local_index)
-    remote_entries, remote_lines = _read_index(remote_index)
-    plans = plan_missing_sessions(
-        local_session_ids=index_session_ids(local_entries),
-        remote_entries=remote_entries,
-        remote_lines=remote_lines,
-    )
-    if not plans:
-        return []
-    local_sessions_dir.mkdir(parents=True, exist_ok=True)
-    imported: list[str] = []
-    for plan in plans:
-        remote_file = remote_sessions_dir / plan.month / plan.filename
-        if not remote_file.is_file():
-            continue
-        dest_dir = local_sessions_dir / plan.month
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(remote_file, dest_dir / plan.filename)
-        with local_index.open("a", encoding="utf-8") as out:
-            out.write(plan.index_line)
-            out.write("\n")
-        imported.append(plan.session_id)
-    return imported
-
-
-def _settings_epoch(path: Path) -> float:
-    return settings_epoch_from_toml(path.read_text(encoding="utf-8"), path.stat().st_mtime)
-
-
-def resolve_settings_lww(*, local_path: Path, remote_path: Path) -> str:
-    """Copy the newer settings file to both sides. Returns 'local', 'remote', or 'none'."""
-    local_exists = local_path.is_file()
-    remote_exists = remote_path.is_file()
-    winner = decide_settings_winner(
-        local_exists=local_exists,
-        remote_exists=remote_exists,
-        local_epoch=_settings_epoch(local_path) if local_exists else 0.0,
-        remote_epoch=_settings_epoch(remote_path) if remote_exists else 0.0,
-    )
-    if winner == "remote":
-        local_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(remote_path, local_path)
-    elif winner == "local" and remote_exists:
-        remote_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(local_path, remote_path)
-    return winner
-
-
-def copy_layouts_missing(*, local_layouts: Path, remote_layouts: Path) -> int:
-    """Copy remote layout TOML files missing locally."""
-    if not remote_layouts.is_dir():
-        return 0
-    remote_names = {p.name for p in remote_layouts.glob("*.toml")}
-    local_names: set[str] = (
-        {p.name for p in local_layouts.glob("*.toml")} if local_layouts.is_dir() else set()
-    )
-    missing = plan_layouts_to_copy(source_names=remote_names, dest_names=local_names)
-    if missing:
-        local_layouts.mkdir(parents=True, exist_ok=True)
-        for name in missing:
-            shutil.copy2(remote_layouts / name, local_layouts / name)
-    return len(missing)
-
-
-def copy_layouts_to_remote(*, local_layouts: Path, remote_layouts: Path) -> None:
-    if not local_layouts.is_dir():
-        return
-    remote_layouts.mkdir(parents=True, exist_ok=True)
-    for src in local_layouts.glob("*.toml"):
-        shutil.copy2(src, remote_layouts / src.name)
-
-
-def copy_file_if_exists(src: Path, dest: Path) -> bool:
-    if not src.is_file():
-        return False
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(src, dest)
-    return True
-
-
-class GitClient:
-    """Thin subprocess wrapper around the `git` CLI.
-
-    Isolates raw process plumbing so `GitSyncGateway`'s merge/sync
-    orchestration can be unit-tested against a fake client instead of
-    shelling out to real git.
-    """
-
-    def __init__(self, timeout_s: float = _GIT_TIMEOUT_S) -> None:
-        self._timeout_s = timeout_s
-
-    def run(self, *args: str, cwd: Path | None = None) -> str:
-        try:
-            result = subprocess.run(
-                ["git", *args],
-                cwd=cwd,
-                check=True,
-                capture_output=True,
-                text=True,
-                timeout=self._timeout_s,
-            )
-        except subprocess.TimeoutExpired as exc:
-            raise GitSyncError(
-                f"git {args[0]} timed out after {self._timeout_s}s "
-                "(hung waiting on network/credentials?)",
-            ) from exc
-        except FileNotFoundError as exc:
-            raise GitSyncError("git executable not found — is git installed?") from exc
-        except subprocess.CalledProcessError as exc:
-            stderr = (exc.stderr or "").strip()
-            raise GitSyncError(f"git {args[0]} failed: {stderr or exc}", stderr=stderr) from exc
-        return result.stdout
-
-    def clone(self, url: str, dest: Path) -> None:
-        self.run("clone", url, str(dest))
-
-    def init(self, cwd: Path) -> None:
-        self.run("init", cwd=cwd)
-
-    def add_remote(self, cwd: Path, url: str) -> None:
-        self.run("remote", "add", "origin", url, cwd=cwd)
-
-    def pull_ff_only(self, cwd: Path) -> None:
-        self.run("pull", "--ff-only", cwd=cwd)
-
-    def add(self, cwd: Path, *paths: str) -> None:
-        self.run("add", *paths, cwd=cwd)
-
-    def commit(self, cwd: Path, message: str) -> None:
-        self.run("commit", "-m", message, cwd=cwd)
-
-    def push(self, cwd: Path) -> None:
-        self.run("push", cwd=cwd)
-
-    def status_porcelain(self, cwd: Path) -> str:
-        return self.run("status", "--porcelain", cwd=cwd)
-
-    def status_short(self, cwd: Path) -> str:
-        return self.run("status", "--short", cwd=cwd)
 
 
 class GitSyncGateway:

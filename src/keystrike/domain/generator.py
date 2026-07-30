@@ -98,9 +98,28 @@ class AdaptiveGenerator:
     ) -> str:
         weighting = weighting or LessonWeighting()
         if weighting.words:
-            word = self._sample_from_wordlist(weighting, wordlist_weights)
-            if MIN_WORD_LEN <= len(word) <= MAX_WORD_LEN and set(word) <= alphabet:
+            word = self._generate_word_from_wordlist(alphabet, weighting, wordlist_weights)
+            if word is not None:
                 return word
+        return self._generate_word_via_markov(alphabet, weighting)
+
+    def _generate_word_from_wordlist(
+        self,
+        alphabet: frozenset[str],
+        weighting: LessonWeighting,
+        wordlist_weights: list[float] | None,
+    ) -> str | None:
+        """Sample a dictionary word, or None if it doesn't fit length/alphabet bounds."""
+        word = self._sample_from_wordlist(weighting, wordlist_weights)
+        if MIN_WORD_LEN <= len(word) <= MAX_WORD_LEN and set(word) <= alphabet:
+            return word
+        return None
+
+    def _generate_word_via_markov(
+        self,
+        alphabet: frozenset[str],
+        weighting: LessonWeighting,
+    ) -> str:
         word = ""
         for _ in range(MAX_RETRIES):
             word = self._sample_word(alphabet, weighting)

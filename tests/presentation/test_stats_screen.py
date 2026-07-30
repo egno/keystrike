@@ -18,6 +18,7 @@ from keystrike.domain.models import Keystroke, SessionResult, Settings
 from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS
 from keystrike.infrastructure.layout_toml import load_layout_toml
 from keystrike.presentation.screens.stats import StatsScreen
+from keystrike.presentation.services import StatsServices
 from tests.fakes import (
     FakeAggregatesCache,
     FakeClock,
@@ -41,21 +42,24 @@ def _build_screen(
     layout_repo = layout_repo or FakeLayoutRepository(dict(BUNDLED_LAYOUTS))
     return StatsScreen(
         layout=layout,
-        layout_repo=layout_repo,
-        rebuild_aggregates=RebuildAggregates(
-            repo=repo,
-            cache=cache,
+        services=StatsServices(
             settings_repo=settings_repo,
-        ),
-        get_heatmap=GetHeatmap(cache=cache, settings_repo=settings_repo, clock=FakeClock()),
-        get_history=GetHistory(repo=repo),
-        get_key_metric_trends=GetKeyMetricTrends(
-            repo=repo,
-            settings_repo=settings_repo,
-        ),
-        get_aggregate_metric_trends=GetAggregateMetricTrends(
-            repo=repo,
-            settings_repo=settings_repo,
+            layout_repo=layout_repo,
+            rebuild_aggregates=RebuildAggregates(
+                repo=repo,
+                cache=cache,
+                settings_repo=settings_repo,
+            ),
+            get_heatmap=GetHeatmap(cache=cache, settings_repo=settings_repo, clock=FakeClock()),
+            get_history=GetHistory(repo=repo),
+            get_key_metric_trends=GetKeyMetricTrends(
+                repo=repo,
+                settings_repo=settings_repo,
+            ),
+            get_aggregate_metric_trends=GetAggregateMetricTrends(
+                repo=repo,
+                settings_repo=settings_repo,
+            ),
         ),
         current_target_speed_cpm=settings_repo.settings.target_speed_cpm,
         confidence_session_window=settings_repo.settings.confidence_session_window,
@@ -313,7 +317,6 @@ async def test_stats_key_press_shows_key_detail():
 
         screen = cast(StatsScreen, app.screen)
         assert screen._view == "key_detail"
-        assert screen._selected_cp == ord("e")
         detail = str(screen.query_one("#stats-trends", Static).content)
         assert "[bold]'e'[/]" in detail
         assert "confidence" in detail
@@ -352,14 +355,12 @@ async def test_stats_key_detail_switches_key_without_overview():
         await pilot.pause()
         screen = cast(StatsScreen, app.screen)
         assert screen._view == "key_detail"
-        assert screen._selected_cp == ord("a")
         assert "[bold]'a'[/]" in str(screen.query_one("#stats-trends", Static).content)
 
         await pilot.press("b")
         await pilot.pause()
 
         assert screen._view == "key_detail"
-        assert screen._selected_cp == ord("b")
         detail = str(screen.query_one("#stats-trends", Static).content)
         assert "[bold]'b'[/]" in detail
         assert "confidence" in detail

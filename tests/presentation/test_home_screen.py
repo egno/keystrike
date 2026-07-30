@@ -11,6 +11,7 @@ from keystrike.domain.models import SessionResult, Settings
 from keystrike.domain.version import __version__
 from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS
 from keystrike.presentation.screens.home import HomeScreen
+from keystrike.presentation.services import HomeServices
 from tests.fakes import (
     FakeClock,
     FakeLayoutRepository,
@@ -41,9 +42,11 @@ def _build_screen(
     )
     return (
         HomeScreen(
-            settings_repo=settings_repo,
-            cycle_layout=cycle_layout,
-            get_daily_learn_budget=get_daily_learn_budget,
+            services=HomeServices(
+                settings_repo=settings_repo,
+                cycle_layout=cycle_layout,
+                get_daily_learn_budget=get_daily_learn_budget,
+            ),
             app_version=app_version,
         ),
         settings_repo,

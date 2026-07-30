@@ -238,14 +238,14 @@ def test_transition_focus_metrics_reports_accuracy_when_speed_measured():
             attempt_count=1,
         ),
     }
-    speed, accuracy = _transition_focus_metrics(
+    metrics = _transition_focus_metrics(
         ord("e"),
         ord("o"),
         transitions,
         target,
     )
-    assert speed > 0
-    assert accuracy > 0
+    assert metrics.speed > 0
+    assert metrics.accuracy > 0
 
 
 def test_build_lesson_eo_not_zero_confidence_when_counts_zeroed():
@@ -309,7 +309,7 @@ def test_weak_transition_focus_confidence_matches_displayed_speed():
         [{eo_key: old}, {eo_key: empty}, {eo_key: empty}],
         session_recency_weights(3),
     )[eo_key]
-    speed, accuracy = _transition_focus_metrics(
+    metrics = _transition_focus_metrics(
         ord("e"),
         ord("o"),
         {eo_key: merged},
@@ -321,8 +321,8 @@ def test_weak_transition_focus_confidence_matches_displayed_speed():
         {eo_key: merged},
         target,
     )
-    assert speed >= 1.0
-    assert accuracy == 1.0
+    assert metrics.speed >= 1.0
+    assert metrics.accuracy == 1.0
     assert confidence > 0.0
     assert confidence < 1.0  # still weak due to sample ramp
 

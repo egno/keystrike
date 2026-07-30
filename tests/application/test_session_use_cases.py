@@ -13,7 +13,6 @@ from keystrike.application.session_use_cases import (
     compute_wpm,
     confidence_window_session_baseline,
     count_words_completed,
-    format_session_stats_line,
     previous_session_header,
 )
 from keystrike.domain.aggregate import combine_sessions
@@ -27,6 +26,7 @@ from keystrike.domain.learn_order import keyboard_order
 from keystrike.domain.models import SessionResult, Settings
 from keystrike.domain.unlock import compute_unlocked
 from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS
+from keystrike.presentation.formatting.trends import format_session_stats_line
 from tests.fakes import (
     FakeClock,
     FakeIdGenerator,

@@ -12,19 +12,24 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Protocol
 
-from .models import Bigram, KeyStats, TransitionStats
+from .models import (
+    CONFIDENCE_SESSION_WINDOW,
+    MIN_CONFIDENCE_ATTEMPTS,
+    MIN_TRANSITION_CONFIDENCE_ATTEMPTS,
+    Bigram,
+    KeyStats,
+    TransitionStats,
+)
+
+# Re-exported for call sites/tests that reference the session-window size via
+# this module rather than `domain.models` directly.
+__all__ = ["CONFIDENCE_SESSION_WINDOW"]
 
 _SECONDS_PER_DAY = 86_400.0
 _REVIEW_URGENCY_FULL_DAYS = 3.0
-# Confidence, unlocks, focus, and heatmap use aggregates from this many sessions.
-CONFIDENCE_SESSION_WINDOW = 10
 # Exponential decay per session step when merging windowed stats (most recent = 1.0).
 # ponytail: fixed constant; upgrade to settings if users want tunable recency bias.
 SESSION_RECENCY_DECAY = 0.7
-# Raw min(speed, accuracy) confidence ramps linearly until this many attempts per key.
-MIN_CONFIDENCE_ATTEMPTS = 10
-# Bigrams are sparser — lower floor so transition focus reflects measured weakness.
-MIN_TRANSITION_CONFIDENCE_ATTEMPTS = 4
 # Confidence scores are rounded before thresholds, focus, heatmap, and UI.
 CONFIDENCE_DECIMALS = 2
 

@@ -3,7 +3,7 @@ import pytest
 from keystrike.domain.enums import TargetSpeedUnit
 from keystrike.domain.models import Settings
 from keystrike.infrastructure.paths import Paths
-from keystrike.infrastructure.settings_repo_toml import TomlSettingsRepository
+from keystrike.infrastructure.settings_repo_toml import TomlSettingsRepository, _coerce_field
 
 
 @pytest.fixture
@@ -99,3 +99,16 @@ def test_malformed_enum_value_falls_back_to_default(paths):
     )
     s = TomlSettingsRepository(paths).load()
     assert s.target_speed_unit == Settings().target_speed_unit
+
+
+def test_coerce_field_rejects_non_bool_for_bool_default():
+    # bool("false") is True in Python — a quoted-string bool must not be
+    # silently coerced, or it would flip the setting instead of falling
+    # back to the default via load()'s except (ValueError, TypeError).
+    with pytest.raises(TypeError):
+        _coerce_field(True, "false")
+
+
+def test_coerce_field_accepts_real_bool():
+    assert _coerce_field(True, False) is False
+    assert _coerce_field(False, True) is True

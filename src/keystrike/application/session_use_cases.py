@@ -215,8 +215,7 @@ class FinishSession:
             key_confidence=key_confidence,
             target_speed_cpm=target_speed_cpm,
         )
-        for k in session.keystrokes:
-            self.repo.append_keystroke(session.id, session.started_at_wall, k)
+        self.repo.append_keystrokes(session.id, session.started_at_wall, session.keystrokes)
         self.repo.save_header(result)
         return result
 
@@ -269,11 +268,6 @@ def compute_accuracy(result: SessionResult) -> float:
     if result.total_keystrokes == 0:
         return 0.0
     return result.correct_keystrokes / result.total_keystrokes
-
-
-# Keep in sync with presentation/theme.py STYLE_DELTA_*.
-_DELTA_IMPROVE_COLOR = "green"
-_DELTA_REGRESS_COLOR = "red"
 
 
 def previous_session_header(
@@ -337,43 +331,3 @@ class GetSessionBaseline:
     def __call__(self, result: SessionResult) -> SessionStatsBaseline | None:
         window = self.settings_repo.load().confidence_session_window
         return confidence_window_session_baseline(self.repo, result, window=window)
-
-
-def _format_metric_delta(
-    current: float,
-    previous: float,
-    *,
-    higher_is_better: bool = True,
-    suffix: str = "",
-) -> str:
-    delta = current - previous
-    if round(abs(delta), 1) == 0:
-        return ""
-    improved = delta > 0 if higher_is_better else delta < 0
-    color = _DELTA_IMPROVE_COLOR if improved else _DELTA_REGRESS_COLOR
-    arrow = "↑" if delta > 0 else "↓"
-    return f" [{color}]{arrow}{abs(delta):.1f}{suffix}[/]"
-
-
-def format_session_stats_line(
-    result: SessionResult,
-    *,
-    baseline: SessionStatsBaseline | None = None,
-) -> str:
-    wpm = compute_wpm(result)
-    acc = compute_accuracy(result) * 100
-    duration = result.duration_ns / 1e9
-    wpm_delta = ""
-    acc_delta = ""
-    if baseline is not None:
-        wpm_delta = _format_metric_delta(wpm, baseline.wpm)
-        acc_delta = _format_metric_delta(
-            acc,
-            baseline.accuracy_pct,
-            suffix="%",
-        )
-    return (
-        f"Last: WPM [bold]{wpm:5.1f}[/]{wpm_delta}  "
-        f"Acc [bold]{acc:5.1f}%[/]{acc_delta}  "
-        f"Time [bold]{duration:5.1f}s[/]"
-    )
