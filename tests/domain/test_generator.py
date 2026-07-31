@@ -17,6 +17,7 @@ from keystrike.domain.generator import (
 )
 from keystrike.domain.markov import TransitionTable
 from keystrike.domain.models import GENERATED_WORD_MAX_LEN, GENERATED_WORD_MIN_LEN, Bigram
+from keystrike.domain.word_bounds import MAX_WORD_LEN, MIN_WORD_LEN
 
 
 def _uniform_table(alphabet: str) -> TransitionTable:
@@ -104,20 +105,50 @@ def test_generate_word_uses_wordlist_when_provided():
         assert word in words
 
 
-def test_wordlist_respects_generated_bounds():
-    """Dictionary sampling honors generated_word_min/max, not dictionary 3-10."""
-    generator = AdaptiveGenerator(table=_uniform_table("abc"), rng=Random(0))
-    words = ("abc", "abcd", "abcde", "abcdef", "abcdefg", "abcdefgh", "abcdefghi", "abcdefghij")
-    for _ in range(20):
+def test_wordlist_respects_dictionary_bounds_not_generated():
+    """Imported words use dictionary 3-10 bounds, not generated_word_min/max."""
+    generator = AdaptiveGenerator(table=_uniform_table("abcdefghijk"), rng=Random(0))
+    words = ("abc", "abcde", "abcdef", "abcdefgh", "abcdefghij")
+    seen: set[str] = set()
+    for _ in range(50):
         word = generator.generate_word(
-            frozenset("abcdefghij"),
+            frozenset("abcdefghijk"),
+            LessonWeighting(words=words),
+            generated_min_len=2,
+            generated_max_len=4,
+        )
+        if word in words:
+            assert MIN_WORD_LEN <= len(word) <= MAX_WORD_LEN
+        seen.add(word)
+    assert seen & {"abcdefgh", "abcdefghij"}  # longer than generated max 4
+
+
+def test_wordlist_allows_longer_words_than_generated_max():
+    """Dictionary may sample words longer than generated_word_max_len."""
+    generator = AdaptiveGenerator(table=_uniform_table("abcdefgh"), rng=Random(0))
+    words = ("abcdefgh",)  # len 8 — within dictionary bounds, above generated max 4
+    word = generator.generate_word(
+        frozenset("abcdefgh"),
+        LessonWeighting(words=words),
+        generated_min_len=2,
+        generated_max_len=4,
+    )
+    assert word == "abcdefgh"
+
+
+def test_markov_still_respects_generated_bounds_with_wordlist_present():
+    """When wordlist words do not fit alphabet, Markov fallback keeps generated bounds."""
+    generator = AdaptiveGenerator(table=_uniform_table("abc"), rng=Random(0))
+    words = ("xyz", "qrs")  # outside alphabet — forces Markov
+    for seed in range(20):
+        generator.rng = Random(seed)
+        word = generator.generate_word(
+            frozenset("abc"),
             LessonWeighting(words=words),
             generated_min_len=2,
             generated_max_len=4,
         )
         assert 2 <= len(word) <= 4
-        if word in words:
-            assert len(word) <= 4
 
 
 def test_generate_word_falls_back_to_markov_without_wordlist():

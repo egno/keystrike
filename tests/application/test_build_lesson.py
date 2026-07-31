@@ -682,10 +682,10 @@ def test_build_lesson_markov_respects_generated_word_bounds_from_settings():
             assert 2 <= len(word) <= 4, f"seed={seed}: {word!r}"
 
 
-def test_build_lesson_wordlist_respects_generated_bounds():
-    """Cached wordlist words must fall within generated_word_min/max."""
+def test_build_lesson_wordlist_uses_dictionary_bounds_not_generated():
+    """Imported words use dictionary 3-10 bounds; Markov fill uses generated 2-4."""
     url = "https://example.com/words.txt"
-    cached = ["the", "and", "for", "are", "but", "not", "you", "all"]
+    cached = ["the", "and", "for", "are", "but", "not", "you", "all", "because"]
     settings = Settings(
         generated_word_min_len=2,
         generated_word_max_len=4,
@@ -702,10 +702,11 @@ def test_build_lesson_wordlist_respects_generated_bounds():
         clock=FakeClock(),
     )
     words = builder("qwerty").text.split()
-    assert all(2 <= len(w) <= 4 for w in words)
     dict_words = [w for w in words if w in cached]
     assert len(dict_words) >= settings.lesson_word_count // 2
-    assert all(len(w) == 3 for w in dict_words)
+    assert all(3 <= len(w) <= 10 for w in dict_words)
+    markov_words = [w for w in words if w not in cached]
+    assert all(2 <= len(w) <= 4 for w in markov_words)
 
 
 def test_lesson_falls_back_to_markov_when_cache_missing():

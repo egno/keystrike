@@ -22,6 +22,7 @@ from .models import (
 from .models import (
     LESSON_WORD_COUNT as DEFAULT_WORD_COUNT,
 )
+from .word_bounds import MAX_WORD_LEN, MIN_WORD_LEN, effective_wordlist_bounds
 
 MAX_RETRIES = 5
 MAX_REPEAT_RESAMPLE = 64
@@ -90,14 +91,28 @@ def _assert_lesson_focus_quota(
     )
 
 
+def _assert_wordlist_word_len(word: str, *, min_len: int, max_len: int) -> None:
+    """Ensures: imported word length is within dictionary bounds."""
+    assert min_len <= len(word) <= max_len, (
+        f"wordlist word {word!r} length {len(word)} not in [{min_len}, {max_len}]"
+    )
+
+
+def _assert_generated_word_len(word: str, *, min_len: int, max_len: int) -> None:
+    """Ensures: Markov-generated word length is within generated bounds."""
+    assert min_len <= len(word) <= max_len, (
+        f"generated word {word!r} length {len(word)} not in [{min_len}, {max_len}]"
+    )
+
+
 def _wordlist_word_fits(
     word: str,
     alphabet: frozenset[str],
     *,
-    min_len: int,
-    max_len: int,
+    min_len: int = MIN_WORD_LEN,
+    max_len: int = MAX_WORD_LEN,
 ) -> bool:
-    """True when ``word`` length is in ``[min_len, max_len]`` and chars ⊆ alphabet."""
+    """True when ``word`` length is in dictionary bounds and chars ⊆ alphabet."""
     return min_len <= len(word) <= max_len and set(word) <= alphabet
 
 
@@ -107,20 +122,15 @@ def _focus_pool_from_wordlist(
     *,
     focus_char: str,
     focus_bigram: str | None,
-    generated_min_len: int,
-    generated_max_len: int,
 ) -> tuple[str, ...]:
+    """Build focus-matching pool from imported words (dictionary bounds, not generated)."""
     if not words:
         return ()
+    wordlist_min, wordlist_max = effective_wordlist_bounds()
     return tuple(
         w
         for w in words
-        if _wordlist_word_fits(
-            w,
-            alphabet,
-            min_len=generated_min_len,
-            max_len=generated_max_len,
-        )
+        if _wordlist_word_fits(w, alphabet, min_len=wordlist_min, max_len=wordlist_max)
         and word_matches_focus(w, focus_char=focus_char, focus_bigram=focus_bigram)
     )
 
@@ -312,8 +322,6 @@ class AdaptiveGenerator:
                 alphabet,
                 weighting,
                 weighted_wordlist,
-                generated_min_len=generated_min_len,
-                generated_max_len=generated_max_len,
             )
             if word is not None:
                 return word
@@ -326,18 +334,15 @@ class AdaptiveGenerator:
         alphabet: frozenset[str],
         weighting: LessonWeighting,
         weighted_wordlist: WeightedWordlist | None,
-        *,
-        generated_min_len: int,
-        generated_max_len: int,
     ) -> str | None:
-        """Sample a dictionary word, or None if it doesn't fit length/alphabet bounds."""
+        """Sample a dictionary word, or None if it doesn't fit dictionary bounds/alphabet.
+
+        Ensures: when not None, word length is in [MIN_WORD_LEN, MAX_WORD_LEN].
+        """
         word = self._sample_from_wordlist(weighting, weighted_wordlist)
-        if _wordlist_word_fits(
-            word,
-            alphabet,
-            min_len=generated_min_len,
-            max_len=generated_max_len,
-        ):
+        wordlist_min, wordlist_max = effective_wordlist_bounds()
+        if _wordlist_word_fits(word, alphabet, min_len=wordlist_min, max_len=wordlist_max):
+            _assert_wordlist_word_len(word, min_len=wordlist_min, max_len=wordlist_max)
             return word
         return None
 
@@ -352,14 +357,19 @@ class AdaptiveGenerator:
         for _ in range(MAX_RETRIES):
             word = self._sample_word(alphabet, weighting, generated_max_len)
             if generated_min_len <= len(word) <= generated_max_len:
+                _assert_generated_word_len(
+                    word, min_len=generated_min_len, max_len=generated_max_len
+                )
                 return word
-        return _ensure_generated_word_len(
+        word = _ensure_generated_word_len(
             word,
             alphabet,
             self.rng,
             generated_min_len=generated_min_len,
             generated_max_len=generated_max_len,
         )
+        _assert_generated_word_len(word, min_len=generated_min_len, max_len=generated_max_len)
+        return word
 
     def generate_lesson(
         self,
@@ -410,8 +420,6 @@ class AdaptiveGenerator:
             alphabet,
             focus_char=focus_char,
             focus_bigram=focus_bigram_str,
-            generated_min_len=generated_min_len,
-            generated_max_len=generated_max_len,
         )
         focus_weighted: WeightedWordlist | None = None
         if focus_pool and weighted_wordlist is not None:
@@ -644,8 +652,6 @@ class AdaptiveGenerator:
                 alphabet,
                 weighting,
                 wordlist,
-                generated_min_len=generated_min_len,
-                generated_max_len=generated_max_len,
             )
             if word is not None and word_matches_focus(
                 word, focus_char=focus_char, focus_bigram=focus_bigram_str
