@@ -7,6 +7,8 @@ import pytest
 
 from keystrike.infrastructure.atomic_write import atomic_write_text
 
+_SKIP_WIN32 = pytest.mark.skipif(sys.platform == "win32", reason="no Unix mode bits on Windows")
+
 
 def test_writes_contents_and_replaces_atomically(tmp_path):
     path = tmp_path / "config.toml"
@@ -21,9 +23,6 @@ def test_no_leftover_temp_files(tmp_path):
     path = tmp_path / "config.toml"
     atomic_write_text(path, "a = 1\n")
     assert list(tmp_path.iterdir()) == [path]
-
-
-_SKIP_WIN32 = pytest.mark.skipif(sys.platform == "win32", reason="no Unix mode bits on Windows")
 
 
 @_SKIP_WIN32
