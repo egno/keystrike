@@ -184,6 +184,10 @@ def _compute_focus_explanation(
             review_kind=FocusKind.TRANSITION_REVIEW,
             pair=focus_bigram,
         )
+        attempts = attempts_of(t_stats) if t_stats is not None else 0
+        min_attempts = ctx.settings.min_transition_confidence_attempts
+        if reason is None and attempts < min_attempts:
+            reason = FocusReason(kind=FocusKind.TRANSITION_CALIBRATING, pair=focus_bigram)
         if reason is None:
             return FocusExplanation(reason=None)
         metrics = _transition_focus_metrics(
@@ -192,13 +196,12 @@ def _compute_focus_explanation(
             ctx.transitions,
             ctx.target,
         )
-        attempts = attempts_of(t_stats) if t_stats is not None else 0
         return FocusExplanation(
             reason=reason,
             speed=metrics.speed,
             accuracy=metrics.accuracy,
             attempts=attempts,
-            min_attempts=ctx.settings.min_transition_confidence_attempts,
+            min_attempts=min_attempts,
         )
 
     key_stats = ctx.stats.get(focus)
@@ -267,12 +270,13 @@ def _lesson_progress(
         threshold=_CONFIDENCE_GOOD,
     )
     focus_bigram: Bigram | None = None
-    if not keys_need_focus and ctx.transitions:
+    if not keys_need_focus:
         focus_bigram = select_focus_transition(
             unlocked,
             ctx.transitions,
             ctx.target,
             ctx.now,
+            key_stats=ctx.stats,
             min_attempts=ctx.settings.min_transition_confidence_attempts,
         )
 
@@ -367,6 +371,11 @@ def _compute_weights(
         and not is_same_key_transition(key.prev_cp, key.next_cp)
     }
     if focus_bigram is not None:
+        transition_weights.setdefault(
+            focus_bigram,
+            transition_practice_weight(focus_confidence, urgency=0.0)
+            * coverage_deficit_factor(0, min_attempts=min_transition_attempts),
+        )
         transition_weights[focus_bigram] *= ctx.settings.focus_transition_boost
         if focus_confidence < _CONFIDENCE_GOOD:
             transition_weights[focus_bigram] *= ctx.settings.focus_weak_extra_boost

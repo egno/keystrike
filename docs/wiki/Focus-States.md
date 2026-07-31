@@ -42,16 +42,17 @@ Reading left to right:
 
 ## Key vs transition focus
 
-**Key focus** applies while any unlocked key is below the performance skill
-threshold (see `blocks_transition_focus` in the codebase). The lesson
+**Key focus** applies while any unlocked key with measured stats is below the
+performance skill threshold (see `blocks_transition_focus` in the codebase).
+Never-typed keys in the unlocked set do not block transition focus. The lesson
 emphasizes the weakest unlocked key by ramped confidence, adjusted for review
 urgency.
 
-**Transition focus** applies when every unlocked key meets the skill threshold
-(performance without attempt ramp). Keys still gathering presses show `cal` but
-no longer block bigram focus. The lesson then emphasizes the weakest measured
-cross-key bigram among unlocked keys. Same-key repeats (double letters) never
-count as transitions.
+**Transition focus** applies when every measured unlocked key meets the skill
+threshold (performance without attempt ramp). Keys still gathering presses show
+`cal` but no longer block bigram focus. The lesson then emphasizes the weakest
+measured cross-key bigram among unlocked keys. Same-key repeats (double letters)
+never count as transitions.
 
 ## Heatmap underline
 

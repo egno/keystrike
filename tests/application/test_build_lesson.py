@@ -98,7 +98,12 @@ def test_lesson_prefers_weak_key_over_weak_transition():
     a, s = order[0], order[1]
     now = 1_700_000_000.0
     fast = 100_000_000.0
+    at_target = 200_000_000.0
     slow = 400_000_000.0
+    keys = {
+        a: KeyStats(a, 10, slow, 0, now, attempt_count=10),
+        s: KeyStats(s, 10, at_target, 0, now, attempt_count=10),
+    }
     transitions = {
         Bigram(a, a): TransitionStats(a, a, 10, fast, 0, now, attempt_count=10),
         Bigram(a, s): TransitionStats(
@@ -114,7 +119,7 @@ def test_lesson_prefers_weak_key_over_weak_transition():
         Bigram(s, s): TransitionStats(s, s, 10, fast, 0, now, attempt_count=10),
     }
     cache = FakeAggregatesCache(
-        by_layout={"qwerty": LayoutAggregates(keys={}, transitions=transitions)},
+        by_layout={"qwerty": LayoutAggregates(keys=keys, transitions=transitions)},
     )
     builder = BuildLesson(
         layout_repo=FakeLayoutRepository(dict(BUNDLED_LAYOUTS)),
@@ -225,6 +230,91 @@ def test_lesson_uses_transition_focus_when_transitions_weak():
     assert lesson.focus_key == s
     assert lesson.focus_reason == FocusReason(kind=FocusKind.TRANSITION_WEAK, pair=pair_bigram)
     assert pair in lesson.text.replace(" ", "")
+
+
+def test_lesson_uses_transition_focus_for_colemak_two_keys_before_third_unlocks():
+    """alphabet_size=2 on Colemak-DH: e+t at skill goal but still calibrating."""
+    layout = BUNDLED_LAYOUTS["colemak_dh"]
+    order = keyboard_order(layout)
+    e, t, a = order[0], order[1], order[2]
+    assert chr(e) == "e"
+    assert chr(t) == "t"
+    now = 1_700_000_000.0
+    at_target = 200_000_000.0
+    keys = {
+        e: KeyStats(e, 8, at_target, 0, now, attempt_count=8),
+        t: KeyStats(t, 8, at_target, 0, now, attempt_count=8),
+    }
+    assert a not in compute_unlocked(order, alphabet_size=2, stats=keys, target=200.0)
+    cache = FakeAggregatesCache(
+        by_layout={"colemak_dh": LayoutAggregates(keys=keys, transitions={})},
+    )
+    builder = BuildLesson(
+        layout_repo=FakeLayoutRepository(dict(BUNDLED_LAYOUTS)),
+        aggregates_cache=cache,
+        settings_repo=FakeSettingsRepository(Settings(alphabet_size=2)),
+        language_provider=FakeLanguageProvider(),
+        wordlist_store=FakeWordListStore(),
+        rng=Random(0),
+        clock=FakeClock(),
+    )
+    lesson = builder("colemak_dh")
+    pair = Bigram(e, t)
+    assert lesson.focus_key == t
+    assert lesson.focus_reason == FocusReason(kind=FocusKind.TRANSITION_WEAK, pair=pair)
+    assert pair.chars() in lesson.text.replace(" ", "")
+
+
+def test_lesson_uses_transition_focus_when_newly_unlocked_key_unpracticed():
+    layout = BUNDLED_LAYOUTS["qwerty"]
+    order = keyboard_order(layout)
+    a, s, h, d = order[0], order[1], order[2], order[3]
+    now = 1_700_000_000.0
+    fast = 100_000_000.0
+    at_target = 200_000_000.0
+    slow = 400_000_000.0
+    keys = {
+        a: KeyStats(a, 10, at_target, 0, now, attempt_count=10),
+        s: KeyStats(s, 10, at_target, 0, now, attempt_count=10),
+        h: KeyStats(h, 10, at_target, 0, now, attempt_count=10),
+    }
+    unlocked = compute_unlocked(order, alphabet_size=3, stats=keys, target=200.0)
+    assert d in unlocked  # auto-unlocked once a,s,h are mastered; d has no stats yet
+    transitions = {
+        Bigram(a, a): TransitionStats(a, a, 10, fast, 0, now, attempt_count=10),
+        Bigram(a, s): TransitionStats(
+            a,
+            s,
+            10,
+            slow,
+            0,
+            now,
+            attempt_count=10,
+        ),
+        Bigram(a, h): TransitionStats(a, h, 10, fast, 0, now, attempt_count=10),
+        Bigram(s, a): TransitionStats(s, a, 10, fast, 0, now, attempt_count=10),
+        Bigram(s, s): TransitionStats(s, s, 10, fast, 0, now, attempt_count=10),
+        Bigram(s, h): TransitionStats(s, h, 10, fast, 0, now, attempt_count=10),
+        Bigram(h, a): TransitionStats(h, a, 10, fast, 0, now, attempt_count=10),
+        Bigram(h, s): TransitionStats(h, s, 10, fast, 0, now, attempt_count=10),
+        Bigram(h, h): TransitionStats(h, h, 10, fast, 0, now, attempt_count=10),
+    }
+    cache = FakeAggregatesCache(
+        by_layout={"qwerty": LayoutAggregates(keys=keys, transitions=transitions)},
+    )
+    builder = BuildLesson(
+        layout_repo=FakeLayoutRepository(dict(BUNDLED_LAYOUTS)),
+        aggregates_cache=cache,
+        settings_repo=FakeSettingsRepository(Settings(alphabet_size=3)),
+        language_provider=FakeLanguageProvider(),
+        wordlist_store=FakeWordListStore(),
+        rng=Random(0),
+        clock=FakeClock(),
+    )
+    lesson = builder("qwerty")
+    pair_bigram = Bigram(a, s)
+    assert lesson.focus_key == s
+    assert lesson.focus_reason == FocusReason(kind=FocusKind.TRANSITION_WEAK, pair=pair_bigram)
 
 
 def test_transition_focus_metrics_reports_accuracy_when_speed_measured():

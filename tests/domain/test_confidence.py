@@ -353,7 +353,23 @@ def test_blocks_transition_focus_false_when_key_calibrating():
 
 def test_blocks_transition_focus_true_for_never_practiced():
     stats = {1: _stats(1, mean_time_ns=200_000_000.0)}
-    assert blocks_transition_focus((1, 2), stats, target=200.0) is True
+    assert blocks_transition_focus((1, 2), stats, target=200.0) is False
+
+
+def test_blocks_transition_focus_ignores_never_practiced_key():
+    a, s, h = ord("a"), ord("s"), ord("h")
+    stats = {
+        a: _stats(a, mean_time_ns=200_000_000.0),
+        s: _stats(s, mean_time_ns=200_000_000.0),
+    }
+    assert blocks_transition_focus((a, s, h), stats, target=200.0) is False
+
+
+def test_blocks_transition_focus_true_for_measured_weak_key():
+    h = ord("h")
+    stats = {h: _stats(h, mean_time_ns=400_000_000.0)}
+    assert skill_of(h, stats, target=200.0) < 1.0
+    assert blocks_transition_focus((h,), stats, target=200.0) is True
 
 
 def test_select_focus_prefers_never_practiced_key():
@@ -468,6 +484,21 @@ def test_select_focus_transition_ignores_same_key_pairs():
     assert select_focus_transition(unlocked, transitions, 200.0, now) is None
 
 
+def test_select_focus_transition_skips_unmeasured_when_unlocked_key_unpracticed():
+    now = 1_700_000_000.0
+    unlocked = (ord("e"), ord("a"))
+    transitions = {
+        Bigram(ord("e"), ord("e")): _transition(
+            ord("e"),
+            ord("e"),
+            400_000_000.0,
+            last_seen=now,
+            attempt_count=10,
+        ),
+    }
+    assert select_focus_transition(unlocked, transitions, 200.0, now) is None
+
+
 def test_select_focus_transition_never_picks_same_key_even_when_weakest():
     now = 1_700_000_000.0
     unlocked = (ord("a"), ord("b"))
@@ -526,7 +557,23 @@ def test_select_focus_transition_picks_stale_over_slightly_weaker_recent():
     assert select_focus_transition(unlocked, transitions, 200.0, now) == (ord("a"), ord("b"))
 
 
-def test_select_focus_transition_returns_none_without_data():
+def test_select_focus_transition_returns_none_without_unlocked_pairs():
+    assert select_focus_transition((), {}, target=200.0, now=1000.0) is None
+    assert select_focus_transition((ord("a"),), {}, target=200.0, now=1000.0) is None
+
+
+def test_select_focus_transition_picks_unmeasured_pair_when_all_keys_practiced():
+    stats = {
+        1: KeyStats(1, 10, 200_000_000.0, 0, 1.0, attempt_count=10),
+        2: KeyStats(2, 10, 200_000_000.0, 0, 1.0, attempt_count=10),
+    }
+    assert select_focus_transition((1, 2), {}, target=200.0, now=1000.0, key_stats=stats) == (
+        1,
+        2,
+    )
+
+
+def test_select_focus_transition_skips_unmeasured_pair_on_cold_start():
     assert select_focus_transition((1, 2), {}, target=200.0, now=1000.0) is None
 
 
@@ -553,8 +600,12 @@ def test_select_focus_transition_ignores_unmeasured_pairs():
     assert select_focus_transition(unlocked, transitions, 200.0, now) == (ord("a"), ord("b"))
 
 
-def test_select_focus_transition_returns_none_when_no_measured_unlocked_pairs():
+def test_select_focus_transition_falls_back_to_unmeasured_unlocked_pair():
     unlocked = (ord("a"), ord("b"))
+    stats = {
+        ord("a"): KeyStats(ord("a"), 10, 200_000_000.0, 0, 1.0, attempt_count=10),
+        ord("b"): KeyStats(ord("b"), 10, 200_000_000.0, 0, 1.0, attempt_count=10),
+    }
     transitions = {
         Bigram(ord("y"), ord("z")): _transition(
             ord("y"),
@@ -563,7 +614,9 @@ def test_select_focus_transition_returns_none_when_no_measured_unlocked_pairs():
             last_seen=1_700_000_000.0,
         ),
     }
-    assert select_focus_transition(unlocked, transitions, 200.0, now=1_700_000_000.0) is None
+    assert select_focus_transition(
+        unlocked, transitions, 200.0, now=1_700_000_000.0, key_stats=stats
+    ) == (ord("a"), ord("b"))
 
 
 def test_focus_key_from_transition_uses_next_endpoint():

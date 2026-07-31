@@ -29,6 +29,8 @@ from .models import (
 # this module rather than `domain.models` directly.
 __all__ = ["FOCUS_BIGRAM_WORD_BOOST", "FOCUS_WORD_BOOST"]
 
+_UNMEASURED_PAIR_FALLBACK_UNLOCKED_SIZE = 2
+
 _TRANSITION_KINDS = (
     FocusKind.TRANSITION_WEAK,
     FocusKind.TRANSITION_CALIBRATING,
@@ -95,8 +97,11 @@ def blocks_transition_focus(
     *,
     threshold: float = 1.0,
 ) -> bool:
-    """True when any unlocked key is below performance skill (ignores attempt ramp)."""
-    return any(skill_of(cp, stats, target) < threshold for cp in unlocked)
+    """True when any unlocked key with measured stats is below performance skill.
+
+    Never-practiced keys (absent from stats) do not block — e.g. a key just
+    auto-unlocked before its first press. Keys in stats with skill 0 still block."""
+    return any(cp in stats and skill_of(cp, stats, target) < threshold for cp in unlocked)
 
 
 def select_focus(
@@ -143,28 +148,54 @@ def _transition_focus_score(
     )
 
 
+def _unlocked_cross_key_pairs(unlocked: Sequence[int]) -> list[Bigram]:
+    return [
+        Bigram(prev, nxt)
+        for prev in unlocked
+        for nxt in unlocked
+        if not is_same_key_transition(prev, nxt)
+    ]
+
+
 def select_focus_transition(
     unlocked: Sequence[int],
     transitions: Mapping[Bigram, TransitionStats],
     target: float,
     now: float,
     *,
+    key_stats: Mapping[int, KeyStats] | None = None,
     review_penalty: float = 0.5,
     min_attempts: int = MIN_TRANSITION_CONFIDENCE_ATTEMPTS,
 ) -> Bigram | None:
-    """Weakest unlocked bigram by transition confidence; None when no transition data."""
-    if not transitions:
+    """Weakest unlocked bigram by transition confidence.
+
+    Measured pairs are preferred. When none exist yet but every unlocked key
+    has been practiced (typical two-key drills before cross-key stats land),
+    fall back to the weakest-scoring unmeasured cross-key pair."""
+    pairs = [pair for pair in _unlocked_cross_key_pairs(unlocked) if pair in transitions]
+    if pairs:
+        return min(
+            pairs,
+            key=lambda p: _transition_focus_score(
+                p.prev_cp,
+                p.next_cp,
+                transitions,
+                target,
+                now,
+                review_penalty=review_penalty,
+                min_attempts=min_attempts,
+            ),
+        )
+    if key_stats is None or not all(cp in key_stats for cp in unlocked):
         return None
-    pairs = [
-        Bigram(prev, nxt)
-        for prev in unlocked
-        for nxt in unlocked
-        if not is_same_key_transition(prev, nxt) and Bigram(prev, nxt) in transitions
-    ]
-    if not pairs:
+    # ponytail: two-key drills only; larger alphabets should wait for measured pairs
+    if len(unlocked) != _UNMEASURED_PAIR_FALLBACK_UNLOCKED_SIZE:
+        return None
+    candidates = _unlocked_cross_key_pairs(unlocked)
+    if not candidates:
         return None
     return min(
-        pairs,
+        candidates,
         key=lambda p: _transition_focus_score(
             p.prev_cp,
             p.next_cp,
