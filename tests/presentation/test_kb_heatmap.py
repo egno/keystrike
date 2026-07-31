@@ -5,6 +5,8 @@ from keystrike.infrastructure.bundled_layouts.colemak_dh import LAYOUT as COLEMA
 from keystrike.infrastructure.bundled_layouts.qwerty import LAYOUT as QWERTY
 from keystrike.presentation.widgets.kb_heatmap import (
     HeatmapDisplay,
+    focus_reason_label,
+    focus_reason_label_short,
     focus_transition_pair,
     format_focus_note,
     render_heatmap,
@@ -108,21 +110,14 @@ def test_format_focus_note_weak_includes_confidence_numbers():
     reason = FocusReason(kind=FocusKind.KEY_WEAK)
     note = format_focus_note(ord("a"), reason, confidence=0.89, speed=0.95, accuracy=0.92)
     assert note is not None
-    assert "speed 0.95" in note
-    assert "accuracy 92.0%" in note
-    assert "0.89" in note
-    assert "1.00" in note
-    assert "weak" in note
+    assert "a · wk · 0.95 · 92% · 0.89" in note
 
 
 def test_format_focus_note_review_includes_confidence_numbers():
     reason = FocusReason(kind=FocusKind.KEY_REVIEW)
     note = format_focus_note(ord("e"), reason, confidence=1.12, speed=1.15, accuracy=0.98)
     assert note is not None
-    assert "speed 1.15" in note
-    assert "accuracy 98.0%" in note
-    assert "1.12" in note
-    assert "1.00" in note
+    assert "e · rev · 1.15 · 98% · 1.12" in note
 
 
 def test_format_focus_note_weak_transition():
@@ -135,14 +130,57 @@ def test_format_focus_note_weak_transition():
         accuracy=0.80,
     )
     assert note is not None
-    assert "at" in note
-    assert "speed 0.50" in note
-    assert "accuracy 80.0%" in note
-    assert "0.45" in note
+    assert "at · wk · 0.50 · 80% · 0.45" in note
 
 
 def test_format_focus_note_none_without_reason():
     assert format_focus_note(ord("a"), None, confidence=0.5) is None
+
+
+def test_format_focus_note_calibrating_includes_press_count():
+    reason = FocusReason(kind=FocusKind.KEY_CALIBRATING)
+    note = format_focus_note(
+        ord("t"),
+        reason,
+        confidence=0.90,
+        speed=1.59,
+        accuracy=1.0,
+        attempts=9,
+        min_attempts=10,
+    )
+    assert note is not None
+    assert "t · cal 9/10 · 1.59 · 100% · 0.90" in note
+    assert "wk" not in note
+
+
+def test_focus_reason_label_calibrating():
+    assert focus_reason_label(FocusReason(kind=FocusKind.KEY_CALIBRATING)) == "calibrating"
+    pair = FocusReason(
+        kind=FocusKind.TRANSITION_CALIBRATING,
+        pair=Bigram(ord("e"), ord("o")),
+    )
+    assert focus_reason_label(pair) == "eo calibrating transition"
+
+
+def test_focus_reason_label_short():
+    assert focus_reason_label_short(FocusReason(kind=FocusKind.KEY_WEAK)) == "wk"
+    assert focus_reason_label_short(FocusReason(kind=FocusKind.KEY_CALIBRATING)) == "cal"
+    assert focus_reason_label_short(FocusReason(kind=FocusKind.KEY_REVIEW)) == "rev"
+    pair = FocusReason(
+        kind=FocusKind.TRANSITION_WEAK,
+        pair=Bigram(ord("e"), ord("o")),
+    )
+    assert focus_reason_label_short(pair) == "wk"
+
+
+def test_render_heatmap_calibrating_key_shows_green_not_yellow():
+    # Ramped confidence 0.9 would be yellow; skill 1.0 should be green.
+    text = render_heatmap(HeatmapDisplay(QWERTY, {ord("t"): 1.0}, focus=ord("t")))
+    span = next(s for s in text.spans if text.plain[s.start : s.end].strip() == "t")
+    style = str(span.style)
+    assert "green" in style
+    assert "yellow" not in style
+    assert "cyan" in style
 
 
 def test_focus_transition_pair_returns_pair_for_transition_kinds():

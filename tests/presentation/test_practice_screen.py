@@ -297,11 +297,9 @@ async def test_adaptive_practice_shows_weak_key_focus_note():
         practice = app.screen
         assert isinstance(practice, PracticeScreen)
         note = str(practice.query_one("#focus-note", Static).content)
-        assert "(weak)" in note
-        assert "[bold]a[/]" in note
+        assert " · wk ·" in note
+        assert "[bold]" not in note
         assert "weak transition" not in note
-        assert "speed " in note
-        assert "accuracy " in note
 
 
 @pytest.mark.asyncio
@@ -314,9 +312,8 @@ async def test_adaptive_practice_focus_note_shows_speed_and_accuracy():
         assert isinstance(practice, PracticeScreen)
         note = str(practice.query_one("#focus-note", Static).content)
         if practice._prep.focus_reason:
-            assert "speed " in note
-            assert "accuracy " in note
-            assert "confidence " in note
+            assert " · " in note
+            assert "%" in note
     app, _clock, _repo, _settings = _build_app()
     async with app.run_test() as pilot:
         await pilot.press("enter")

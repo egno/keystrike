@@ -284,7 +284,10 @@ def test_build_lesson_eo_not_zero_confidence_when_counts_zeroed():
         clock=FakeClock(),
     )
     lesson = builder(layout_name)
-    assert lesson.focus_reason == FocusReason(kind=FocusKind.TRANSITION_WEAK, pair=eo_key)
+    assert lesson.focus_reason == FocusReason(
+        kind=FocusKind.TRANSITION_CALIBRATING,
+        pair=eo_key,
+    )
     assert lesson.focus_speed is not None
     assert lesson.focus_speed >= 1.0
     assert lesson.focus_accuracy == 1.0

@@ -10,11 +10,14 @@ from random import Random
 
 from keystrike.domain.confidence import (
     accuracy_of,
+    attempts_of,
     confidence_of,
     is_same_key_transition,
     key_confidence,
     review_urgency,
     round_confidence,
+    skill_from_stats,
+    skill_of,
     target_ms_per_char,
     transition_accuracy_of,
     transition_confidence,
@@ -72,6 +75,8 @@ class FocusExplanation:
     reason: FocusReason | None
     speed: float | None = None
     accuracy: float | None = None
+    attempts: int | None = None
+    min_attempts: int | None = None
 
 
 @dataclass(slots=True, frozen=True)
@@ -80,6 +85,7 @@ class LessonProgress:
     focus: int
     state: LessonState
     focus_bigram: Bigram | None
+    skill_heatmap: dict[int, float]
 
 
 def _key_focus_metrics(
@@ -113,9 +119,11 @@ def _transition_focus_metrics(
 
 def _focus_reason_for_confidence(
     confidence: float,
+    skill: float,
     urgency: float,
     *,
     weak_kind: FocusKind,
+    calibrating_kind: FocusKind,
     review_kind: FocusKind,
     pair: Bigram | None,
 ) -> FocusReason | None:
@@ -124,6 +132,8 @@ def _focus_reason_for_confidence(
     if urgency > 0 and confidence >= _CONFIDENCE_GOOD:
         return FocusReason(kind=review_kind, pair=pair)
     if confidence < _CONFIDENCE_GOOD:
+        if skill >= _CONFIDENCE_GOOD:
+            return FocusReason(kind=calibrating_kind, pair=pair)
         return FocusReason(kind=weak_kind, pair=pair)
     return None
 
@@ -163,10 +173,13 @@ def _compute_focus_explanation(
     if focus_bigram is not None:
         t_stats = ctx.transitions.get(focus_bigram)
         urgency = review_urgency(t_stats.last_seen if t_stats else 0.0, ctx.now)
+        skill = skill_from_stats(t_stats, ctx.target)
         reason = _focus_reason_for_confidence(
             focus_confidence,
+            skill,
             urgency,
             weak_kind=FocusKind.TRANSITION_WEAK,
+            calibrating_kind=FocusKind.TRANSITION_CALIBRATING,
             review_kind=FocusKind.TRANSITION_REVIEW,
             pair=focus_bigram,
         )
@@ -178,21 +191,38 @@ def _compute_focus_explanation(
             ctx.transitions,
             ctx.target,
         )
-        return FocusExplanation(reason=reason, speed=metrics.speed, accuracy=metrics.accuracy)
+        attempts = attempts_of(t_stats) if t_stats is not None else 0
+        return FocusExplanation(
+            reason=reason,
+            speed=metrics.speed,
+            accuracy=metrics.accuracy,
+            attempts=attempts,
+            min_attempts=ctx.settings.min_transition_confidence_attempts,
+        )
 
     key_stats = ctx.stats.get(focus)
     urgency = review_urgency(key_stats.last_seen if key_stats else 0.0, ctx.now)
+    skill = skill_of(focus, ctx.stats, ctx.target)
     reason = _focus_reason_for_confidence(
         focus_confidence,
+        skill,
         urgency,
         weak_kind=FocusKind.KEY_WEAK,
+        calibrating_kind=FocusKind.KEY_CALIBRATING,
         review_kind=FocusKind.KEY_REVIEW,
         pair=None,
     )
     if reason is None:
         return FocusExplanation(reason=None)
     metrics = _key_focus_metrics(focus, ctx.stats, ctx.target)
-    return FocusExplanation(reason=reason, speed=metrics.speed, accuracy=metrics.accuracy)
+    attempts = attempts_of(key_stats) if key_stats is not None else 0
+    return FocusExplanation(
+        reason=reason,
+        speed=metrics.speed,
+        accuracy=metrics.accuracy,
+        attempts=attempts,
+        min_attempts=ctx.settings.min_confidence_attempts,
+    )
 
 
 @dataclass(slots=True)
@@ -201,9 +231,12 @@ class Lesson:
     state: LessonState
     urgency: dict[int, float]
     focus_reason: FocusReason | None
+    skill_heatmap: dict[int, float]
     focus_confidence: float | None = None
     focus_speed: float | None = None
     focus_accuracy: float | None = None
+    focus_attempts: int | None = None
+    focus_min_attempts: int | None = None
 
     @property
     def focus_key(self) -> int:
@@ -281,6 +314,7 @@ def _lesson_progress(
         focus=focus,
         state=state,
         focus_bigram=focus_bigram,
+        skill_heatmap={cp: skill_of(cp, ctx.stats, ctx.target) for cp in unlocked},
     )
 
 
@@ -388,9 +422,12 @@ class BuildLesson:
             state=progress.state,
             urgency=urgency,
             focus_reason=explanation.reason,
+            skill_heatmap=progress.skill_heatmap,
             focus_confidence=focus_confidence if explanation.reason else None,
             focus_speed=explanation.speed,
             focus_accuracy=explanation.accuracy,
+            focus_attempts=explanation.attempts,
+            focus_min_attempts=explanation.min_attempts,
         )
 
     def _load_context(self, layout_name: str) -> _LessonContext:

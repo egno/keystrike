@@ -126,6 +126,10 @@ def key_attempts(key_stats: KeyStats) -> int:
     return _attempts(key_stats)
 
 
+def attempts_of(stats: HasConfidenceFields) -> int:
+    return _attempts(stats)
+
+
 def is_same_key_transition(prev_cp: int, next_cp: int) -> bool:
     """Same physical key twice (e.g. ee, ss) — excluded from transition analysis."""
     return prev_cp == next_cp
@@ -162,6 +166,14 @@ def confidence_from_stats(
     return round_confidence(raw * confidence_sample_factor(_attempts(stats), minimum=min_attempts))
 
 
+def skill_from_stats(stats: HasConfidenceFields | None, target: float) -> float:
+    """Performance skill without attempt ramp — for display only."""
+    if stats is None:
+        return 0.0
+    raw = min(key_confidence(target, stats.mean_time_ns), _accuracy(stats))
+    return round_confidence(raw)
+
+
 def confidence_of(
     codepoint: int,
     stats: Mapping[int, KeyStats],
@@ -173,6 +185,11 @@ def confidence_of(
     `CONFIDENCE_SESSION_WINDOW` sessions, recency-weighted), recomputed from
     the current target. 0.0 for a never-practiced key."""
     return confidence_from_stats(stats.get(codepoint), target, min_attempts=min_attempts)
+
+
+def skill_of(codepoint: int, stats: Mapping[int, KeyStats], target: float) -> float:
+    """Live skill for one key — min(speed, accuracy) without attempt ramp."""
+    return skill_from_stats(stats.get(codepoint), target)
 
 
 def review_urgency(last_seen: float, now: float) -> float:

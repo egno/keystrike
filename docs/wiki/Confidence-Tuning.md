@@ -124,5 +124,6 @@ aggregates rebuild from the new window size.
 
 ## Related docs
 
+- [Focus states](Focus-States) — compact HUD labels and practice-screen metrics.
 - [Word lists](Word-Lists) — optional dictionary drills (same confidence engine).
 - [Git sync](Git-sync) — settings (including these fields) sync with your repo.

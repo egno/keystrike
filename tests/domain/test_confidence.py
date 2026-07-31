@@ -5,6 +5,7 @@ from keystrike.domain.confidence import (
     key_attempts,
     key_confidence,
     review_urgency,
+    skill_of,
     target_ms_per_char,
     transition_accuracy_of,
     transition_confidence_of,
@@ -97,6 +98,32 @@ def test_confidence_of_scales_down_with_few_attempts():
     }
     # raw min(speed, accuracy) = min(2.0, 0.5) = 0.5; only 2 attempts -> x0.2
     assert confidence_of(ord("a"), stats, target=200.0) == 0.1
+
+
+def test_skill_of_ignores_attempt_ramp():
+    stats = {
+        ord("t"): KeyStats(
+            codepoint=ord("t"),
+            samples=9,
+            mean_time_ns=126_000_000.0,  # speed ~1.59 at target 200ms
+            error_count=0,
+            last_seen=0.0,
+            attempt_count=9,
+        ),
+    }
+    target = 200.0
+    assert skill_of(ord("t"), stats, target=target) == 1.0
+    assert confidence_of(ord("t"), stats, target=target) == 0.9
+
+
+def test_skill_of_matches_confidence_at_minimum_attempts():
+    stats = {ord("a"): _stats(ord("a"), mean_time_ns=200_000_000.0, error_count=0)}
+    target = 200.0
+    assert skill_of(ord("a"), stats, target=target) == confidence_of(ord("a"), stats, target=target)
+
+
+def test_skill_of_unseen_key_is_zero():
+    assert skill_of(ord("a"), {}, target=200.0) == 0.0
 
 
 def test_confidence_of_reaches_full_value_at_minimum_attempts():

@@ -13,7 +13,10 @@ from keystrike.domain.session import (
     session_accuracy,
 )
 from keystrike.presentation.theme import STYLE_IDLE
-from keystrike.presentation.widgets.kb_heatmap import focus_reason_label, focus_transition_pair
+from keystrike.presentation.widgets.kb_heatmap import (
+    focus_reason_label_short,
+    focus_transition_pair,
+)
 
 
 def learn_timer_dimmed(session: Session, now_ns: int) -> bool:
@@ -36,7 +39,8 @@ def _format_focus_segment(focus_key: int | None, focus_reason: FocusReason | Non
         return ""
     transition = focus_transition_pair(focus_reason)
     label = transition.chars() if transition is not None else chr(focus_key)
-    return f"   Focus: [bold]{label}[/] [dim]{focus_reason_label(focus_reason)}[/]"
+    reason = focus_reason_label_short(focus_reason)
+    return f"   Focus: [bold]{label}[/] · [dim]{reason}[/]"
 
 
 def _format_hud(

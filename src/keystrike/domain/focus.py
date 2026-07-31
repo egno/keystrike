@@ -29,7 +29,11 @@ from .models import (
 # this module rather than `domain.models` directly.
 __all__ = ["FOCUS_BIGRAM_WORD_BOOST", "FOCUS_WORD_BOOST"]
 
-_TRANSITION_KINDS = (FocusKind.TRANSITION_WEAK, FocusKind.TRANSITION_REVIEW)
+_TRANSITION_KINDS = (
+    FocusKind.TRANSITION_WEAK,
+    FocusKind.TRANSITION_CALIBRATING,
+    FocusKind.TRANSITION_REVIEW,
+)
 
 
 @dataclass(frozen=True, slots=True)

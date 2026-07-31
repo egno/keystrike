@@ -96,6 +96,8 @@ class PracticeScreen(Screen[None]):
                 confidence=self._prep.focus_confidence,
                 speed=self._prep.focus_speed,
                 accuracy=self._prep.focus_accuracy,
+                attempts=self._prep.focus_attempts,
+                min_attempts=self._prep.focus_min_attempts,
             )
             or ""
         )
