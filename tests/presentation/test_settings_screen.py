@@ -229,6 +229,77 @@ async def test_save_converts_wpm_to_cpm():
 
 
 @pytest.mark.asyncio
+async def test_wpm_display_uses_custom_generated_bounds():
+    """WPM shown on load must use settings.generated_word_* not default bounds."""
+    app = App()
+    settings_repo = FakeSettingsRepository(
+        Settings(
+            target_speed_cpm=390,
+            target_speed_unit=TargetSpeedUnit.WPM,
+            generated_word_min_len=3,
+            generated_word_max_len=10,
+        ),
+    )
+    layout_repo = FakeLayoutRepository(dict(BUNDLED_LAYOUTS))
+    store = FakeWordListStore()
+    screen = SettingsScreen(
+        services=SettingsServices(
+            settings_repo=settings_repo,
+            layout_repo=layout_repo,
+            update_settings=UpdateSettings(repo=settings_repo),
+            import_wordlist=ImportWordList(store=store, settings_repo=settings_repo),
+            clear_wordlist=ClearWordList(settings_repo=settings_repo),
+            get_wordlist_cache_status=GetWordListCacheStatus(store=store),
+        ),
+    )
+    async with app.run_test() as pilot:
+        await app.push_screen(screen)
+        await pilot.pause()
+
+        custom_wpm = wpm_from_cpm(390, generated_min_len=3, generated_max_len=10)
+        default_wpm = wpm_from_cpm(390)
+        assert custom_wpm != default_wpm
+        assert app.screen.query_one("#settings-speed", Input).value == str(custom_wpm)
+
+
+@pytest.mark.asyncio
+async def test_save_converts_wpm_using_custom_generated_bounds():
+    app = App()
+    settings_repo = FakeSettingsRepository(
+        Settings(generated_word_min_len=3, generated_word_max_len=10),
+    )
+    layout_repo = FakeLayoutRepository(dict(BUNDLED_LAYOUTS))
+    store = FakeWordListStore()
+    screen = SettingsScreen(
+        services=SettingsServices(
+            settings_repo=settings_repo,
+            layout_repo=layout_repo,
+            update_settings=UpdateSettings(repo=settings_repo),
+            import_wordlist=ImportWordList(store=store, settings_repo=settings_repo),
+            clear_wordlist=ClearWordList(settings_repo=settings_repo),
+            get_wordlist_cache_status=GetWordListCacheStatus(store=store),
+        ),
+    )
+    async with app.run_test() as pilot:
+        await app.push_screen(screen)
+        await pilot.pause()
+
+        app.screen.query_one("#settings-speed", Input).value = "80"
+        app.screen.query_one("#settings-speed-unit", Select).value = TargetSpeedUnit.WPM
+        await pilot.pause()
+        await pilot.press("ctrl+s")
+        await pilot.pause()
+
+        assert settings_repo.settings.target_speed_cpm == cpm_from_wpm(
+            80,
+            generated_min_len=3,
+            generated_max_len=10,
+        )
+        assert settings_repo.settings.target_speed_cpm != cpm_from_wpm(80)
+        assert app.screen_stack[-1] is not screen
+
+
+@pytest.mark.asyncio
 async def test_loads_wpm_display_value():
     app = App()
     settings_repo = FakeSettingsRepository(

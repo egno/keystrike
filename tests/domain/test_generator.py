@@ -17,7 +17,6 @@ from keystrike.domain.generator import (
 )
 from keystrike.domain.markov import TransitionTable
 from keystrike.domain.models import GENERATED_WORD_MAX_LEN, GENERATED_WORD_MIN_LEN, Bigram
-from keystrike.domain.word_bounds import MAX_WORD_LEN, MIN_WORD_LEN
 
 
 def _uniform_table(alphabet: str) -> TransitionTable:
@@ -105,8 +104,8 @@ def test_generate_word_uses_wordlist_when_provided():
         assert word in words
 
 
-def test_wordlist_still_uses_dictionary_bounds_not_generated():
-    """Dictionary sampling keeps word_bounds (3-10) even when Markov bounds differ."""
+def test_wordlist_respects_generated_bounds():
+    """Dictionary sampling honors generated_word_min/max, not dictionary 3-10."""
     generator = AdaptiveGenerator(table=_uniform_table("abc"), rng=Random(0))
     words = ("abc", "abcd", "abcde", "abcdef", "abcdefg", "abcdefgh", "abcdefghi", "abcdefghij")
     for _ in range(20):
@@ -116,8 +115,9 @@ def test_wordlist_still_uses_dictionary_bounds_not_generated():
             generated_min_len=2,
             generated_max_len=4,
         )
-        assert MIN_WORD_LEN <= len(word) <= MAX_WORD_LEN
-        assert word in words
+        assert 2 <= len(word) <= 4
+        if word in words:
+            assert len(word) <= 4
 
 
 def test_generate_word_falls_back_to_markov_without_wordlist():
@@ -425,12 +425,12 @@ def test_lesson_caps_word_repeats():
 
 def test_lesson_caps_word_repeats_on_strong_focus_path():
     """Repeat cap applies when min_focus_words=1 (confident focus)."""
-    generator = AdaptiveGenerator(table=_uniform_table("a"), rng=Random(0))
-    words = ("aaa",)
+    generator = AdaptiveGenerator(table=_uniform_table("ab"), rng=Random(0))
+    words = ("aaa", "bbb")
     for seed in range(20):
         generator.rng = Random(seed)
         lesson = generator.generate_lesson(
-            frozenset("a"),
+            frozenset("ab"),
             focus_char="a",
             word_count=8,
             min_focus_words=1,

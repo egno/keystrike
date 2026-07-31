@@ -1,9 +1,20 @@
+from random import Random
+
 import pytest
 
+from keystrike.application.build_lesson import BuildLesson
 from keystrike.domain.enums import TargetSpeedUnit
 from keystrike.domain.models import Settings
+from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS
 from keystrike.infrastructure.paths import Paths
 from keystrike.infrastructure.settings_repo_toml import TomlSettingsRepository, _coerce_field
+from tests.fakes import (
+    FakeAggregatesCache,
+    FakeClock,
+    FakeLanguageProvider,
+    FakeLayoutRepository,
+    FakeWordListStore,
+)
 
 
 @pytest.fixture
@@ -20,6 +31,40 @@ def paths(tmp_path):
 def test_load_defaults_when_no_file(paths):
     s = TomlSettingsRepository(paths).load()
     assert s == Settings()
+
+
+def test_load_generated_word_bounds_from_hand_edited_toml(paths):
+    paths.settings_file.write_text(
+        "schema_version = 1\ngenerated_word_min_len = 2\ngenerated_word_max_len = 5\n",
+        encoding="utf-8",
+    )
+    loaded = TomlSettingsRepository(paths).load()
+    assert loaded.generated_word_min_len == 2
+    assert loaded.generated_word_max_len == 5
+
+
+def test_toml_generated_word_bounds_affect_markov_lesson_words(paths):
+    """Full path: settings.toml → repo.load() → BuildLesson → word lengths."""
+    paths.settings_file.write_text(
+        "schema_version = 1\n"
+        "generated_word_min_len = 2\n"
+        "generated_word_max_len = 4\n"
+        'wordlist_url = ""\n',
+        encoding="utf-8",
+    )
+    builder = BuildLesson(
+        layout_repo=FakeLayoutRepository(dict(BUNDLED_LAYOUTS)),
+        aggregates_cache=FakeAggregatesCache(),
+        settings_repo=TomlSettingsRepository(paths),
+        language_provider=FakeLanguageProvider(),
+        wordlist_store=FakeWordListStore(),
+        rng=Random(0),
+        clock=FakeClock(),
+    )
+    for seed in range(20):
+        builder.rng = Random(seed)
+        for word in builder("qwerty").text.split():
+            assert 2 <= len(word) <= 4, f"seed={seed}: {word!r}"
 
 
 def test_round_trip(paths):

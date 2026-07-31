@@ -25,8 +25,8 @@ layout, speed, or other UI settings will not change them.
 | Lesson word count | `lesson_word_count` | `12` | Words generated per practice lesson. |
 | Focus word min fraction | `focus_word_min_fraction` | `0.6` | When focus is weak, at least this fraction of lesson words must match the focus key or bigram (ceiling). |
 | Max word repeats | `max_word_repeats` | `2` | Maximum times the same word may appear in one generated lesson. |
-| Generated word min length | `generated_word_min_len` | `3` | Minimum length for Markov-generated words (dictionary words still use 3–10). |
-| Generated word max length | `generated_word_max_len` | `10` | Maximum length for Markov-generated words. |
+| Generated word min length | `generated_word_min_len` | `2` | Minimum length for Markov-generated words (dictionary import still filters 3–10). |
+| Generated word max length | `generated_word_max_len` | `4` | Maximum length for Markov-generated words. |
 
 Valid ranges: window and both attempt floors are **1–100**. Boost multipliers should be **≥ 1.0**. `lesson_word_count` should be **≥ 1**. `focus_word_min_fraction` should be in **(0.0, 1.0]**. `max_word_repeats` should be **≥ 1**. `generated_word_min_len` and `generated_word_max_len` should be **≥ 1** with min ≤ max (invalid pairs are clamped at lesson build time).
 
@@ -48,8 +48,8 @@ focus_weak_extra_boost = 1.5
 lesson_word_count = 12
 focus_word_min_fraction = 0.6
 max_word_repeats = 2
-generated_word_min_len = 3
-generated_word_max_len = 10
+generated_word_min_len = 2
+generated_word_max_len = 4
 ```
 
 ## What each setting affects

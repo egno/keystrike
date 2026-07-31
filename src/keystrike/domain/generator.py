@@ -22,7 +22,6 @@ from .models import (
 from .models import (
     LESSON_WORD_COUNT as DEFAULT_WORD_COUNT,
 )
-from .word_bounds import MAX_WORD_LEN, MIN_WORD_LEN
 
 MAX_RETRIES = 5
 MAX_REPEAT_RESAMPLE = 64
@@ -91,8 +90,15 @@ def _assert_lesson_focus_quota(
     )
 
 
-def _wordlist_word_fits(word: str, alphabet: frozenset[str]) -> bool:
-    return MIN_WORD_LEN <= len(word) <= MAX_WORD_LEN and set(word) <= alphabet
+def _wordlist_word_fits(
+    word: str,
+    alphabet: frozenset[str],
+    *,
+    min_len: int,
+    max_len: int,
+) -> bool:
+    """True when ``word`` length is in ``[min_len, max_len]`` and chars ⊆ alphabet."""
+    return min_len <= len(word) <= max_len and set(word) <= alphabet
 
 
 def _focus_pool_from_wordlist(
@@ -101,13 +107,20 @@ def _focus_pool_from_wordlist(
     *,
     focus_char: str,
     focus_bigram: str | None,
+    generated_min_len: int,
+    generated_max_len: int,
 ) -> tuple[str, ...]:
     if not words:
         return ()
     return tuple(
         w
         for w in words
-        if _wordlist_word_fits(w, alphabet)
+        if _wordlist_word_fits(
+            w,
+            alphabet,
+            min_len=generated_min_len,
+            max_len=generated_max_len,
+        )
         and word_matches_focus(w, focus_char=focus_char, focus_bigram=focus_bigram)
     )
 
@@ -295,7 +308,13 @@ class AdaptiveGenerator:
     ) -> str:
         weighting = weighting or LessonWeighting()
         if weighting.words:
-            word = self._generate_word_from_wordlist(alphabet, weighting, weighted_wordlist)
+            word = self._generate_word_from_wordlist(
+                alphabet,
+                weighting,
+                weighted_wordlist,
+                generated_min_len=generated_min_len,
+                generated_max_len=generated_max_len,
+            )
             if word is not None:
                 return word
         return self._generate_word_via_markov(
@@ -307,10 +326,18 @@ class AdaptiveGenerator:
         alphabet: frozenset[str],
         weighting: LessonWeighting,
         weighted_wordlist: WeightedWordlist | None,
+        *,
+        generated_min_len: int,
+        generated_max_len: int,
     ) -> str | None:
         """Sample a dictionary word, or None if it doesn't fit length/alphabet bounds."""
         word = self._sample_from_wordlist(weighting, weighted_wordlist)
-        if MIN_WORD_LEN <= len(word) <= MAX_WORD_LEN and set(word) <= alphabet:
+        if _wordlist_word_fits(
+            word,
+            alphabet,
+            min_len=generated_min_len,
+            max_len=generated_max_len,
+        ):
             return word
         return None
 
@@ -383,6 +410,8 @@ class AdaptiveGenerator:
             alphabet,
             focus_char=focus_char,
             focus_bigram=focus_bigram_str,
+            generated_min_len=generated_min_len,
+            generated_max_len=generated_max_len,
         )
         focus_weighted: WeightedWordlist | None = None
         if focus_pool and weighted_wordlist is not None:
@@ -611,7 +640,13 @@ class AdaptiveGenerator:
             wordlist = WeightedWordlist(words=focus_pool, weights=tuple(1.0 for _ in focus_pool))
             if focus_weighted is not None:
                 wordlist = focus_weighted
-            word = self._generate_word_from_wordlist(alphabet, weighting, wordlist)
+            word = self._generate_word_from_wordlist(
+                alphabet,
+                weighting,
+                wordlist,
+                generated_min_len=generated_min_len,
+                generated_max_len=generated_max_len,
+            )
             if word is not None and word_matches_focus(
                 word, focus_char=focus_char, focus_bigram=focus_bigram_str
             ):

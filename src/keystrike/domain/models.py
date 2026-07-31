@@ -20,8 +20,8 @@ FOCUS_WEAK_EXTRA_BOOST = 1.5
 LESSON_WORD_COUNT = 12
 FOCUS_WORD_MIN_FRACTION = 0.6
 MAX_WORD_REPEATS = 2
-GENERATED_WORD_MIN_LEN = 3
-GENERATED_WORD_MAX_LEN = 10
+GENERATED_WORD_MIN_LEN = 2
+GENERATED_WORD_MAX_LEN = 4
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,7 +156,7 @@ class Layout:
 class Settings:
     schema_version: int = 1
     layout: str = "qwerty"
-    target_speed_cpm: int = 300  # ~46 wpm at typical generated word length
+    target_speed_cpm: int = 300  # ~100 wpm at typical generated word length (2-4)
     target_speed_unit: TargetSpeedUnit = TargetSpeedUnit.WPM
     alphabet_size: int = 16  # letters force-unlocked from cold start
     confidence_session_window: int = CONFIDENCE_SESSION_WINDOW  # sessions in rolling stats

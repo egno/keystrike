@@ -647,9 +647,51 @@ def test_build_lesson_survives_invalid_focus_word_min_fraction():
         assert len(lesson.text.split()) == settings.lesson_word_count
 
 
+def test_build_lesson_markov_respects_generated_word_bounds_from_settings():
+    """Settings.generated_word_* must reach the generator on the Markov path."""
+    settings = Settings(
+        generated_word_min_len=2,
+        generated_word_max_len=4,
+        wordlist_url="",
+        alphabet_size=8,
+    )
+    builder = _build_lesson(settings)
+    for seed in range(30):
+        builder.rng = Random(seed)
+        words = builder("qwerty").text.split()
+        for word in words:
+            assert 2 <= len(word) <= 4, f"seed={seed}: {word!r}"
+
+
+def test_build_lesson_wordlist_respects_generated_bounds():
+    """Cached wordlist words must fall within generated_word_min/max."""
+    url = "https://example.com/words.txt"
+    cached = ["the", "and", "for", "are", "but", "not", "you", "all"]
+    settings = Settings(
+        generated_word_min_len=2,
+        generated_word_max_len=4,
+        wordlist_url=url,
+        alphabet_size=26,
+    )
+    builder = BuildLesson(
+        layout_repo=FakeLayoutRepository(dict(BUNDLED_LAYOUTS)),
+        aggregates_cache=FakeAggregatesCache(),
+        settings_repo=FakeSettingsRepository(settings),
+        language_provider=FakeLanguageProvider(),
+        wordlist_store=FakeWordListStore(by_url={url: cached}),
+        rng=Random(42),
+        clock=FakeClock(),
+    )
+    words = builder("qwerty").text.split()
+    assert all(2 <= len(w) <= 4 for w in words)
+    dict_words = [w for w in words if w in cached]
+    assert len(dict_words) >= settings.lesson_word_count // 2
+    assert all(len(w) == 3 for w in dict_words)
+
+
 def test_lesson_falls_back_to_markov_when_cache_missing():
     url = "https://example.com/words.txt"
-    exclusive = ["abcdefgh"] * 20
+    exclusive = ["abcd"] * 20
     settings = Settings(wordlist_url=url, alphabet_size=26)
     with_cache = BuildLesson(
         layout_repo=FakeLayoutRepository(dict(BUNDLED_LAYOUTS)),
@@ -660,7 +702,7 @@ def test_lesson_falls_back_to_markov_when_cache_missing():
         rng=Random(42),
         clock=FakeClock(),
     )
-    assert "abcdefgh" in with_cache("qwerty").text
+    assert "abcd" in with_cache("qwerty").text
 
     without_cache = BuildLesson(
         layout_repo=FakeLayoutRepository(dict(BUNDLED_LAYOUTS)),
@@ -671,7 +713,7 @@ def test_lesson_falls_back_to_markov_when_cache_missing():
         rng=Random(42),
         clock=FakeClock(),
     )
-    assert "abcdefgh" not in without_cache("qwerty").text
+    assert "abcd" not in without_cache("qwerty").text
 
 
 def test_lesson_falls_back_when_alphabet_filters_all_words():
