@@ -52,6 +52,34 @@ def test_get_old_cache_without_transitions(paths):
     loaded = cache.get("qwerty")
     assert loaded is not None
     assert loaded.transitions == {}
+    assert loaded.transitions_computed is True
+
+
+def test_get_pre_transition_cache_sets_transitions_computed_false(paths):
+    cache = FileAggregatesCache(paths)
+    cache._file("qwerty").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "layout": "qwerty",
+                "keys": {
+                    "97": {
+                        "codepoint": 97,
+                        "samples": 1,
+                        "mean_time_ns": 100.0,
+                        "error_count": 0,
+                        "last_seen": 1.0,
+                        "attempt_count": 1,
+                    },
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    loaded = cache.get("qwerty")
+    assert loaded is not None
+    assert loaded.transitions == {}
+    assert loaded.transitions_computed is False
 
 
 def test_layout_isolation(paths):

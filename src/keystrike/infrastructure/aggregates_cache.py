@@ -81,6 +81,7 @@ class FileAggregatesCache:
             return LayoutAggregates(
                 keys={int(cp): _parse_key_entry(cp, entry) for cp, entry in keys.items()},
                 transitions=without_same_key_transitions(parsed_transitions),
+                transitions_computed="transitions" in data,
             )
         except (json.JSONDecodeError, KeyError, TypeError, ValueError):
             return None

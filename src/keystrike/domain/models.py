@@ -17,6 +17,9 @@ FOCUS_WORD_BOOST = 3.0
 FOCUS_BIGRAM_WORD_BOOST = 4.0
 FOCUS_TRANSITION_BOOST = 4.0
 FOCUS_WEAK_EXTRA_BOOST = 1.5
+LESSON_WORD_COUNT = 12
+FOCUS_WORD_MIN_FRACTION = 0.6
+MAX_WORD_REPEATS = 2
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,6 +103,8 @@ def _empty_transitions() -> dict[Bigram, TransitionStats]:
 class LayoutAggregates:
     keys: Mapping[int, KeyStats]
     transitions: Mapping[Bigram, TransitionStats] = field(default_factory=_empty_transitions)
+    # False when loaded from a pre-transition cache file that omitted ``transitions``.
+    transitions_computed: bool = True
 
     def __post_init__(self) -> None:
         # Freezing the dataclass only blocks attribute rebinding — wrap the
@@ -162,6 +167,9 @@ class Settings:
     focus_weak_extra_boost: float = FOCUS_WEAK_EXTRA_BOOST  # extra multiplier when confidence < 1.0
     lang: str = "en"
     learn_daily_minutes: int = 10  # adaptive mode daily goal (minutes); 0 = no goal
+    lesson_word_count: int = LESSON_WORD_COUNT  # words per generated practice lesson
+    focus_word_min_fraction: float = FOCUS_WORD_MIN_FRACTION  # weak-focus word quota fraction
+    max_word_repeats: int = MAX_WORD_REPEATS  # per-word repeat cap in generated lessons
     wordlist_url: str = ""  # non-empty + cached file → real words; else Markov
     updated_at: str | None = None  # ISO-8601 UTC; sync LWW
 

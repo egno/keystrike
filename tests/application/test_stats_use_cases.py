@@ -169,6 +169,7 @@ def test_ensure_rebuilds_when_transitions_missing_but_sessions_exist():
             "qwerty": LayoutAggregates(
                 keys={ord("a"): KeyStats(ord("a"), 1, 100_000_000.0, 0, 1.0, attempt_count=1)},
                 transitions={},
+                transitions_computed=False,
             ),
         },
     )
@@ -189,6 +190,37 @@ def test_ensure_rebuilds_when_transitions_missing_but_sessions_exist():
     cached = cache.get("qwerty")
     assert cached is not None
     assert cached.transitions.get(Bigram(ord("a"), ord("b"))) is not None
+
+
+def test_ensure_skips_rebuild_when_transitions_computed_empty():
+    repo = FakeSessionRepository()
+    cache = FakeAggregatesCache(
+        by_layout={
+            "qwerty": LayoutAggregates(
+                keys={ord("a"): KeyStats(ord("a"), 1, 100_000_000.0, 0, 1.0, attempt_count=1)},
+                transitions={},
+                transitions_computed=True,
+            ),
+        },
+    )
+    repo.save_header(_header("s1", 1_700_000_000.0))
+    repo.keystrokes["s1"] = [
+        Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
+        Keystroke(codepoint=ord("b"), typed=ord("b"), t_ns=100_000_000, correct=True),
+    ]
+    rebuild = RebuildAggregates(
+        repo=repo,
+        cache=cache,
+        settings_repo=FakeSettingsRepository(),
+    )
+    ensure = GetOrRebuildAggregates(repo=repo, cache=cache, rebuild=rebuild)
+
+    ensure("qwerty")
+    ensure("qwerty")
+
+    cached = cache.get("qwerty")
+    assert cached is not None
+    assert cached.transitions == {}
 
 
 def test_rebuild_aggregates_drops_sessions_outside_window():

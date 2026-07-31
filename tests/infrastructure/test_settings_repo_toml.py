@@ -37,6 +37,9 @@ def test_round_trip(paths):
         focus_bigram_word_boost=6.0,
         focus_transition_boost=3.5,
         focus_weak_extra_boost=2.0,
+        lesson_word_count=15,
+        focus_word_min_fraction=0.75,
+        max_word_repeats=3,
     )
     repo.save(original)
     loaded = repo.load()
@@ -50,6 +53,9 @@ def test_round_trip(paths):
     assert loaded.focus_bigram_word_boost == 6.0
     assert loaded.focus_transition_boost == 3.5
     assert loaded.focus_weak_extra_boost == 2.0
+    assert loaded.lesson_word_count == 15
+    assert loaded.focus_word_min_fraction == 0.75
+    assert loaded.max_word_repeats == 3
     assert loaded.updated_at is not None
 
 

@@ -70,10 +70,15 @@ class GetOrRebuildAggregates:
 
     def __call__(self, layout: str) -> Mapping[int, KeyStats]:
         cached = self.cache.get(layout)
-        if cached is not None and cached.transitions:
-            return cached.keys
-        if cached is not None and not any(self.repo.iter_headers(layout)):
-            return cached.keys
+        has_sessions = any(self.repo.iter_headers(layout))
+        if cached is not None:
+            if cached.transitions or cached.transitions_computed or not has_sessions:
+                return cached.keys
+            self.rebuild(layout)
+            rebuilt = self.cache.get(layout)
+            return rebuilt.keys if rebuilt is not None else {}
+        if not has_sessions:
+            return {}
         self.rebuild(layout)
         rebuilt = self.cache.get(layout)
         return rebuilt.keys if rebuilt is not None else {}

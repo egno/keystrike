@@ -30,7 +30,12 @@ from keystrike.domain.focus import (
     select_focus_transition,
     transition_practice_weight,
 )
-from keystrike.domain.generator import AdaptiveGenerator, LessonWeighting
+from keystrike.domain.generator import (
+    AdaptiveGenerator,
+    LessonWeighting,
+    effective_lesson_word_count,
+    weak_focus_word_quota,
+)
 from keystrike.domain.learn_order import keyboard_order
 from keystrike.domain.models import (
     Bigram,
@@ -52,7 +57,6 @@ from keystrike.domain.protocols import (
 from keystrike.domain.unlock import compute_unlocked
 from keystrike.domain.wordlist import words_for_alphabet
 
-WORD_COUNT = 12
 _CONFIDENCE_GOOD = 1.0
 
 
@@ -370,6 +374,7 @@ class BuildLesson:
             alphabet_chars,
             progress.focus,
             progress.focus_bigram,
+            focus_confidence=focus_confidence,
             char_weights=char_weights,
             transition_weights=transition_weights,
         )
@@ -409,6 +414,7 @@ class BuildLesson:
         focus: int,
         focus_bigram: Bigram | None,
         *,
+        focus_confidence: float,
         char_weights: dict[str, float],
         transition_weights: dict[Bigram, float],
     ) -> str:
@@ -422,12 +428,20 @@ class BuildLesson:
             focus_word_boost=ctx.settings.focus_word_boost,
             focus_bigram_word_boost=ctx.settings.focus_bigram_word_boost,
         )
+        word_count = effective_lesson_word_count(ctx.settings.lesson_word_count)
+        quota = (
+            weak_focus_word_quota(word_count, ctx.settings.focus_word_min_fraction)
+            if focus_confidence < _CONFIDENCE_GOOD
+            else 1
+        )
         return generator.generate_lesson(
             alphabet_chars,
             chr(focus),
-            word_count=WORD_COUNT,
+            word_count=word_count,
             weighting=weighting,
             focus_bigram=focus_bigram,
+            min_focus_words=quota,
+            max_word_repeats=ctx.settings.max_word_repeats,
         )
 
     def _resolve_dict_words(

@@ -5,6 +5,20 @@ rationale lives in commit history/diffs — these are pointers, not narratives.
 Milestone-level feature work (what shipped in M1–M4, the keybr algorithm
 design) stays in `PLAN.md` §5/§6.
 
+## 1.3.0
+
+- Weak-focus lessons guarantee a configurable fraction of words match the focus
+  key or bigram (default 60%); remaining quota filled via Markov when the wordlist
+  pool is too small.
+- Focus-pool words sampled without replacement; per-lesson repeat cap (default 2)
+  limits streaks like repeated `toe` on tiny alphabets.
+- Lesson tuning in `settings.toml`: `lesson_word_count`, `focus_word_min_fraction`,
+  `max_word_repeats`; documented on `Confidence-Tuning` wiki.
+- Aggregate cache: stop rebuilding on every access when transitions are empty but
+  already computed (`transitions_computed` on load).
+- Edge cases: clamp invalid fraction/word-count settings; repeat cap on confident
+  focus path; graceful fallback when vocabulary ceiling hit on small alphabets.
+
 ## 1.2.3
 
 - HUD Learn segment: activity (dim when paused or not started) and goal (green when

@@ -5,6 +5,7 @@ from keystrike.domain.aggregate import _combine_transition_maps_weighted, sessio
 from keystrike.domain.confidence import target_ms_per_char, transition_confidence_of
 from keystrike.domain.enums import FocusKind
 from keystrike.domain.focus import FocusReason
+from keystrike.domain.generator import weak_focus_word_quota, word_matches_focus
 from keystrike.domain.learn_order import keyboard_order
 from keystrike.domain.models import Bigram, KeyStats, LayoutAggregates, Settings, TransitionStats
 from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS
@@ -481,10 +482,11 @@ def test_lesson_wordlist_biases_weak_transition():
     cache = FakeAggregatesCache(
         by_layout={"qwerty": LayoutAggregates(keys=keys, transitions=transitions)},
     )
+    settings = Settings(alphabet_size=2, wordlist_url=url)
     builder = BuildLesson(
         layout_repo=FakeLayoutRepository(dict(BUNDLED_LAYOUTS)),
         aggregates_cache=cache,
-        settings_repo=FakeSettingsRepository(Settings(alphabet_size=2, wordlist_url=url)),
+        settings_repo=FakeSettingsRepository(settings),
         language_provider=FakeLanguageProvider(),
         wordlist_store=FakeWordListStore(by_url={url: cached}),
         rng=Random(0),
@@ -493,7 +495,11 @@ def test_lesson_wordlist_biases_weak_transition():
     lesson = builder("qwerty")
     pair = chr(a) + chr(s)
     assert lesson.focus_reason == FocusReason(kind=FocusKind.TRANSITION_WEAK, pair=Bigram(a, s))
-    assert set(lesson.text.split()) <= set(cached)
+    words = lesson.text.split()
+    quota = weak_focus_word_quota(settings.lesson_word_count, settings.focus_word_min_fraction)
+    bigram_words = sum(1 for word in words if pair in word)
+    assert bigram_words >= quota
+    assert max(words.count(w) for w in set(words)) <= 2
 
     ssa_count = 0
     as_word_count = 0
@@ -504,7 +510,7 @@ def test_lesson_wordlist_biases_weak_transition():
                 ssa_count += 1
             elif pair in word:
                 as_word_count += 1
-    assert as_word_count + ssa_count == 50 * 12
+    assert as_word_count + ssa_count == 50 * Settings().lesson_word_count
     assert as_word_count > ssa_count * 2
 
 
@@ -573,9 +579,72 @@ def test_lesson_uses_cached_wordlist_when_configured():
         clock=FakeClock(),
     )
     lesson = builder("qwerty")
-    lesson_words = set(lesson.text.split())
-    assert lesson_words <= set(cached)
-    assert len(lesson_words) >= 1
+    words = lesson.text.split()
+    from_wordlist = [w for w in words if w in cached]
+    assert len(from_wordlist) >= settings.lesson_word_count // 2
+    assert max(words.count(w) for w in set(words)) <= 2
+
+
+def test_weak_key_focus_meets_word_quota_in_build_lesson():
+    """Weak key confidence wires min_focus_words=ceil(0.6 * word_count)."""
+    layout = BUNDLED_LAYOUTS["qwerty"]
+    order = keyboard_order(layout)
+    focus_cp = order[0]
+    now = 1_700_000_000.0
+    slow = 400_000_000.0
+    keys = {focus_cp: KeyStats(focus_cp, 10, slow, 0, now, attempt_count=10)}
+    cache = FakeAggregatesCache(
+        by_layout={"qwerty": LayoutAggregates(keys=keys, transitions={})},
+    )
+    builder = BuildLesson(
+        layout_repo=FakeLayoutRepository(dict(BUNDLED_LAYOUTS)),
+        aggregates_cache=cache,
+        settings_repo=FakeSettingsRepository(Settings(alphabet_size=1)),
+        language_provider=FakeLanguageProvider(),
+        wordlist_store=FakeWordListStore(),
+        rng=Random(0),
+        clock=FakeClock(),
+    )
+    settings = Settings()
+    quota = weak_focus_word_quota(settings.lesson_word_count, settings.focus_word_min_fraction)
+    focus_char = chr(focus_cp)
+    for seed in range(30):
+        builder.rng = Random(seed)
+        lesson = builder("qwerty")
+        assert lesson.focus_reason == FocusReason(kind=FocusKind.KEY_WEAK)
+        words = lesson.text.split()
+        focus_words = sum(
+            1 for w in words if word_matches_focus(w, focus_char=focus_char, focus_bigram=None)
+        )
+        assert focus_words >= quota, f"seed={seed}: {focus_words}/{len(words)} focus words"
+
+
+def test_build_lesson_survives_invalid_focus_word_min_fraction():
+    """Hand-edited settings.toml can set fraction outside (0, 1]; quota must clamp."""
+    layout = BUNDLED_LAYOUTS["qwerty"]
+    order = keyboard_order(layout)
+    focus_cp = order[0]
+    now = 1_700_000_000.0
+    slow = 400_000_000.0
+    keys = {focus_cp: KeyStats(focus_cp, 10, slow, 0, now, attempt_count=10)}
+    cache = FakeAggregatesCache(
+        by_layout={"qwerty": LayoutAggregates(keys=keys, transitions={})},
+    )
+    settings = Settings(alphabet_size=1, focus_word_min_fraction=1.5)
+    builder = BuildLesson(
+        layout_repo=FakeLayoutRepository(dict(BUNDLED_LAYOUTS)),
+        aggregates_cache=cache,
+        settings_repo=FakeSettingsRepository(settings),
+        language_provider=FakeLanguageProvider(),
+        wordlist_store=FakeWordListStore(),
+        rng=Random(0),
+        clock=FakeClock(),
+    )
+    for seed in range(10):
+        builder.rng = Random(seed)
+        lesson = builder("qwerty")
+        assert lesson.focus_reason == FocusReason(kind=FocusKind.KEY_WEAK)
+        assert len(lesson.text.split()) == settings.lesson_word_count
 
 
 def test_lesson_falls_back_to_markov_when_cache_missing():
