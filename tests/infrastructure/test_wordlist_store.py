@@ -92,6 +92,16 @@ def test_download_rejects_oversized(paths, monkeypatch):
         FileWordListStore(paths).download_and_cache(url)
 
 
+def test_download_rejects_non_http_scheme(paths, monkeypatch):
+    def _open(*args: object, **kwargs: object) -> object:
+        raise AssertionError("urlopen should not be called for a rejected scheme")
+
+    monkeypatch.setattr("keystrike.infrastructure.wordlist_store.urllib.request.urlopen", _open)
+
+    with pytest.raises(ValueError, match="unsupported URL scheme"):
+        FileWordListStore(paths).download_and_cache("file:///etc/passwd")
+
+
 def test_download_rejects_empty_usable_words(paths, monkeypatch):
     url = "https://example.com/bad.txt"
 

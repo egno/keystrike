@@ -5,12 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from keystrike.domain.models import SyncStatusReport
-from keystrike.domain.protocols import StatsRebuilder, SyncGateway
+from keystrike.domain.protocols import StatsRebuilder, SyncStore
 
 
 @dataclass(slots=True)
 class InitSync:
-    gateway: SyncGateway
+    gateway: SyncStore
 
     def __call__(self, remote_url: str) -> None:
         self.gateway.init(remote_url)
@@ -18,7 +18,7 @@ class InitSync:
 
 @dataclass(slots=True)
 class PullSync:
-    gateway: SyncGateway
+    gateway: SyncStore
     rebuild: StatsRebuilder
 
     def __call__(self) -> int:
@@ -27,7 +27,7 @@ class PullSync:
 
 @dataclass(slots=True)
 class PushSync:
-    gateway: SyncGateway
+    gateway: SyncStore
 
     def __call__(self) -> bool:
         return self.gateway.push()
@@ -35,7 +35,7 @@ class PushSync:
 
 @dataclass(slots=True)
 class GetSyncStatus:
-    gateway: SyncGateway
+    gateway: SyncStore
 
     def __call__(self) -> SyncStatusReport:
         return self.gateway.status()

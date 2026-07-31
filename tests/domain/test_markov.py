@@ -1,7 +1,7 @@
 from random import Random
 
-from keystrike.domain.markov import TransitionTable, transition_practice_weight
-from keystrike.domain.models import Layout
+from keystrike.domain.markov import TransitionTable, ergonomic_transition_boost
+from keystrike.domain.models import Bigram, Layout
 from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS
 
 
@@ -43,9 +43,7 @@ def test_sample_char_weights_bias_toward_weighted_char():
     rng = Random(1)
     # "b" would be a coin flip against "c" on raw weight alone; a large
     # char_weights bias should make it win consistently.
-    results = {
-        table.sample("", frozenset("bc"), rng, char_weights={"b": 100.0}) for _ in range(20)
-    }
+    results = {table.sample("", frozenset("bc"), rng, char_weights={"b": 100.0}) for _ in range(20)}
     assert results == {"b"}
 
 
@@ -55,25 +53,25 @@ def test_sample_char_weights_ignores_chars_outside_row():
     assert table.sample("a", frozenset("ab"), rng, char_weights={"z": 100.0}) == "b"
 
 
-def test_transition_practice_weight_prefers_different_hand():
+def test_ergonomic_transition_boost_prefers_different_hand():
     layout = BUNDLED_LAYOUTS["qwerty"]
-    assert transition_practice_weight(ord("a"), ord("j"), layout) == 1.5
-    assert transition_practice_weight(ord("j"), ord("a"), layout) == 1.5
+    assert ergonomic_transition_boost(ord("a"), ord("j"), layout) == 1.5
+    assert ergonomic_transition_boost(ord("j"), ord("a"), layout) == 1.5
 
 
-def test_transition_practice_weight_boosts_different_finger_same_hand():
+def test_ergonomic_transition_boost_boosts_different_finger_same_hand():
     layout = BUNDLED_LAYOUTS["qwerty"]
-    assert transition_practice_weight(ord("a"), ord("f"), layout) == 1.2
+    assert ergonomic_transition_boost(ord("a"), ord("f"), layout) == 1.2
 
 
-def test_transition_practice_weight_same_finger_is_baseline():
+def test_ergonomic_transition_boost_same_finger_is_baseline():
     layout = BUNDLED_LAYOUTS["qwerty"]
-    assert transition_practice_weight(ord("a"), ord("q"), layout) == 1.0
+    assert ergonomic_transition_boost(ord("a"), ord("q"), layout) == 1.0
 
 
-def test_transition_practice_weight_missing_key_is_baseline():
+def test_ergonomic_transition_boost_missing_key_is_baseline():
     layout = Layout(name="tiny", keys={}, learn_order=())
-    assert transition_practice_weight(ord("a"), ord("b"), layout) == 1.0
+    assert ergonomic_transition_boost(ord("a"), ord("b"), layout) == 1.0
 
 
 def test_sample_prefers_different_hand_with_equal_language_weights():
@@ -93,7 +91,12 @@ def test_sample_transition_weights_bias_weak_pair():
     rng = Random(0)
     counts = {"b": 0, "c": 0}
     for _ in range(200):
-        ch = table.sample("a", frozenset("abc"), rng, transition_weights={"ab": 100.0})
+        ch = table.sample(
+            "a",
+            frozenset("abc"),
+            rng,
+            transition_weights={Bigram(ord("a"), ord("b")): 100.0},
+        )
         assert ch is not None
         counts[ch] += 1
     assert counts["b"] > counts["c"]

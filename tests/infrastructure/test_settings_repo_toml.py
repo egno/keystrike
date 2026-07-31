@@ -1,9 +1,20 @@
+from random import Random
+
 import pytest
 
+from keystrike.application.build_lesson import BuildLesson
 from keystrike.domain.enums import TargetSpeedUnit
 from keystrike.domain.models import Settings
+from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS
 from keystrike.infrastructure.paths import Paths
-from keystrike.infrastructure.settings_repo_toml import TomlSettingsRepository
+from keystrike.infrastructure.settings_repo_toml import TomlSettingsRepository, _coerce_field
+from tests.fakes import (
+    FakeAggregatesCache,
+    FakeClock,
+    FakeLanguageProvider,
+    FakeLayoutRepository,
+    FakeWordListStore,
+)
 
 
 @pytest.fixture
@@ -22,6 +33,40 @@ def test_load_defaults_when_no_file(paths):
     assert s == Settings()
 
 
+def test_load_generated_word_bounds_from_hand_edited_toml(paths):
+    paths.settings_file.write_text(
+        "schema_version = 1\ngenerated_word_min_len = 2\ngenerated_word_max_len = 5\n",
+        encoding="utf-8",
+    )
+    loaded = TomlSettingsRepository(paths).load()
+    assert loaded.generated_word_min_len == 2
+    assert loaded.generated_word_max_len == 5
+
+
+def test_toml_generated_word_bounds_affect_markov_lesson_words(paths):
+    """Full path: settings.toml → repo.load() → BuildLesson → word lengths."""
+    paths.settings_file.write_text(
+        "schema_version = 1\n"
+        "generated_word_min_len = 2\n"
+        "generated_word_max_len = 4\n"
+        'wordlist_url = ""\n',
+        encoding="utf-8",
+    )
+    builder = BuildLesson(
+        layout_repo=FakeLayoutRepository(dict(BUNDLED_LAYOUTS)),
+        aggregates_cache=FakeAggregatesCache(),
+        settings_repo=TomlSettingsRepository(paths),
+        language_provider=FakeLanguageProvider(),
+        wordlist_store=FakeWordListStore(),
+        rng=Random(0),
+        clock=FakeClock(),
+    )
+    for seed in range(20):
+        builder.rng = Random(seed)
+        for word in builder("qwerty").text.split():
+            assert 2 <= len(word) <= 4, f"seed={seed}: {word!r}"
+
+
 def test_round_trip(paths):
     repo = TomlSettingsRepository(paths)
     original = Settings(
@@ -32,6 +77,16 @@ def test_round_trip(paths):
         confidence_session_window=8,
         min_confidence_attempts=12,
         min_transition_confidence_attempts=5,
+        focus_char_boost=2.5,
+        focus_word_boost=5.0,
+        focus_bigram_word_boost=6.0,
+        focus_transition_boost=3.5,
+        focus_weak_extra_boost=2.0,
+        lesson_word_count=15,
+        focus_word_min_fraction=0.75,
+        max_word_repeats=3,
+        generated_word_min_len=2,
+        generated_word_max_len=5,
     )
     repo.save(original)
     loaded = repo.load()
@@ -40,6 +95,16 @@ def test_round_trip(paths):
     assert loaded.confidence_session_window == 8
     assert loaded.min_confidence_attempts == 12
     assert loaded.min_transition_confidence_attempts == 5
+    assert loaded.focus_char_boost == 2.5
+    assert loaded.focus_word_boost == 5.0
+    assert loaded.focus_bigram_word_boost == 6.0
+    assert loaded.focus_transition_boost == 3.5
+    assert loaded.focus_weak_extra_boost == 2.0
+    assert loaded.lesson_word_count == 15
+    assert loaded.focus_word_min_fraction == 0.75
+    assert loaded.max_word_repeats == 3
+    assert loaded.generated_word_min_len == 2
+    assert loaded.generated_word_max_len == 5
     assert loaded.updated_at is not None
 
 
@@ -53,9 +118,7 @@ def test_save_uses_atomic_replace(paths):
 
 def test_ignores_unknown_keys_for_forward_compat(paths):
     paths.settings_file.write_text(
-        'schema_version = 1\n'
-        'layout = "qwerty"\n'
-        'unknown_future_key = 42\n',
+        'schema_version = 1\nlayout = "qwerty"\nunknown_future_key = 42\n',
         encoding="utf-8",
     )
     s = TomlSettingsRepository(paths).load()
@@ -64,7 +127,7 @@ def test_ignores_unknown_keys_for_forward_compat(paths):
 
 def test_ignores_removed_settings_keys(paths):
     paths.settings_file.write_text(
-        'schema_version = 1\n'
+        "schema_version = 1\n"
         'layout = "qwerty"\n'
         'freeform_path = "/tmp/old.txt"\n'
         'code_language = "python"\n',
@@ -72,3 +135,35 @@ def test_ignores_removed_settings_keys(paths):
     )
     s = TomlSettingsRepository(paths).load()
     assert s == Settings()
+
+
+def test_malformed_field_value_falls_back_to_default_instead_of_crashing(paths):
+    paths.settings_file.write_text(
+        'schema_version = 1\nlayout = "qwerty"\ntarget_speed_cpm = "fast"\n',
+        encoding="utf-8",
+    )
+    s = TomlSettingsRepository(paths).load()
+    assert s.layout == "qwerty"
+    assert s.target_speed_cpm == Settings().target_speed_cpm
+
+
+def test_malformed_enum_value_falls_back_to_default(paths):
+    paths.settings_file.write_text(
+        'schema_version = 1\ntarget_speed_unit = "not-a-unit"\n',
+        encoding="utf-8",
+    )
+    s = TomlSettingsRepository(paths).load()
+    assert s.target_speed_unit == Settings().target_speed_unit
+
+
+def test_coerce_field_rejects_non_bool_for_bool_default():
+    # bool("false") is True in Python — a quoted-string bool must not be
+    # silently coerced, or it would flip the setting instead of falling
+    # back to the default via load()'s except (ValueError, TypeError).
+    with pytest.raises(TypeError):
+        _coerce_field(True, "false")
+
+
+def test_coerce_field_accepts_real_bool():
+    assert _coerce_field(True, False) is False
+    assert _coerce_field(False, True) is True

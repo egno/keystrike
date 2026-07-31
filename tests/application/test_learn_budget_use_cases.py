@@ -41,7 +41,22 @@ def test_get_daily_learn_budget_includes_extra_ns_for_active_session():
     settings_repo = FakeSettingsRepository(Settings(learn_daily_minutes=10))
 
     budget = GetDailyLearnBudget(
-        clock=clock, repo=repo, settings_repo=settings_repo, tz=_TZ,
+        clock=clock,
+        repo=repo,
+        settings_repo=settings_repo,
+        tz=_TZ,
     )(extra_ns=2 * 60 * 1_000_000_000)
 
     assert budget.limit_reached
+
+
+def test_get_daily_learn_budget_falls_back_to_clocks_local_tzinfo():
+    clock = FakeClock(wall=dt.datetime(2026, 7, 28, 18, 0, tzinfo=_TZ).timestamp(), tz=_TZ)
+    repo = FakeSessionRepository(headers=[_adaptive_header(5 * 60 * 1_000_000_000)])
+    settings_repo = FakeSettingsRepository(Settings(learn_daily_minutes=10))
+
+    budget = GetDailyLearnBudget(clock=clock, repo=repo, settings_repo=settings_repo)()
+
+    assert budget.limited
+    assert budget.remaining_ns == 5 * 60 * 1_000_000_000
+    assert not budget.limit_reached

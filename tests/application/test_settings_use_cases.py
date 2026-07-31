@@ -2,13 +2,24 @@ import pytest
 
 from keystrike.application.settings_use_cases import (
     CycleLayout,
+    SettingsUpdate,
     SettingsValidationError,
     UpdateSettings,
 )
 from keystrike.domain.enums import TargetSpeedUnit
 from keystrike.domain.models import Settings
-from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS
+from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS, CompositeLayoutRepository
+from keystrike.infrastructure.paths import Paths
 from tests.fakes import FakeLayoutRepository, FakeSettingsRepository
+
+
+@pytest.fixture
+def paths(tmp_path):
+    return Paths(
+        config_dir=tmp_path / "config",
+        data_dir=tmp_path / "data",
+        log_dir=tmp_path / "log",
+    )
 
 
 def test_update_settings_persists_all_fields():
@@ -16,11 +27,13 @@ def test_update_settings_persists_all_fields():
     update = UpdateSettings(repo=repo)
 
     result = update(
-        layout="dvorak",
-        target_speed_cpm=400,
-        target_speed_unit=TargetSpeedUnit.WPM,
-        alphabet_size=20,
-        learn_daily_minutes=15,
+        SettingsUpdate(
+            layout="dvorak",
+            target_speed_cpm=400,
+            target_speed_unit=TargetSpeedUnit.WPM,
+            alphabet_size=20,
+            learn_daily_minutes=15,
+        ),
     )
 
     assert result.layout == "dvorak"
@@ -48,11 +61,13 @@ def test_update_settings_preserves_confidence_fields_from_repo():
     update = UpdateSettings(repo=repo)
 
     result = update(
-        layout="qwerty",
-        target_speed_cpm=300,
-        target_speed_unit=TargetSpeedUnit.CPM,
-        alphabet_size=16,
-        learn_daily_minutes=10,
+        SettingsUpdate(
+            layout="qwerty",
+            target_speed_cpm=300,
+            target_speed_unit=TargetSpeedUnit.CPM,
+            alphabet_size=16,
+            learn_daily_minutes=10,
+        ),
     )
 
     assert result.confidence_session_window == 8
@@ -66,11 +81,13 @@ def test_update_settings_rejects_non_positive_speed():
 
     with pytest.raises(SettingsValidationError):
         update(
-            layout="qwerty",
-            target_speed_cpm=0,
-            target_speed_unit=TargetSpeedUnit.CPM,
-            alphabet_size=16,
-            learn_daily_minutes=10,
+            SettingsUpdate(
+                layout="qwerty",
+                target_speed_cpm=0,
+                target_speed_unit=TargetSpeedUnit.CPM,
+                alphabet_size=16,
+                learn_daily_minutes=10,
+            ),
         )
 
     assert repo.settings == Settings()  # unchanged
@@ -82,11 +99,13 @@ def test_update_settings_rejects_negative_alphabet_size():
 
     with pytest.raises(SettingsValidationError):
         update(
-            layout="qwerty",
-            target_speed_cpm=300,
-            target_speed_unit=TargetSpeedUnit.CPM,
-            alphabet_size=-1,
-            learn_daily_minutes=10,
+            SettingsUpdate(
+                layout="qwerty",
+                target_speed_cpm=300,
+                target_speed_unit=TargetSpeedUnit.CPM,
+                alphabet_size=-1,
+                learn_daily_minutes=10,
+            ),
         )
 
     assert repo.settings == Settings()  # unchanged
@@ -98,11 +117,13 @@ def test_update_settings_rejects_negative_learn_daily_minutes():
 
     with pytest.raises(SettingsValidationError):
         update(
-            layout="qwerty",
-            target_speed_cpm=300,
-            target_speed_unit=TargetSpeedUnit.CPM,
-            alphabet_size=16,
-            learn_daily_minutes=-1,
+            SettingsUpdate(
+                layout="qwerty",
+                target_speed_cpm=300,
+                target_speed_unit=TargetSpeedUnit.CPM,
+                alphabet_size=16,
+                learn_daily_minutes=-1,
+            ),
         )
 
     assert repo.settings == Settings()
@@ -128,3 +149,20 @@ def test_cycle_layout_noop_with_fewer_than_two_layouts():
     result = cycle()
 
     assert result.layout == "qwerty"
+
+
+def test_cycle_layout_includes_custom_toml_layout(paths):
+    paths.layouts_dir.mkdir(parents=True)
+    (paths.layouts_dir / "myown.toml").write_text(
+        'name = "myown"\nlearn_order = "a"\n\n'
+        '[[keys]]\nchar = "a"\nrow = 1\ncol = 0\nfinger = "PINKY"\nhand = "L"\n',
+        encoding="utf-8",
+    )
+    layout_repo = CompositeLayoutRepository(paths)
+    repo = FakeSettingsRepository(Settings(layout="qwerty"))
+    cycle = CycleLayout(settings_repo=repo, layout_repo=layout_repo)
+
+    layouts_seen = {cycle().layout for _ in range(len(layout_repo.list_available()))}
+
+    assert "myown" in layouts_seen
+    assert layouts_seen == set(layout_repo.list_available())

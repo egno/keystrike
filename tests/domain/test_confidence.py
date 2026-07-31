@@ -1,19 +1,23 @@
 from keystrike.domain.confidence import (
     MIN_CONFIDENCE_ATTEMPTS,
     accuracy_of,
-    compute_unlocked,
     confidence_of,
-    focus_key_from_transition,
     key_attempts,
     key_confidence,
-    practice_weight,
     review_urgency,
-    select_focus,
-    select_focus_transition,
     target_ms_per_char,
+    transition_accuracy_of,
     transition_confidence_of,
 )
-from keystrike.domain.models import KeyStats, TransitionStats
+from keystrike.domain.focus import (
+    focus_key_from_transition,
+    has_weak_unlocked_key,
+    practice_weight,
+    select_focus,
+    select_focus_transition,
+)
+from keystrike.domain.models import Bigram, KeyStats, TransitionStats
+from keystrike.domain.unlock import compute_unlocked
 
 
 def test_target_ms_per_char():
@@ -67,6 +71,19 @@ def test_accuracy_of_never_correct_is_zero():
     assert accuracy_of(stats) == 0.0
 
 
+def test_transition_accuracy_of_uses_mean_when_samples_rounded_to_zero():
+    stats = TransitionStats(
+        ord("e"),
+        ord("o"),
+        0,
+        196_000_000.0,
+        0,
+        1.0,
+        attempt_count=1,
+    )
+    assert transition_accuracy_of(stats) == 1.0
+
+
 def test_confidence_of_scales_down_with_few_attempts():
     stats = {
         ord("a"): KeyStats(
@@ -93,7 +110,11 @@ def test_compute_unlocked_stalls_when_sparse_key_looks_fast():
     stats = {
         1: _stats(1, mean_time_ns=100_000_000.0),
         2: KeyStats(
-            2, samples=1, mean_time_ns=100_000_000.0, error_count=1, last_seen=0.0,
+            2,
+            samples=1,
+            mean_time_ns=100_000_000.0,
+            error_count=1,
+            last_seen=0.0,
             attempt_count=2,
         ),
     }
@@ -103,9 +124,14 @@ def test_compute_unlocked_stalls_when_sparse_key_looks_fast():
 
 def test_transition_confidence_scales_down_with_few_attempts():
     stats = {
-        "ab": TransitionStats(
-            ord("a"), ord("b"), samples=3, mean_time_ns=200_000_000.0,
-            error_count=0, last_seen=0.0, attempt_count=2,
+        Bigram(ord("a"), ord("b")): TransitionStats(
+            ord("a"),
+            ord("b"),
+            samples=3,
+            mean_time_ns=200_000_000.0,
+            error_count=0,
+            last_seen=0.0,
+            attempt_count=2,
         ),
     }
     # raw 1.0 x (2/4) = 0.5
@@ -114,9 +140,62 @@ def test_transition_confidence_scales_down_with_few_attempts():
 
 def test_transition_confidence_reaches_full_at_minimum_attempts():
     stats = {
-        "ab": _transition(ord("a"), ord("b"), 200_000_000.0, attempt_count=4),
+        Bigram(ord("a"), ord("b")): _transition(ord("a"), ord("b"), 200_000_000.0, attempt_count=4),
     }
     assert transition_confidence_of(ord("a"), ord("b"), stats, target=200.0) == 1.0
+
+
+def test_transition_confidence_infers_attempts_when_samples_zeroed_but_timed():
+    """Stale cache may zero samples while mean_time_ns remains measured."""
+    stats = {
+        Bigram(ord("e"), ord("o")): TransitionStats(
+            ord("e"),
+            ord("o"),
+            0,
+            196_000_000.0,
+            0,
+            1.0,
+            attempt_count=0,
+        ),
+    }
+    target = target_ms_per_char(300)
+    assert transition_confidence_of(ord("e"), ord("o"), stats, target) > 0.0
+
+
+def test_transition_confidence_infers_attempts_from_samples_when_count_zeroed():
+    """Stale cache may store attempt_count=0 while samples/mean remain measured."""
+    stats = {
+        Bigram(ord("e"), ord("o")): TransitionStats(
+            ord("e"),
+            ord("o"),
+            1,
+            196_000_000.0,
+            0,
+            1.0,
+            attempt_count=0,
+        ),
+    }
+    target = target_ms_per_char(300)
+    assert transition_confidence_of(ord("e"), ord("o"), stats, target) > 0.0
+
+
+def test_transition_confidence_infers_attempts_from_mean_when_all_counts_zeroed():
+    """Pre-fix cache wrote samples=0 and attempt_count=0 while mean_time_ns stayed."""
+    stats = {
+        Bigram(ord("e"), ord("o")): TransitionStats(
+            ord("e"),
+            ord("o"),
+            0,
+            196_000_000.0,
+            0,
+            1.0,
+            attempt_count=0,
+        ),
+    }
+    target = target_ms_per_char(300)
+    confidence = transition_confidence_of(ord("e"), ord("o"), stats, target)
+    assert confidence > 0.0
+    assert confidence < 1.0
 
 
 def test_confidence_of_penalizes_frequent_errors():
@@ -129,8 +208,9 @@ def test_compute_unlocked_stalls_on_high_error_rate_despite_fast_speed():
     learn_order = (1, 2, 3, 4)
     # speed 2.0, but only 50% accuracy -> min(2.0, 0.5) = 0.5 < threshold
     stats = {1: _stats(1, mean_time_ns=100_000_000.0, error_count=10)}
-    unlocked = compute_unlocked(learn_order, alphabet_size=1, stats=stats, target=200.0,
-                                 threshold=1.5)
+    unlocked = compute_unlocked(
+        learn_order, alphabet_size=1, stats=stats, target=200.0, threshold=1.5
+    )
     assert unlocked == (1,)
 
 
@@ -175,12 +255,105 @@ def test_compute_unlocked_stalls_when_threshold_not_met():
     assert unlocked == (1,)
 
 
+def test_compute_unlocked_ignores_weak_same_key_transition():
+    learn_order = tuple(ord(c) for c in "eabcdfghm")
+    stats = {cp: _stats(cp, mean_time_ns=100_000_000.0) for cp in learn_order[:8]}
+    transitions = {
+        Bigram(ord("e"), ord("e")): TransitionStats(
+            ord("e"),
+            ord("e"),
+            samples=10,
+            mean_time_ns=400_000_000.0,
+            error_count=0,
+            last_seen=0.0,
+            attempt_count=10,
+        ),
+    }
+    unlocked = compute_unlocked(
+        learn_order,
+        alphabet_size=8,
+        stats=stats,
+        target=200.0,
+        transitions=transitions,
+    )
+    assert unlocked == learn_order[:9]
+    assert unlocked[-1] == ord("m")
+
+
+def test_compute_unlocked_stalls_on_weak_cross_key_transition():
+    learn_order = tuple(ord(c) for c in "eabcdfghm")
+    stats = {cp: _stats(cp, mean_time_ns=100_000_000.0) for cp in learn_order[:8]}
+    transitions = {
+        Bigram(ord("e"), ord("a")): TransitionStats(
+            ord("e"),
+            ord("a"),
+            samples=10,
+            mean_time_ns=400_000_000.0,
+            error_count=0,
+            last_seen=0.0,
+            attempt_count=10,
+        ),
+    }
+    unlocked = compute_unlocked(
+        learn_order,
+        alphabet_size=8,
+        stats=stats,
+        target=200.0,
+        transitions=transitions,
+    )
+    assert unlocked == learn_order[:8]
+    assert ord("m") not in unlocked
+
+
+def test_compute_unlocked_advances_when_measured_transitions_meet_threshold():
+    learn_order = tuple(ord(c) for c in "eabcdfghm")
+    stats = {cp: _stats(cp, mean_time_ns=100_000_000.0) for cp in learn_order[:8]}
+    transitions = {
+        Bigram(ord("e"), ord("e")): _transition(
+            ord("e"),
+            ord("e"),
+            100_000_000.0,
+            attempt_count=10,
+        ),
+    }
+    unlocked = compute_unlocked(
+        learn_order,
+        alphabet_size=8,
+        stats=stats,
+        target=200.0,
+        transitions=transitions,
+    )
+    assert unlocked == learn_order[:9]
+    assert unlocked[-1] == ord("m")
+
+
 def test_select_focus_picks_weakest_unlocked_key():
     stats = {
         1: _stats(1, mean_time_ns=100_000_000.0),  # confidence 2.0
         2: _stats(2, mean_time_ns=400_000_000.0),  # confidence 0.5
     }
     assert select_focus((1, 2), stats, target=200.0, now=1000.0) == 2
+
+
+def test_has_weak_unlocked_key_true_when_any_below_threshold():
+    stats = {
+        1: _stats(1, mean_time_ns=200_000_000.0),
+        2: _stats(2, mean_time_ns=400_000_000.0),
+    }
+    assert has_weak_unlocked_key((1, 2), stats, target=200.0) is True
+
+
+def test_has_weak_unlocked_key_false_when_all_confident():
+    stats = {
+        1: _stats(1, mean_time_ns=200_000_000.0),
+        2: _stats(2, mean_time_ns=100_000_000.0),
+    }
+    assert has_weak_unlocked_key((1, 2), stats, target=200.0) is False
+
+
+def test_has_weak_unlocked_key_true_for_never_practiced():
+    stats = {1: _stats(1, mean_time_ns=200_000_000.0)}
+    assert has_weak_unlocked_key((1, 2), stats, target=200.0) is True
 
 
 def test_select_focus_prefers_never_practiced_key():
@@ -256,22 +429,124 @@ def _transition(
     )
 
 
+def test_select_focus_transition_ignores_same_key_pairs():
+    now = 1_700_000_000.0
+    unlocked = (ord("e"), ord("a"))
+    transitions = {
+        Bigram(ord("e"), ord("e")): _transition(
+            ord("e"),
+            ord("e"),
+            400_000_000.0,
+            last_seen=now,
+            attempt_count=10,
+        ),
+        Bigram(ord("a"), ord("a")): _transition(
+            ord("a"),
+            ord("a"),
+            400_000_000.0,
+            last_seen=now,
+            attempt_count=10,
+        ),
+    }
+    assert select_focus_transition(unlocked, transitions, 200.0, now) is None
+
+
+def test_select_focus_transition_never_picks_same_key_even_when_weakest():
+    now = 1_700_000_000.0
+    unlocked = (ord("a"), ord("b"))
+    fast = 100_000_000.0
+    transitions = {
+        Bigram(ord("a"), ord("a")): _transition(
+            ord("a"),
+            ord("a"),
+            400_000_000.0,
+            last_seen=now,
+            attempt_count=10,
+        ),
+        Bigram(ord("a"), ord("b")): _transition(
+            ord("a"),
+            ord("b"),
+            fast,
+            last_seen=now,
+            attempt_count=10,
+        ),
+        Bigram(ord("b"), ord("a")): _transition(
+            ord("b"),
+            ord("a"),
+            fast,
+            last_seen=now,
+            attempt_count=10,
+        ),
+        Bigram(ord("b"), ord("b")): _transition(
+            ord("b"),
+            ord("b"),
+            400_000_000.0,
+            last_seen=now,
+            attempt_count=10,
+        ),
+    }
+    result = select_focus_transition(unlocked, transitions, 200.0, now)
+    assert result is not None
+    assert result[0] != result[1]
+
+
 def test_select_focus_transition_picks_stale_over_slightly_weaker_recent():
     now = 1_000_000.0
     five_days = 5 * 86_400.0
     unlocked = (ord("a"), ord("b"))
     fast = 100_000_000.0
     transitions = {
-        "aa": _transition(ord("a"), ord("a"), fast, last_seen=now),
-        "ab": _transition(ord("a"), ord("b"), 210_000_000.0, last_seen=now - five_days),
-        "ba": _transition(ord("b"), ord("a"), 235_000_000.0, last_seen=now),
-        "bb": _transition(ord("b"), ord("b"), fast, last_seen=now),
+        Bigram(ord("a"), ord("a")): _transition(ord("a"), ord("a"), fast, last_seen=now),
+        Bigram(ord("a"), ord("b")): _transition(
+            ord("a"),
+            ord("b"),
+            210_000_000.0,
+            last_seen=now - five_days,
+        ),
+        Bigram(ord("b"), ord("a")): _transition(ord("b"), ord("a"), 235_000_000.0, last_seen=now),
+        Bigram(ord("b"), ord("b")): _transition(ord("b"), ord("b"), fast, last_seen=now),
     }
     assert select_focus_transition(unlocked, transitions, 200.0, now) == (ord("a"), ord("b"))
 
 
 def test_select_focus_transition_returns_none_without_data():
     assert select_focus_transition((1, 2), {}, target=200.0, now=1000.0) is None
+
+
+def test_select_focus_transition_ignores_unmeasured_pairs():
+    unlocked = (ord("a"), ord("b"), ord("c"))
+    now = 1_700_000_000.0
+    fast = 100_000_000.0
+    transitions = {
+        Bigram(ord("a"), ord("b")): _transition(
+            ord("a"),
+            ord("b"),
+            400_000_000.0,
+            last_seen=now,
+            attempt_count=10,
+        ),
+        Bigram(ord("b"), ord("c")): _transition(
+            ord("b"),
+            ord("c"),
+            fast,
+            last_seen=now,
+            attempt_count=10,
+        ),
+    }
+    assert select_focus_transition(unlocked, transitions, 200.0, now) == (ord("a"), ord("b"))
+
+
+def test_select_focus_transition_returns_none_when_no_measured_unlocked_pairs():
+    unlocked = (ord("a"), ord("b"))
+    transitions = {
+        Bigram(ord("y"), ord("z")): _transition(
+            ord("y"),
+            ord("z"),
+            100_000_000.0,
+            last_seen=1_700_000_000.0,
+        ),
+    }
+    assert select_focus_transition(unlocked, transitions, 200.0, now=1_700_000_000.0) is None
 
 
 def test_focus_key_from_transition_uses_next_endpoint():

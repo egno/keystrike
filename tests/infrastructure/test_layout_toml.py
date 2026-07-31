@@ -43,8 +43,11 @@ def test_rejects_bad_fixtures(fixture: str):
 
 def test_missing_name_field(tmp_path: Path):
     file = tmp_path / "no_name.toml"
-    file.write_text('learn_order = "a"\n\n[[keys]]\nchar = "a"\nrow = 1\ncol = 0\n'
-                     'finger = "PINKY"\nhand = "L"\n', encoding="utf-8")
+    file.write_text(
+        'learn_order = "a"\n\n[[keys]]\nchar = "a"\nrow = 1\ncol = 0\n'
+        'finger = "PINKY"\nhand = "L"\n',
+        encoding="utf-8",
+    )
     with pytest.raises(LayoutTomlError, match="name"):
         load_layout_toml(file)
 
@@ -54,3 +57,91 @@ def test_missing_keys_field(tmp_path: Path):
     file.write_text('name = "x"\nlearn_order = "a"\n', encoding="utf-8")
     with pytest.raises(LayoutTomlError, match="keys"):
         load_layout_toml(file)
+
+
+def _write_layout(tmp_path: Path, content: str) -> Path:
+    file = tmp_path / "layout.toml"
+    file.write_text(content, encoding="utf-8")
+    return file
+
+
+_MINIMAL = (
+    'name = "x"\n'
+    'learn_order = "a"\n\n'
+    "[[keys]]\n"
+    'char = "a"\n'
+    "row = 1\n"
+    "col = 0\n"
+    'finger = "PINKY"\n'
+    'hand = "L"\n'
+)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "match"),
+    [
+        ("hand", '"X"', "hand"),
+        ("char", '"ab"', "char"),
+        ("row", '"1"', "row"),
+        ("shifted", '"yes"', "shifted"),
+    ],
+)
+def test_rejects_invalid_key_fields(
+    tmp_path: Path,
+    field: str,
+    value: str,
+    match: str,
+):
+    content = _MINIMAL
+    if field == "shifted":
+        content = content + f"shifted = {value}\n"
+    else:
+        lines = _MINIMAL.splitlines()
+        content = (
+            "\n".join(
+                f"{field} = {value}" if line.startswith(f"{field} = ") else line for line in lines
+            )
+            + "\n"
+        )
+    with pytest.raises(LayoutTomlError, match=match):
+        load_layout_toml(_write_layout(tmp_path, content))
+
+
+def test_rejects_non_table_keys_entry(tmp_path: Path):
+    content = 'name = "x"\nlearn_order = "a"\nkeys = [1]\n'
+    with pytest.raises(LayoutTomlError, match=r"keys\[0\] must be a table"):
+        load_layout_toml(_write_layout(tmp_path, content))
+
+
+def test_rejects_empty_learn_order(tmp_path: Path):
+    content = _MINIMAL.replace('learn_order = "a"\n', 'learn_order = ""\n')
+    with pytest.raises(LayoutTomlError, match="learn_order"):
+        load_layout_toml(_write_layout(tmp_path, content))
+
+
+def test_duplicate_keys_last_entry_wins(tmp_path: Path):
+    content = (
+        'name = "x"\n'
+        'learn_order = "a"\n\n'
+        "[[keys]]\n"
+        'char = "a"\n'
+        "row = 1\n"
+        "col = 0\n"
+        'finger = "PINKY"\n'
+        'hand = "L"\n\n'
+        "[[keys]]\n"
+        'char = "a"\n'
+        "row = 9\n"
+        "col = 9\n"
+        'finger = "THUMB"\n'
+        'hand = "R"\n'
+    )
+    layout = load_layout_toml(_write_layout(tmp_path, content))
+    assert layout.keys[ord("a")].row == 9
+    assert layout.keys[ord("a")].finger is Finger.THUMB
+
+
+def test_loads_shifted_true(tmp_path: Path):
+    content = _MINIMAL.replace('hand = "L"\n', 'hand = "L"\nshifted = true\n')
+    layout = load_layout_toml(_write_layout(tmp_path, content))
+    assert layout.keys[ord("a")].shifted is True

@@ -7,18 +7,12 @@ from textual.screen import Screen
 from textual.widgets import Footer, Input, Label, Select, Static
 from textual.widgets.select import NoSelection
 
-from keystrike.application.settings_use_cases import SettingsValidationError, UpdateSettings
-from keystrike.application.wordlist_use_cases import (
-    DEFAULT_WORDLIST_URL,
-    ClearWordList,
-    GetWordListCacheStatus,
-    ImportWordList,
-    WordListError,
-)
+from keystrike.application.settings_use_cases import SettingsUpdate, SettingsValidationError
+from keystrike.application.wordlist_use_cases import DEFAULT_WORDLIST_URL, WordListError
 from keystrike.domain.enums import TargetSpeedUnit
-from keystrike.domain.generator import cpm_from_wpm, wpm_from_cpm
-from keystrike.domain.protocols import LayoutRepository, SettingsRepository
+from keystrike.domain.generator import cpm_from_wpm, effective_generated_word_bounds, wpm_from_cpm
 from keystrike.presentation.bindings import BACK_BINDINGS, SAVE
+from keystrike.presentation.services import SettingsServices
 
 
 class SettingsScreen(Screen[None]):
@@ -40,27 +34,17 @@ class SettingsScreen(Screen[None]):
         *BACK_BINDINGS,
     ]
 
-    def __init__(
-        self,
-        *,
-        settings_repo: SettingsRepository,
-        layout_repo: LayoutRepository,
-        update_settings: UpdateSettings,
-        import_wordlist: ImportWordList,
-        clear_wordlist: ClearWordList,
-        get_wordlist_cache_status: GetWordListCacheStatus,
-    ) -> None:
+    def __init__(self, *, services: SettingsServices) -> None:
         super().__init__()
-        self._settings_repo = settings_repo
-        self._layout_repo = layout_repo
-        self._update_settings = update_settings
-        self._import_wordlist = import_wordlist
-        self._clear_wordlist = clear_wordlist
-        self._get_wordlist_cache_status = get_wordlist_cache_status
+        self._services = services
 
     def compose(self) -> ComposeResult:
-        settings = self._settings_repo.load()
-        layouts = [(name, name) for name in self._layout_repo.list_available()]
+        settings = self._services.settings_repo.load()
+        layouts = self._layout_select_options()
+        gen_min, gen_max = effective_generated_word_bounds(
+            settings.generated_word_min_len,
+            settings.generated_word_max_len,
+        )
         with Vertical():
             yield Static("[bold]Settings[/]  [dim](Ctrl+S save, Esc/q back)[/]")
             yield Label("Layout")
@@ -68,7 +52,11 @@ class SettingsScreen(Screen[None]):
             yield Label("Target speed")
             yield Input(
                 value=str(
-                    wpm_from_cpm(settings.target_speed_cpm)
+                    wpm_from_cpm(
+                        settings.target_speed_cpm,
+                        generated_min_len=gen_min,
+                        generated_max_len=gen_max,
+                    )
                     if settings.target_speed_unit == TargetSpeedUnit.WPM
                     else settings.target_speed_cpm
                 ),
@@ -112,11 +100,13 @@ class SettingsScreen(Screen[None]):
         yield Footer()
 
     def on_mount(self) -> None:
+        self._refresh_layout_select()
         self._refresh_wordlist_status()
 
     def on_screen_resume(self) -> None:
-        settings = self._settings_repo.load()
+        settings = self._services.settings_repo.load()
         self.query_one("#settings-alphabet-size", Input).value = str(settings.alphabet_size)
+        self._refresh_layout_select()
 
     def action_import_wordlist(self) -> None:
         self._do_import()
@@ -124,13 +114,12 @@ class SettingsScreen(Screen[None]):
     def action_clear_wordlist(self) -> None:
         self._do_clear()
 
-    def action_save(self) -> None:
-        speed_raw = self.query_one("#settings-speed", Input).value
-        try:
-            target_speed_value = int(speed_raw)
-        except ValueError:
-            self._show_error("Target speed must be an integer.")
-            return
+    def _collect_form_values(self) -> SettingsUpdate | None:
+        target_speed_value = self._required_int(
+            "#settings-speed", "Target speed must be an integer."
+        )
+        if target_speed_value is None:
+            return None
 
         speed_unit_select = cast(
             "Select[TargetSpeedUnit]",
@@ -138,41 +127,55 @@ class SettingsScreen(Screen[None]):
         )
         target_speed_unit = speed_unit_select.value
         if isinstance(target_speed_unit, NoSelection):
-            return
+            return None
+        settings = self._services.settings_repo.load()
+        gen_min, gen_max = effective_generated_word_bounds(
+            settings.generated_word_min_len,
+            settings.generated_word_max_len,
+        )
         target_speed_cpm = (
-            cpm_from_wpm(target_speed_value)
+            cpm_from_wpm(
+                target_speed_value,
+                generated_min_len=gen_min,
+                generated_max_len=gen_max,
+            )
             if target_speed_unit == TargetSpeedUnit.WPM
             else target_speed_value
         )
 
-        alphabet_size_raw = self.query_one("#settings-alphabet-size", Input).value
-        try:
-            alphabet_size = int(alphabet_size_raw)
-        except ValueError:
-            self._show_error("Number of letters must be an integer.")
-            return
+        alphabet_size = self._required_int(
+            "#settings-alphabet-size", "Number of letters must be an integer."
+        )
+        if alphabet_size is None:
+            return None
 
-        learn_daily_minutes_raw = self.query_one("#settings-learn-daily-minutes", Input).value
-        try:
-            learn_daily_minutes = int(learn_daily_minutes_raw)
-        except ValueError:
-            self._show_error("Daily learn minutes must be an integer.")
-            return
+        learn_daily_minutes = self._required_int(
+            "#settings-learn-daily-minutes", "Daily learn minutes must be an integer."
+        )
+        if learn_daily_minutes is None:
+            return None
 
         layout_select = cast("Select[str]", self.query_one("#settings-layout", Select))
         layout = layout_select.value
         if isinstance(layout, NoSelection):
             # Unreachable with allow_blank=False + an initial value, but keeps typing sound.
+            return None
+
+        return SettingsUpdate(
+            layout=layout,
+            target_speed_cpm=target_speed_cpm,
+            target_speed_unit=target_speed_unit,
+            alphabet_size=alphabet_size,
+            learn_daily_minutes=learn_daily_minutes,
+        )
+
+    def action_save(self) -> None:
+        values = self._collect_form_values()
+        if values is None:
             return
 
         try:
-            self._update_settings(
-                layout=layout,
-                target_speed_cpm=target_speed_cpm,
-                target_speed_unit=target_speed_unit,
-                alphabet_size=alphabet_size,
-                learn_daily_minutes=learn_daily_minutes,
-            )
+            self._services.update_settings(values)
         except SettingsValidationError as exc:
             self._show_error(str(exc))
             return
@@ -187,7 +190,7 @@ class SettingsScreen(Screen[None]):
         return persisted_url or DEFAULT_WORDLIST_URL
 
     def _do_clear(self) -> None:
-        self._clear_wordlist()
+        self._services.clear_wordlist()
         self.query_one("#settings-error", Static).update("")
         self.query_one("#settings-wordlist-url", Input).value = DEFAULT_WORDLIST_URL
         self._refresh_wordlist_status()
@@ -195,13 +198,13 @@ class SettingsScreen(Screen[None]):
     def _do_import(self) -> None:
         url = self.query_one("#settings-wordlist-url", Input).value
         try:
-            count = self._import_wordlist(url)
+            count = self._services.import_wordlist(url)
         except WordListError as exc:
             self._show_error(str(exc))
             return
         self.query_one("#settings-error", Static).update("")
         self._refresh_wordlist_status(f"Imported {count} words.")
-        persisted = self._settings_repo.load().wordlist_url
+        persisted = self._services.settings_repo.load().wordlist_url
         self.query_one("#settings-wordlist-url", Input).value = self._display_wordlist_url(
             persisted,
         )
@@ -210,15 +213,38 @@ class SettingsScreen(Screen[None]):
         persisted = persisted_url.strip()
         if not persisted:
             return "[dim]Markov words.[/]"
-        count = self._get_wordlist_cache_status(persisted)
+        count = self._services.get_wordlist_cache_status(persisted)
         if count is not None:
             return f"[dim]{count} words cached.[/]"
         return "[dim]Not cached.[/]"
 
     def _refresh_wordlist_status(self, message: str | None = None) -> None:
-        persisted = self._settings_repo.load().wordlist_url
+        persisted = self._services.settings_repo.load().wordlist_url
         text = message or self._wordlist_status(persisted)
         self.query_one("#settings-wordlist-status", Static).update(text)
 
+    def _layout_select_options(self) -> list[tuple[str, str]]:
+        return [(name, name) for name in self._services.layout_repo.list_available()]
+
+    def _refresh_layout_select(self) -> None:
+        layout_select = cast("Select[str]", self.query_one("#settings-layout", Select))
+        current = layout_select.value
+        layout_select.set_options(self._layout_select_options())
+        if not isinstance(current, NoSelection):
+            layout_select.value = current
+
     def _show_error(self, message: str) -> None:
         self.query_one("#settings-error", Static).update(f"[bold red]{message}[/]")
+
+    def _required_int(self, widget_id: str, error: str) -> int | None:
+        value = self._parse_int_field(self.query_one(widget_id, Input).value)
+        if value is None:
+            self._show_error(error)
+        return value
+
+    @staticmethod
+    def _parse_int_field(raw: str) -> int | None:
+        try:
+            return int(raw)
+        except ValueError:
+            return None

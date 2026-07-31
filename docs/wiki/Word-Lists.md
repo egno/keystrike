@@ -72,7 +72,7 @@ Typical paths (see [platformdirs](https://github.com/tox-dev/platformdirs)):
 | --- | --- | --- |
 | Linux | `~/.config/keystrike/` | `~/.local/share/keystrike/cache/` |
 | macOS | `~/Library/Application Support/keystrike/` | same tree |
-| Windows | `%APPDATA%\keystrike\` | `%LOCALAPPDATA%\keystrike\cache\` |
+| Windows | `%LOCALAPPDATA%\keystrike\` | `%LOCALAPPDATA%\keystrike\cache\` |
 
 ## Git sync caveat
 

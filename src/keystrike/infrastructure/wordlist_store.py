@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import urllib.error
+import urllib.parse
 import urllib.request
 
 from keystrike.domain.version import __version__
@@ -46,6 +47,9 @@ class FileWordListStore:
 
 
 def _download_text(url: str, max_bytes: int) -> str:
+    scheme = urllib.parse.urlparse(url).scheme
+    if scheme not in ("http", "https"):
+        raise ValueError(f"unsupported URL scheme {scheme!r}, expected http or https")
     req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:

@@ -34,11 +34,7 @@ def _imported_modules(path: Path) -> set[str]:
 
 
 def _layer_files(layer: str) -> list[Path]:
-    return [
-        path
-        for path in (_SRC / layer).rglob("*.py")
-        if path.name not in _EXEMPT_FILES
-    ]
+    return [path for path in (_SRC / layer).rglob("*.py") if path.name not in _EXEMPT_FILES]
 
 
 def test_layers_only_depend_on_allowed_keystrike_layers():

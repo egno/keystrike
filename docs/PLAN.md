@@ -229,7 +229,7 @@ all fixed before M3 began (95 tests passing at that point) — see
 
 `domain/markov.py` (`TransitionTable` with order-2 sampling + backoff to
 shorter contexts, filtered to the unlocked alphabet), `domain/generator.py`
-(`AdaptiveGenerator`: word length 3–10, `p_stop = min(1, 1.3**length/max_len)`,
+(`AdaptiveGenerator`: word length 2–4 by default, `p_stop = min(1, 1.3**length/max_len)`,
 focus letter guaranteed via injection if the Markov walk didn't produce it),
 `domain/confidence.py` (`confidence_of`, `compute_unlocked`, `select_focus` —
 faithful to §6 below), `application/build_lesson.py` (`BuildLesson` ties

@@ -3,7 +3,7 @@ from keystrike.application.stats_use_cases import (
     GetHeatmap,
     GetHistory,
     GetKeyMetricTrends,
-    GetLearningRate,
+    GetOrRebuildAggregates,
     RebuildAggregates,
 )
 from keystrike.domain.aggregate import session_recency_weights
@@ -13,8 +13,21 @@ from keystrike.domain.confidence import (
     SESSION_RECENCY_DECAY,
 )
 from keystrike.domain.enums import Mode
-from keystrike.domain.models import KeyStats, Keystroke, LayoutAggregates, SessionResult, Settings
-from tests.fakes import FakeAggregatesCache, FakeSessionRepository, FakeSettingsRepository
+from keystrike.domain.models import (
+    Bigram,
+    KeyStats,
+    Keystroke,
+    LayoutAggregates,
+    SessionResult,
+    Settings,
+    TransitionStats,
+)
+from tests.fakes import (
+    FakeAggregatesCache,
+    FakeClock,
+    FakeSessionRepository,
+    FakeSettingsRepository,
+)
 
 
 def _header(session_id: str, started_at: float, layout: str = "qwerty") -> SessionResult:
@@ -56,14 +69,158 @@ def test_rebuild_aggregates_uses_confidence_session_window():
     ]
 
     rebuild = RebuildAggregates(repo=repo, cache=cache, settings_repo=FakeSettingsRepository())
-    result = rebuild("qwerty")
+    assert rebuild("qwerty") is None
 
-    assert set(result) == {ord("a")}
-    assert result[ord("a")].samples == 2
     cached = cache.get("qwerty")
     assert cached is not None
-    assert cached.keys == result
+    assert set(cached.keys) == {ord("a")}
+    assert cached.keys[ord("a")].samples == 2
     assert cache.get("dvorak") is None
+
+
+def test_rebuild_aggregates_populates_transitions():
+    repo = FakeSessionRepository()
+    cache = FakeAggregatesCache()
+    repo.save_header(_header("s1", 1_700_000_000.0))
+    repo.keystrokes["s1"] = [
+        Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
+        Keystroke(codepoint=ord("b"), typed=ord("b"), t_ns=100_000_000, correct=True),
+    ]
+
+    RebuildAggregates(
+        repo=repo,
+        cache=cache,
+        settings_repo=FakeSettingsRepository(),
+    )("qwerty")
+
+    cached = cache.get("qwerty")
+    assert cached is not None
+    ab = cached.transitions.get(Bigram(ord("a"), ord("b")))
+    assert ab is not None
+    assert ab.samples == 1
+    assert ab.mean_time_ns == 100_000_000.0
+
+
+def test_rebuild_aggregates_excludes_same_key_transitions():
+    repo = FakeSessionRepository()
+    cache = FakeAggregatesCache()
+    repo.save_header(_header("s1", 1_700_000_000.0))
+    repo.keystrokes["s1"] = [
+        Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
+        Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=100_000_000, correct=True),
+        Keystroke(codepoint=ord("e"), typed=ord("e"), t_ns=200_000_000, correct=True),
+        Keystroke(codepoint=ord("e"), typed=ord("e"), t_ns=300_000_000, correct=True),
+        Keystroke(codepoint=ord("b"), typed=ord("b"), t_ns=400_000_000, correct=True),
+    ]
+
+    RebuildAggregates(
+        repo=repo,
+        cache=cache,
+        settings_repo=FakeSettingsRepository(),
+    )("qwerty")
+
+    cached = cache.get("qwerty")
+    assert cached is not None
+    assert Bigram(ord("a"), ord("a")) not in cached.transitions
+    assert Bigram(ord("e"), ord("e")) not in cached.transitions
+    assert cached.transitions.get(Bigram(ord("a"), ord("e"))) is not None
+    assert cached.transitions.get(Bigram(ord("e"), ord("b"))) is not None
+
+
+def test_ensure_skips_when_cache_has_transitions():
+    repo = FakeSessionRepository()
+    cache = FakeAggregatesCache(
+        by_layout={
+            "qwerty": LayoutAggregates(
+                keys={ord("a"): KeyStats(ord("a"), 1, 100_000_000.0, 0, 1.0, attempt_count=1)},
+                transitions={
+                    Bigram(ord("a"), ord("b")): TransitionStats(
+                        ord("a"),
+                        ord("b"),
+                        1,
+                        100_000_000.0,
+                        0,
+                        1.0,
+                        attempt_count=1,
+                    ),
+                },
+            ),
+        },
+    )
+    rebuild = RebuildAggregates(
+        repo=repo,
+        cache=cache,
+        settings_repo=FakeSettingsRepository(),
+    )
+    ensure = GetOrRebuildAggregates(repo=repo, cache=cache, rebuild=rebuild)
+
+    keys = ensure("qwerty")
+
+    cached = cache.get("qwerty")
+    assert cached is not None
+    assert keys == cached.keys
+    assert cached.transitions
+
+
+def test_ensure_rebuilds_when_transitions_missing_but_sessions_exist():
+    repo = FakeSessionRepository()
+    cache = FakeAggregatesCache(
+        by_layout={
+            "qwerty": LayoutAggregates(
+                keys={ord("a"): KeyStats(ord("a"), 1, 100_000_000.0, 0, 1.0, attempt_count=1)},
+                transitions={},
+                transitions_computed=False,
+            ),
+        },
+    )
+    repo.save_header(_header("s1", 1_700_000_000.0))
+    repo.keystrokes["s1"] = [
+        Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
+        Keystroke(codepoint=ord("b"), typed=ord("b"), t_ns=100_000_000, correct=True),
+    ]
+    rebuild = RebuildAggregates(
+        repo=repo,
+        cache=cache,
+        settings_repo=FakeSettingsRepository(),
+    )
+    ensure = GetOrRebuildAggregates(repo=repo, cache=cache, rebuild=rebuild)
+
+    ensure("qwerty")
+
+    cached = cache.get("qwerty")
+    assert cached is not None
+    assert cached.transitions.get(Bigram(ord("a"), ord("b"))) is not None
+
+
+def test_ensure_skips_rebuild_when_transitions_computed_empty():
+    repo = FakeSessionRepository()
+    cache = FakeAggregatesCache(
+        by_layout={
+            "qwerty": LayoutAggregates(
+                keys={ord("a"): KeyStats(ord("a"), 1, 100_000_000.0, 0, 1.0, attempt_count=1)},
+                transitions={},
+                transitions_computed=True,
+            ),
+        },
+    )
+    repo.save_header(_header("s1", 1_700_000_000.0))
+    repo.keystrokes["s1"] = [
+        Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
+        Keystroke(codepoint=ord("b"), typed=ord("b"), t_ns=100_000_000, correct=True),
+    ]
+    rebuild = RebuildAggregates(
+        repo=repo,
+        cache=cache,
+        settings_repo=FakeSettingsRepository(),
+    )
+    ensure = GetOrRebuildAggregates(repo=repo, cache=cache, rebuild=rebuild)
+
+    ensure("qwerty")
+    ensure("qwerty")
+
+    cached = cache.get("qwerty")
+    assert cached is not None
+    assert cached.transitions == {}
 
 
 def test_rebuild_aggregates_drops_sessions_outside_window():
@@ -87,9 +244,14 @@ def test_rebuild_aggregates_drops_sessions_outside_window():
         Keystroke(codepoint=ord("z"), typed=ord("z"), t_ns=300_000_000, correct=True),
     )
 
-    result = RebuildAggregates(
-        repo=repo, cache=cache, settings_repo=FakeSettingsRepository(),
+    RebuildAggregates(
+        repo=repo,
+        cache=cache,
+        settings_repo=FakeSettingsRepository(),
     )("qwerty")
+    cached = cache.get("qwerty")
+    assert cached is not None
+    result = cached.keys
 
     assert ord("a") in result
     assert ord("z") not in result
@@ -119,7 +281,10 @@ def test_rebuild_aggregates_respects_settings_window():
         Keystroke(codepoint=ord("z"), typed=ord("z"), t_ns=100_000_000, correct=True),
     )
 
-    result = RebuildAggregates(repo=repo, cache=cache, settings_repo=settings_repo)("qwerty")
+    RebuildAggregates(repo=repo, cache=cache, settings_repo=settings_repo)("qwerty")
+    cached = cache.get("qwerty")
+    assert cached is not None
+    result = cached.keys
 
     assert ord("z") not in result
     weights = session_recency_weights(window, decay=SESSION_RECENCY_DECAY)
@@ -129,18 +294,17 @@ def test_rebuild_aggregates_respects_settings_window():
 def test_get_heatmap_empty_cache_returns_empty_view():
     cache = FakeAggregatesCache()
     settings_repo = FakeSettingsRepository()
-    get_heatmap = GetHeatmap(cache=cache, settings_repo=settings_repo)
+    get_heatmap = GetHeatmap(cache=cache, settings_repo=settings_repo, clock=FakeClock())
     view = get_heatmap("qwerty")
     assert view.confidence == {}
     assert view.urgency == {}
 
 
-def test_get_heatmap_confidence_ratio(monkeypatch):
+def test_get_heatmap_confidence_ratio():
     cache = FakeAggregatesCache()
     settings_repo = FakeSettingsRepository(Settings(target_speed_cpm=300))
     repo = FakeSessionRepository()
     now = 1_700_000_000.0
-    monkeypatch.setattr("keystrike.application.stats_use_cases.time.time", lambda: now)
     header = _header("s1", now)
     repo.save_header(header)
     repo.keystrokes["s1"] = [
@@ -156,10 +320,12 @@ def test_get_heatmap_confidence_ratio(monkeypatch):
         ],
     ]
     RebuildAggregates(
-        repo=repo, cache=cache, settings_repo=FakeSettingsRepository(),
+        repo=repo,
+        cache=cache,
+        settings_repo=FakeSettingsRepository(),
     )("qwerty")
 
-    get_heatmap = GetHeatmap(cache=cache, settings_repo=settings_repo)
+    get_heatmap = GetHeatmap(cache=cache, settings_repo=settings_repo, clock=FakeClock(wall=now))
     view = get_heatmap("qwerty")
 
     # target_ms_per_char = 60000/300 = 200ms; mean_time = 200ms → confidence == 1.0
@@ -167,11 +333,10 @@ def test_get_heatmap_confidence_ratio(monkeypatch):
     assert view.urgency[ord("a")] == 0.0
 
 
-def test_get_heatmap_urgency_from_last_seen(monkeypatch):
+def test_get_heatmap_urgency_from_last_seen():
     cache = FakeAggregatesCache()
     settings_repo = FakeSettingsRepository(Settings(target_speed_cpm=300))
     now = 1_000_000.0
-    monkeypatch.setattr("keystrike.application.stats_use_cases.time.time", lambda: now)
     cache.put(
         "qwerty",
         LayoutAggregates(
@@ -187,55 +352,9 @@ def test_get_heatmap_urgency_from_last_seen(monkeypatch):
         ),
     )
 
-    view = GetHeatmap(cache=cache, settings_repo=settings_repo)("qwerty")
+    view = GetHeatmap(cache=cache, settings_repo=settings_repo, clock=FakeClock(wall=now))("qwerty")
 
     assert view.urgency[ord("a")] == 1.0
-
-
-def test_get_learning_rate_no_data_returns_none():
-    repo = FakeSessionRepository()
-    settings_repo = FakeSettingsRepository()
-    get_rate = GetLearningRate(repo=repo, settings_repo=settings_repo)
-    assert get_rate("qwerty", ord("a")) is None
-
-
-def test_get_learning_rate_reads_deltas_across_sessions_chronologically():
-    repo = FakeSessionRepository()
-    settings_repo = FakeSettingsRepository(Settings(target_speed_cpm=300))  # target 200ms
-
-    for i, delta_ms in enumerate([300, 250, 210]):
-        session_id = f"s{i}"
-        repo.save_header(_header(session_id, started_at=float(i)))
-        repo.keystrokes[session_id] = [
-            Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
-            Keystroke(
-                codepoint=ord("a"), typed=ord("a"), t_ns=delta_ms * 1_000_000, correct=True,
-            ),
-        ]
-
-    get_rate = GetLearningRate(repo=repo, settings_repo=settings_repo)
-    result = get_rate("qwerty", ord("a"))
-
-    assert result is not None
-    assert result > 0
-
-
-def test_get_learning_rate_already_at_target_returns_zero():
-    repo = FakeSessionRepository()
-    settings_repo = FakeSettingsRepository(Settings(target_speed_cpm=300))  # target 200ms
-
-    for i, delta_ms in enumerate([200, 190]):
-        session_id = f"s{i}"
-        repo.save_header(_header(session_id, started_at=float(i)))
-        repo.keystrokes[session_id] = [
-            Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
-            Keystroke(
-                codepoint=ord("a"), typed=ord("a"), t_ns=delta_ms * 1_000_000, correct=True,
-            ),
-        ]
-
-    get_rate = GetLearningRate(repo=repo, settings_repo=settings_repo)
-    assert get_rate("qwerty", ord("a")) == 0
 
 
 def test_get_history_sorted_newest_first_and_limited():
@@ -257,14 +376,20 @@ def test_get_key_metric_trends_tracks_speed_and_accuracy():
     repo.keystrokes["s1"] = [
         Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
         Keystroke(
-            codepoint=ord("a"), typed=ord("a"), t_ns=400_000_000, correct=True,
+            codepoint=ord("a"),
+            typed=ord("a"),
+            t_ns=400_000_000,
+            correct=True,
         ),
     ]
     repo.save_header(_header("s2", 2.0))
     repo.keystrokes["s2"] = [
         Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
         Keystroke(
-            codepoint=ord("a"), typed=ord("a"), t_ns=200_000_000, correct=True,
+            codepoint=ord("a"),
+            typed=ord("a"),
+            t_ns=200_000_000,
+            correct=True,
         ),
     ]
 
@@ -315,7 +440,10 @@ def test_get_key_metric_trends_normalizes_speed_to_current_goal():
     repo.keystrokes["s1"] = [
         Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
         Keystroke(
-            codepoint=ord("a"), typed=ord("a"), t_ns=200_000_000, correct=True,
+            codepoint=ord("a"),
+            typed=ord("a"),
+            t_ns=200_000_000,
+            correct=True,
         ),
     ]
 
@@ -338,7 +466,10 @@ def test_get_key_metric_trends_limits_to_confidence_session_window():
         repo.keystrokes[session_id] = [
             Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
             Keystroke(
-                codepoint=ord("a"), typed=ord("a"), t_ns=200_000_000, correct=True,
+                codepoint=ord("a"),
+                typed=ord("a"),
+                t_ns=200_000_000,
+                correct=True,
             ),
         ]
 
@@ -357,11 +488,17 @@ def test_get_aggregate_metric_trends_aggregates_all_keys():
     repo.keystrokes["s1"] = [
         Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
         Keystroke(
-            codepoint=ord("a"), typed=ord("a"), t_ns=400_000_000, correct=True,
+            codepoint=ord("a"),
+            typed=ord("a"),
+            t_ns=400_000_000,
+            correct=True,
         ),
         Keystroke(codepoint=ord("b"), typed=ord("b"), t_ns=500_000_000, correct=True),
         Keystroke(
-            codepoint=ord("b"), typed=ord("x"), t_ns=600_000_000, correct=False,
+            codepoint=ord("b"),
+            typed=ord("x"),
+            t_ns=600_000_000,
+            correct=False,
         ),
     ]
 

@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -50,7 +51,25 @@ def default_paths() -> Paths:
     )
 
 
+def sanitize_layout_name(name: str) -> str:
+    """Sanitize layout name to prevent path traversal attacks.
+
+    Uses an allowlist approach: only letters (a-z, A-Z), digits (0-9),
+    underscores, and hyphens are allowed. Other characters are replaced
+    with underscores. This prevents path injection attacks using
+    filesystem-specific escape characters (e.g., NTFS alternate data
+    streams via ':', escaped characters, etc.).
+    """
+    return re.sub(r"[^A-Za-z0-9_-]", "_", name)
+
+
 def ensure_dirs(paths: Paths) -> None:
-    for p in (paths.config_dir, paths.data_dir, paths.log_dir,
-              paths.layouts_dir, paths.sessions_dir, paths.cache_dir):
+    for p in (
+        paths.config_dir,
+        paths.data_dir,
+        paths.log_dir,
+        paths.layouts_dir,
+        paths.sessions_dir,
+        paths.cache_dir,
+    ):
         p.mkdir(parents=True, exist_ok=True)

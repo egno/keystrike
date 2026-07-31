@@ -3,7 +3,9 @@ from textual.app import App
 from textual.widgets import Static
 
 from keystrike.domain.daily_learn import compute_daily_learn_budget
-from keystrike.domain.enums import Mode
+from keystrike.domain.enums import FocusKind, Mode
+from keystrike.domain.focus import FocusReason
+from keystrike.domain.models import Bigram
 from keystrike.domain.session import (
     LEARN_IDLE_PAUSE_NS,
     Session,
@@ -64,10 +66,30 @@ def test_hud_omits_daily_goal_when_limit_disabled():
     assert "Learn:" not in text
 
 
+def test_hud_shows_transition_pair_in_focus_label():
+    session = _session()
+    session.focus_key = ord("o")
+    reason = FocusReason(kind=FocusKind.TRANSITION_WEAK, pair=Bigram(ord("e"), ord("o")))
+    text = _format_hud(session, _UNLIMITED, focus_reason=reason)
+    assert "Focus:" in text
+    assert "[bold]eo[/]" in text
+    assert "[bold]o[/]" not in text
+    assert "eo weak transition" in text
+
+
 def test_hud_shows_focus_reason_when_given():
-    text = _format_hud(_session(), _UNLIMITED, focus_reason="review")
+    reason = FocusReason(kind=FocusKind.KEY_REVIEW)
+    text = _format_hud(_session(), _UNLIMITED, focus_reason=reason)
     assert "Focus:" in text
     assert "review" in text
+
+
+def test_hud_shows_single_key_focus_for_non_transition():
+    session = _session()
+    session.focus_key = ord("a")
+    reason = FocusReason(kind=FocusKind.KEY_WEAK)
+    text = _format_hud(session, _UNLIMITED, focus_reason=reason)
+    assert "[bold]a[/]" in text
 
 
 def test_hud_omits_focus_when_reason_missing():
@@ -120,7 +142,7 @@ def test_hud_distinct_labels_for_daily_budget_and_focus():
     text = _format_hud(
         session,
         budget,
-        focus_reason="weak",
+        focus_reason=FocusReason(kind=FocusKind.KEY_WEAK),
     )
     assert "Learn:" in text
     assert "9.0" in text

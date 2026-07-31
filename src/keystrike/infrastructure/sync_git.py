@@ -1,16 +1,21 @@
-"""Git CLI adapter and merge orchestration for opt-in backup sync."""
+"""Git-backed sync orchestration for opt-in backup sync.
+
+Composes `GitClient` (raw git subprocess plumbing, in `git_client.py`) with
+the merge-execution I/O helpers (in `sync_merge_io.py`) to drive init/pull/push.
+"""
 
 from __future__ import annotations
 
 import shutil
-import subprocess
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
 from keystrike.domain.models import SyncStatusReport
 from keystrike.domain.protocols import StatsRebuilder
-from keystrike.domain.sync_merge import (
+from keystrike.infrastructure.git_client import GitClient, GitRunner, GitSyncError
+from keystrike.infrastructure.paths import Paths
+from keystrike.infrastructure.sync_merge_io import (
     copy_file_if_exists,
     copy_layouts_missing,
     copy_layouts_to_remote,
@@ -19,11 +24,39 @@ from keystrike.domain.sync_merge import (
     read_index_session_ids,
     resolve_settings_lww,
 )
-from keystrike.infrastructure.paths import Paths
+from keystrike.infrastructure.toml_escape import escape_toml_string
 
 from .atomic_write import atomic_write_text
 
+__all__ = [
+    "GitClient",
+    "GitSyncError",
+    "GitSyncGateway",
+    "SyncConfig",
+    "copy_file_if_exists",
+    "copy_layouts_missing",
+    "copy_layouts_to_remote",
+    "import_missing_sessions",
+    "iter_layouts_from_index",
+    "read_index_session_ids",
+    "resolve_settings_lww",
+]
+
 _SYNC_REL_PATHS = ("settings.toml", "layouts", "sessions")
+
+# Substrings of `git clone` stderr that indicate the remote simply doesn't
+# have any content yet (fresh bare repo, not-yet-created path) rather than a
+# real failure — safe to fall back to `git init` + `git remote add` for.
+_CLONE_MISSING_REMOTE_MARKERS = (
+    "does not exist",
+    "repository not found",
+    "not appear to be a git repository",
+)
+
+
+def _is_missing_remote_error(stderr: str) -> bool:
+    lowered = stderr.lower()
+    return any(marker in lowered for marker in _CLONE_MISSING_REMOTE_MARKERS)
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,10 +65,11 @@ class SyncConfig:
 
 
 class GitSyncGateway:
-    def __init__(self, paths: Paths) -> None:
+    def __init__(self, paths: Paths, *, client: GitRunner | None = None) -> None:
         self._paths = paths
         self._config_path = paths.sync_config_file
         self._clone_dir = paths.sync_clone_dir
+        self._client = client or GitClient()
 
     @property
     def clone_settings(self) -> Path:
@@ -98,15 +132,12 @@ class GitSyncGateway:
             only_clone=len(clone_ids - local_ids),
         )
 
-    def push_remote(self, message: str = "keystrike sync") -> bool:
-        return self._push_remote(message)
-
     def _load_config(self) -> SyncConfig:
         raw = tomllib.loads(self._config_path.read_text(encoding="utf-8"))
         return SyncConfig(remote_url=str(raw["remote_url"]))
 
     def _save_config(self, config: SyncConfig) -> None:
-        escaped = config.remote_url.replace("\\", "\\\\").replace('"', '\\"')
+        escaped = escape_toml_string(config.remote_url)
         atomic_write_text(self._config_path, f'remote_url = "{escaped}"\n')
 
     def _clone(self, url: str) -> None:
@@ -114,27 +145,29 @@ class GitSyncGateway:
         if self._clone_dir.exists():
             shutil.rmtree(self._clone_dir)
         try:
-            _git("clone", url, str(self._clone_dir))
-        except subprocess.CalledProcessError:
-            self._clone_dir.mkdir(parents=True)
-            _git("init", cwd=self._clone_dir)
-            _git("remote", "add", "origin", url, cwd=self._clone_dir)
+            self._client.clone(url, self._clone_dir)
+        except GitSyncError as exc:
+            if not _is_missing_remote_error(exc.stderr):
+                raise
+            self._clone_dir.mkdir(parents=True, exist_ok=True)
+            self._client.init(self._clone_dir)
+            self._client.add_remote(self._clone_dir, url)
 
     def _pull_remote(self) -> None:
-        _git("pull", "--ff-only", cwd=self._clone_dir)
+        self._client.pull_ff_only(self._clone_dir)
 
     def _push_remote(self, message: str = "keystrike sync") -> bool:
-        _git("add", *_SYNC_REL_PATHS, cwd=self._clone_dir)
-        if not _git("status", "--porcelain", cwd=self._clone_dir).strip():
+        self._client.add(self._clone_dir, *_SYNC_REL_PATHS)
+        if not self._client.status_porcelain(self._clone_dir).strip():
             return False
-        _git("commit", "-m", message, cwd=self._clone_dir)
-        _git("push", cwd=self._clone_dir)
+        self._client.commit(self._clone_dir, message)
+        self._client.push(self._clone_dir)
         return True
 
     def _status_text(self) -> str:
         if not self._clone_dir.exists():
             return "clone missing"
-        return _git("status", "--short", cwd=self._clone_dir)
+        return self._client.status_short(self._clone_dir)
 
     def _require_configured(self) -> None:
         if not self.is_configured():
@@ -184,14 +217,3 @@ class GitSyncGateway:
         layouts = iter_layouts_from_index(self._paths.sessions_index)
         for layout in sorted(layouts):
             rebuild(layout)
-
-
-def _git(*args: str, cwd: Path | None = None) -> str:
-    result = subprocess.run(
-        ["git", *args],
-        cwd=cwd,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    return result.stdout

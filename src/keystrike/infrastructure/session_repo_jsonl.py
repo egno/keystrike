@@ -5,14 +5,15 @@ from __future__ import annotations
 
 import datetime as dt
 import json
-from collections.abc import Iterator
-from dataclasses import asdict
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 from typing import cast
 
-from keystrike.domain.enums import Mode
+from keystrike.domain.enums import Mode, migrate_legacy_mode
 from keystrike.domain.models import Keystroke, SessionResult
+from keystrike.domain.sync_merge import validate_session_id
 
+from .json_coerce import coerce_float, coerce_int, require_float, require_int, require_str
 from .paths import Paths
 
 
@@ -29,20 +30,32 @@ class JsonlSessionRepository:
         self._paths = paths
         # In-memory index maps session_id → header so load_keystrokes can locate
         # the file without re-reading index.jsonl. Populated by save_header and
-        # (lazily) by iter_headers.
+        # by _ensure_index (called explicitly, not as an incidental read side effect).
         self._session_index: dict[str, SessionResult] = {}
+        self._indexed = False
 
     def append_keystroke(self, session_id: str, started_at: float, k: Keystroke) -> None:
+        self.append_keystrokes(session_id, started_at, (k,))
+
+    def append_keystrokes(
+        self, session_id: str, started_at: float, keystrokes: Iterable[Keystroke]
+    ) -> None:
+        validate_session_id(session_id)  # Reject path-traversal attempts
         file = self._paths.sessions_dir / _month_dir(started_at) / f"{session_id}.jsonl"
         file.parent.mkdir(parents=True, exist_ok=True)
         with file.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps({
-                "codepoint": k.codepoint,
-                "typed": k.typed,
-                "t_ns": k.t_ns,
-                "correct": k.correct,
-            }))
-            fh.write("\n")
+            for k in keystrokes:
+                fh.write(
+                    json.dumps(
+                        {
+                            "codepoint": k.codepoint,
+                            "typed": k.typed,
+                            "t_ns": k.t_ns,
+                            "correct": k.correct,
+                        }
+                    )
+                )
+                fh.write("\n")
 
     def save_header(self, header: SessionResult) -> None:
         self._session_index[header.session_id] = header
@@ -57,6 +70,10 @@ class JsonlSessionRepository:
                 yield header
 
     def iter_all_headers(self) -> Iterator[SessionResult]:
+        yield from self._parsed_headers()
+        self._indexed = True
+
+    def _parsed_headers(self) -> Iterator[SessionResult]:
         if not self._paths.sessions_index.exists():
             return
         with self._paths.sessions_index.open("r", encoding="utf-8") as fh:
@@ -64,14 +81,30 @@ class JsonlSessionRepository:
                 line = raw.strip()
                 if not line:
                     continue
-                data = json.loads(line)
-                header = _header_from_dict(data)
+                try:
+                    header = _header_from_dict(json.loads(line))
+                except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+                    # Skip a corrupt/truncated index row rather than aborting
+                    # every session recorded after it.
+                    continue
                 self._session_index[header.session_id] = header
                 yield header
 
+    def _ensure_index(self) -> None:
+        """Populate the session-id → header index from disk, once."""
+        if self._indexed:
+            return
+        for _ in self._parsed_headers():
+            pass
+        self._indexed = True
+
     def load_keystrokes(self, session_id: str) -> Iterator[Keystroke]:
+        validate_session_id(session_id)  # Reject path-traversal attempts
+        self._ensure_index()
         header = self._session_index.get(session_id)
         if header is None:
+            if not self._paths.sessions_dir.exists():
+                return
             # Fall back: scan all month directories for the ulid.
             for month_dir in self._paths.sessions_dir.iterdir():
                 if not month_dir.is_dir():
@@ -93,41 +126,57 @@ def _read_keystrokes(file: Path) -> Iterator[Keystroke]:
             line = raw.strip()
             if not line:
                 continue
-            d = json.loads(line)
-            yield Keystroke(
-                codepoint=d["codepoint"],
-                typed=d["typed"],
-                t_ns=d["t_ns"],
-                correct=d["correct"],
-            )
+            try:
+                d = json.loads(line)
+                keystroke = Keystroke(
+                    codepoint=d["codepoint"],
+                    typed=d["typed"],
+                    t_ns=d["t_ns"],
+                    correct=d["correct"],
+                )
+            except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+                # Skip a corrupt/truncated keystroke row (e.g. a crash mid-append)
+                # rather than aborting the whole session's keystroke stream.
+                continue
+            yield keystroke
 
 
 def _header_to_dict(h: SessionResult) -> dict[str, object]:
-    d = asdict(h)
-    # Mode is a StrEnum → str; tuple → list for JSON.
-    d["mode"] = str(h.mode)
-    d["lesson_alphabet"] = list(h.lesson_alphabet)
-    d["unlocked_keys"] = list(h.unlocked_keys)
-    d["key_confidence"] = {str(k): v for k, v in h.key_confidence.items()}
-    return d
+    # Built field-by-field rather than via `dataclasses.asdict(h)`: asdict
+    # falls back to `copy.deepcopy` for non-dataclass/list/tuple/dict values,
+    # and deepcopy cannot pickle `key_confidence`'s `mappingproxy` wrapper.
+    # A shallow `dict(...)` here sidesteps that entirely.
+    return {
+        "schema_version": h.schema_version,
+        "session_id": h.session_id,
+        "started_at": h.started_at,
+        "duration_ns": h.duration_ns,
+        "layout": h.layout,
+        "mode": str(h.mode),  # Mode is a StrEnum → str
+        "lesson_alphabet": list(h.lesson_alphabet),
+        "focus_key": h.focus_key,
+        "total_keystrokes": h.total_keystrokes,
+        "correct_keystrokes": h.correct_keystrokes,
+        "words_completed": h.words_completed,
+        "lang": h.lang,
+        "unlocked_keys": list(h.unlocked_keys),
+        "key_confidence": {str(k): v for k, v in h.key_confidence.items()},
+        "target_speed_cpm": h.target_speed_cpm,
+    }
 
 
-def _as_int(v: object) -> int:
-    return int(v)  # type: ignore[arg-type]
+def _parse_mode(raw: str) -> Mode:
+    return migrate_legacy_mode(raw)
 
 
-def _as_float(v: object) -> float:
-    return float(v)  # type: ignore[arg-type]
-
-
-_LEGACY_MODES = frozenset({"free", "code", "sample"})
-
-
-def _parse_mode(raw: object) -> Mode:
-    value = str(raw)
-    if value in _LEGACY_MODES:
-        return Mode.ADAPTIVE
-    return Mode(value)
+def _require_int_tuple(
+    d: dict[str, object], key: str, default: tuple[int, ...] = ()
+) -> tuple[int, ...]:
+    raw = d.get(key, default)
+    if not isinstance(raw, (list, tuple)):
+        raise TypeError(f"expected list/tuple for {key!r}, got {type(raw).__name__}: {raw!r}")
+    items = cast("list[object] | tuple[object, ...]", raw)
+    return tuple(coerce_int(v, label=f"{key} element") for v in items)
 
 
 def _parse_key_confidence(raw: object) -> dict[int, float]:
@@ -136,27 +185,29 @@ def _parse_key_confidence(raw: object) -> dict[int, float]:
     out: dict[int, float] = {}
     mapping = cast("dict[object, object]", raw)
     for k, v in mapping.items():
-        out[_as_int(k)] = _as_float(v)
+        out[coerce_int(k, label="key_confidence key")] = coerce_float(
+            v, label="key_confidence value"
+        )
     return out
 
 
 def _header_from_dict(d: dict[str, object]) -> SessionResult:
+    session_id = require_str(d, "session_id")
+    validate_session_id(session_id)  # Reject path-traversal attempts
     return SessionResult(
-        schema_version=_as_int(d["schema_version"]),
-        session_id=str(d["session_id"]),
-        started_at=_as_float(d["started_at"]),
-        duration_ns=_as_int(d["duration_ns"]),
-        layout=str(d["layout"]),
-        mode=_parse_mode(d["mode"]),
-        lesson_alphabet=tuple(d["lesson_alphabet"]),  # type: ignore[arg-type]
-        focus_key=_as_int(d["focus_key"]) if d.get("focus_key") is not None else None,
-        total_keystrokes=_as_int(d["total_keystrokes"]),
-        correct_keystrokes=_as_int(d["correct_keystrokes"]),
-        words_completed=_as_int(d.get("words_completed", 0)),
-        lang=str(d.get("lang", "en")),
-        unlocked_keys=tuple(d.get("unlocked_keys", ())),  # type: ignore[arg-type]
+        schema_version=require_int(d, "schema_version"),
+        session_id=session_id,
+        started_at=require_float(d, "started_at"),
+        duration_ns=require_int(d, "duration_ns"),
+        layout=require_str(d, "layout"),
+        mode=_parse_mode(require_str(d, "mode")),
+        lesson_alphabet=_require_int_tuple(d, "lesson_alphabet"),
+        focus_key=require_int(d, "focus_key") if d.get("focus_key") is not None else None,
+        total_keystrokes=require_int(d, "total_keystrokes"),
+        correct_keystrokes=require_int(d, "correct_keystrokes"),
+        words_completed=require_int(d, "words_completed", 0),
+        lang=require_str(d, "lang", "en"),
+        unlocked_keys=_require_int_tuple(d, "unlocked_keys"),
         key_confidence=_parse_key_confidence(d.get("key_confidence", {})),
-        target_speed_cpm=_as_int(d.get("target_speed_cpm", 0)),
+        target_speed_cpm=require_int(d, "target_speed_cpm", 0),
     )
-
-

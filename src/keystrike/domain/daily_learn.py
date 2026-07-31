@@ -21,8 +21,13 @@ class DailyLearnBudget:
     limit_reached: bool
 
 
+def _resolve_tz(tz: dt.tzinfo | None) -> dt.tzinfo:
+    """Resolve timezone fallback: explicit value, system local, or UTC."""
+    return tz or dt.datetime.now().astimezone().tzinfo or dt.UTC
+
+
 def session_local_date(started_at: float, tz: dt.tzinfo | None = None) -> dt.date:
-    tz = tz or dt.datetime.now().astimezone().tzinfo or dt.UTC
+    tz = _resolve_tz(tz)
     return dt.datetime.fromtimestamp(started_at, tz=tz).date()
 
 
@@ -32,7 +37,7 @@ def daily_learn_duration_ns(
     *,
     tz: dt.tzinfo | None = None,
 ) -> int:
-    tz = tz or dt.datetime.now().astimezone().tzinfo or dt.UTC
+    tz = _resolve_tz(tz)
     total = 0
     for header in headers:
         if header.mode is not Mode.ADAPTIVE:
@@ -43,12 +48,33 @@ def daily_learn_duration_ns(
     return total
 
 
-def format_daily_learn_display(budget: DailyLearnBudget, *, label: str) -> str:
+@dataclass(frozen=True, slots=True)
+class DailyLearnDisplay:
+    """Structured daily-learn-budget display data — pure numbers/flags only,
+    no markup. Presentation renders this into whatever text/styling it wants
+    (see `presentation.widgets.hud._format_daily_learn_segment`); keeps Rich
+    markup formatting out of the domain layer."""
+
+    shown: bool
+    used_minutes: float
+    limit_minutes: float
+    limit_reached: bool
+
+
+def daily_learn_display(budget: DailyLearnBudget) -> DailyLearnDisplay:
     if not budget.limited:
-        return ""
-    limit_min = budget.limit_ns / 1e9 / 60
-    used_min = budget.used_ns / 1e9 / 60
-    return f"{label} [bold]{used_min:.1f}[/]/{limit_min:g} min"
+        return DailyLearnDisplay(
+            shown=False,
+            used_minutes=0.0,
+            limit_minutes=0.0,
+            limit_reached=False,
+        )
+    return DailyLearnDisplay(
+        shown=True,
+        used_minutes=budget.used_ns / 1e9 / 60,
+        limit_minutes=budget.limit_ns / 1e9 / 60,
+        limit_reached=budget.limit_reached,
+    )
 
 
 def compute_daily_learn_budget(

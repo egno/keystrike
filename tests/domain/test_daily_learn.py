@@ -2,8 +2,8 @@ import datetime as dt
 
 from keystrike.domain.daily_learn import (
     compute_daily_learn_budget,
+    daily_learn_display,
     daily_learn_duration_ns,
-    format_daily_learn_display,
     session_local_date,
 )
 from keystrike.domain.enums import Mode
@@ -51,19 +51,27 @@ def test_compute_daily_learn_budget_unlimited_when_limit_zero():
     assert not budget.limit_reached
 
 
-def test_format_daily_learn_display_shows_used_and_limit():
+def test_daily_learn_display_shows_used_and_limit():
     budget = compute_daily_learn_budget(completed_ns=9 * 60 * 1_000_000_000, limit_minutes=10)
-    text = format_daily_learn_display(budget, label="Learn today:")
-    assert "9.0" in text
-    assert "/10 min" in text
-    assert "left" not in text
+    display = daily_learn_display(budget)
+    assert display.shown
+    assert display.used_minutes == 9.0
+    assert display.limit_minutes == 10.0
+    assert not display.limit_reached
 
 
-def test_format_daily_learn_display_goal_reached():
+def test_daily_learn_display_goal_reached():
     budget = compute_daily_learn_budget(completed_ns=10 * 60 * 1_000_000_000, limit_minutes=10)
-    text = format_daily_learn_display(budget, label="Learn today:")
-    assert "10.0" in text
-    assert "/10 min" in text
+    display = daily_learn_display(budget)
+    assert display.used_minutes == 10.0
+    assert display.limit_minutes == 10.0
+    assert display.limit_reached
+
+
+def test_daily_learn_display_hidden_when_unlimited():
+    budget = compute_daily_learn_budget(completed_ns=999_000_000_000, limit_minutes=0)
+    display = daily_learn_display(budget)
+    assert not display.shown
 
 
 def test_compute_daily_learn_budget_tracks_remaining_and_limit_reached():

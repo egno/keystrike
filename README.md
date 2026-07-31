@@ -11,7 +11,7 @@ Design follows [research-backed typing pedagogy](https://github.com/egno/keystri
 
 **Install:** `pipx install keystrike` · [PyPI](https://pypi.org/project/keystrike/) · [Discussions](https://github.com/egno/keystrike/discussions)
 
-![Keystrike demo](https://raw.githubusercontent.com/egno/keystrike/v1.1.0/docs/assets/demo.gif)
+![Keystrike demo](https://raw.githubusercontent.com/egno/keystrike/main/docs/assets/demo.gif)
 
 ## What it does
 
@@ -44,9 +44,11 @@ for sources and how each maps to the code.
 - **Per-layout stats** — heatmap with per-key confidence and urgency; layout-wide
   and focus-key trend grids (confidence, speed, accuracy); press a heatmap key for
   per-letter drill-down.
-- **Daily learn budget** — optional cap on adaptive minutes per calendar day.
-- **Custom layouts** — drop `*.toml` files into your config layouts directory; no
-  restart needed.
+- **Daily learn goal** — optional minutes goal tracked in the HUD; practice is not
+  blocked when reached.
+- **Custom layouts** — drop `*.toml` files into your layouts directory; new layouts
+  appear when cycling layouts or opening Settings (no app restart required). See the
+  [Custom layouts wiki](https://github.com/egno/keystrike/wiki/Custom-Layouts).
 - **Git backup sync** — optional CLI to push/pull settings and sessions to a private
   remote (union-merge sessions, last-write-wins settings).
 - **Offline by default** — JSONL session logs and a local stats cache under
@@ -60,6 +62,7 @@ Requires **Python 3.12+** and a terminal with **raw-mode keyboard input**
 ```bash
 pipx install keystrike    # or: uv tool install keystrike
 keystrike                 # launch TUI (default)
+keystrike run             # same as bare keystrike
 keystrike --version
 ```
 
@@ -132,15 +135,19 @@ pull triggers a rebuild.
 
 ## Data locations
 
-| Path | Contents |
-| --- | --- |
-| `~/.config/keystrike/settings.toml` | User settings |
-| `~/.config/keystrike/layouts/` | Custom layout TOML files |
-| `~/.config/keystrike/sync.toml` | Sync remote config (after `sync init`) |
-| `~/.local/share/keystrike/sessions/` | Session JSONL logs (Linux) |
-| `~/Library/Application Support/keystrike/` | Same on macOS |
+Paths come from [platformdirs](https://github.com/tox-dev/platformdirs). On Linux,
+config and data are split; on macOS and Windows, everything lives under one app
+directory.
 
-Windows uses `%APPDATA%` / `%LOCALAPPDATA%` equivalents via [platformdirs](https://github.com/tox-dev/platformdirs).
+| Contents | Linux | macOS |
+| --- | --- | --- |
+| User settings | `~/.config/keystrike/settings.toml` | `~/Library/Application Support/keystrike/settings.toml` |
+| Custom layouts | `~/.config/keystrike/layouts/` | `~/Library/Application Support/keystrike/layouts/` |
+| Sync config (after `sync init`) | `~/.config/keystrike/sync.toml` | `~/Library/Application Support/keystrike/sync.toml` |
+| Session JSONL logs | `~/.local/share/keystrike/sessions/` | `~/Library/Application Support/keystrike/sessions/` |
+| Stats cache | `~/.local/share/keystrike/cache/` | `~/Library/Application Support/keystrike/cache/` |
+
+Windows uses `%LOCALAPPDATA%\keystrike\` for the same layout (single directory).
 
 ## Terminal setup
 

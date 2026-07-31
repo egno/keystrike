@@ -7,7 +7,9 @@ from keystrike.application.build_lesson import BuildLesson
 from keystrike.application.learn_budget_use_cases import GetDailyLearnBudget
 from keystrike.application.prepare_practice import PreparePracticeSession
 from keystrike.application.session_use_cases import (
+    AbortSession,
     FinishSession,
+    GetSessionBaseline,
     RecordKeystroke,
     StartSession,
 )
@@ -17,6 +19,7 @@ from keystrike.application.stats_use_cases import (
     GetHeatmap,
     GetHistory,
     GetKeyMetricTrends,
+    GetOrRebuildAggregates,
     RebuildAggregates,
 )
 from keystrike.application.sync_use_cases import GetSyncStatus, InitSync, PullSync, PushSync
@@ -36,6 +39,12 @@ from keystrike.infrastructure.session_repo_jsonl import JsonlSessionRepository
 from keystrike.infrastructure.settings_repo_toml import TomlSettingsRepository
 from keystrike.infrastructure.sync_git import GitSyncGateway
 from keystrike.infrastructure.wordlist_store import FileWordListStore
+from keystrike.presentation.services import (
+    HomeServices,
+    PracticeServices,
+    SettingsServices,
+    StatsServices,
+)
 from keystrike.presentation.textual_app import KeystrikeApp
 
 
@@ -83,16 +92,22 @@ def build() -> KeystrikeApp:
     finish = FinishSession(
         clock=clock,
         repo=session_repo,
-        aggregates_cache=aggregates_cache,
         settings_repo=settings_repo,
         layout_repo=layout_repo,
     )
+    abort = AbortSession()
+    get_session_baseline = GetSessionBaseline(repo=session_repo, settings_repo=settings_repo)
     rebuild_aggregates = RebuildAggregates(
         repo=session_repo,
         cache=aggregates_cache,
         settings_repo=settings_repo,
     )
-    get_heatmap = GetHeatmap(cache=aggregates_cache, settings_repo=settings_repo)
+    ensure_aggregates = GetOrRebuildAggregates(
+        repo=session_repo,
+        cache=aggregates_cache,
+        rebuild=rebuild_aggregates,
+    )
+    get_heatmap = GetHeatmap(cache=aggregates_cache, settings_repo=settings_repo, clock=clock)
     get_history = GetHistory(repo=session_repo)
     get_key_metric_trends = GetKeyMetricTrends(
         repo=session_repo,
@@ -121,32 +136,48 @@ def build() -> KeystrikeApp:
         language_provider=language_provider,
         wordlist_store=wordlist_store,
         rng=Random(),
+        clock=clock,
     )
     prepare_practice = PreparePracticeSession(
         settings_repo=settings_repo,
         layout_repo=layout_repo,
         build_lesson=build_lesson,
         get_daily_learn_budget=get_daily_learn_budget,
+        ensure_aggregates=ensure_aggregates,
     )
 
     return KeystrikeApp(
-        clock=clock,
-        start=start,
-        record=record,
-        finish=finish,
-        settings_repo=settings_repo,
-        layout_repo=layout_repo,
-        prepare_practice=prepare_practice,
-        rebuild_aggregates=rebuild_aggregates,
-        get_heatmap=get_heatmap,
-        get_history=get_history,
-        get_key_metric_trends=get_key_metric_trends,
-        get_aggregate_metric_trends=get_aggregate_metric_trends,
-        cycle_layout=cycle_layout,
-        update_settings=update_settings,
-        import_wordlist=import_wordlist,
-        clear_wordlist=clear_wordlist,
-        get_wordlist_cache_status=get_wordlist_cache_status,
-        get_daily_learn_budget=get_daily_learn_budget,
+        home=HomeServices(
+            settings_repo=settings_repo,
+            cycle_layout=cycle_layout,
+            get_daily_learn_budget=get_daily_learn_budget,
+        ),
+        practice=PracticeServices(
+            clock=clock,
+            start=start,
+            record=record,
+            finish=finish,
+            abort=abort,
+            prepare_practice=prepare_practice,
+            get_session_baseline=get_session_baseline,
+            rebuild_aggregates=rebuild_aggregates,
+            get_daily_learn_budget=get_daily_learn_budget,
+        ),
+        stats=StatsServices(
+            layout_repo=layout_repo,
+            rebuild_aggregates=rebuild_aggregates,
+            get_heatmap=get_heatmap,
+            get_history=get_history,
+            get_key_metric_trends=get_key_metric_trends,
+            get_aggregate_metric_trends=get_aggregate_metric_trends,
+        ),
+        settings=SettingsServices(
+            settings_repo=settings_repo,
+            layout_repo=layout_repo,
+            update_settings=update_settings,
+            import_wordlist=import_wordlist,
+            clear_wordlist=clear_wordlist,
+            get_wordlist_cache_status=get_wordlist_cache_status,
+        ),
         app_version=__version__,
     )
