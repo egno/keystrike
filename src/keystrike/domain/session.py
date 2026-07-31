@@ -91,41 +91,6 @@ def session_accuracy(session: Session) -> float:
         return 1.0
     return session.correct_count / session.total_count
 
-LEARN_IDLE_PAUSE_NS = 5 * 1_000_000_000  # pause learn timer after this idle gap
-
-
-def note_keystroke_for_timer(session: Session, now_ns: int) -> None:
-    """Fold inter-keystroke time into active duration (capped at idle threshold)."""
-    if session.last_keystroke_at_ns is not None:
-        gap = now_ns - session.last_keystroke_at_ns
-        session.active_duration_ns += min(gap, LEARN_IDLE_PAUSE_NS)
-    session.last_keystroke_at_ns = now_ns
-
-
-def active_typing_duration_ns(
-    session: Session,
-    now_ns: int,
-    *,
-    idle_pause_ns: int = LEARN_IDLE_PAUSE_NS,
-) -> int:
-    """Active typing time excluding idle gaps longer than ``idle_pause_ns``."""
-    if session.typing_started_at_ns is None or session.last_keystroke_at_ns is None:
-        return 0
-    gap = now_ns - session.last_keystroke_at_ns
-    return session.active_duration_ns + min(gap, idle_pause_ns)
-
-
-def is_typing_idle(
-    session: Session,
-    now_ns: int,
-    *,
-    idle_pause_ns: int = LEARN_IDLE_PAUSE_NS,
-) -> bool:
-    """True once the learn timer would stop counting (gap >= ``idle_pause_ns``)."""
-    if session.last_keystroke_at_ns is None:
-        return False
-    return now_ns - session.last_keystroke_at_ns >= idle_pause_ns
-
 
 @dataclass(slots=True)
 class Session:
