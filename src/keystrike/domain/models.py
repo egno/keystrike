@@ -20,6 +20,8 @@ FOCUS_WEAK_EXTRA_BOOST = 1.5
 LESSON_WORD_COUNT = 12
 FOCUS_WORD_MIN_FRACTION = 0.6
 MAX_WORD_REPEATS = 2
+GENERATED_WORD_MIN_LEN = 3
+GENERATED_WORD_MAX_LEN = 10
 
 
 @dataclass(frozen=True, slots=True)
@@ -170,6 +172,8 @@ class Settings:
     lesson_word_count: int = LESSON_WORD_COUNT  # words per generated practice lesson
     focus_word_min_fraction: float = FOCUS_WORD_MIN_FRACTION  # weak-focus word quota fraction
     max_word_repeats: int = MAX_WORD_REPEATS  # per-word repeat cap in generated lessons
+    generated_word_min_len: int = GENERATED_WORD_MIN_LEN  # Markov word length floor
+    generated_word_max_len: int = GENERATED_WORD_MAX_LEN  # Markov word length ceiling
     wordlist_url: str = ""  # non-empty + cached file → real words; else Markov
     updated_at: str | None = None  # ISO-8601 UTC; sync LWW
 

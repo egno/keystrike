@@ -40,6 +40,8 @@ def test_round_trip(paths):
         lesson_word_count=15,
         focus_word_min_fraction=0.75,
         max_word_repeats=3,
+        generated_word_min_len=2,
+        generated_word_max_len=5,
     )
     repo.save(original)
     loaded = repo.load()
@@ -56,6 +58,8 @@ def test_round_trip(paths):
     assert loaded.lesson_word_count == 15
     assert loaded.focus_word_min_fraction == 0.75
     assert loaded.max_word_repeats == 3
+    assert loaded.generated_word_min_len == 2
+    assert loaded.generated_word_max_len == 5
     assert loaded.updated_at is not None
 
 

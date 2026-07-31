@@ -33,6 +33,7 @@ from keystrike.domain.focus import (
 from keystrike.domain.generator import (
     AdaptiveGenerator,
     LessonWeighting,
+    effective_generated_word_bounds,
     effective_lesson_word_count,
     weak_focus_word_quota,
 )
@@ -434,6 +435,10 @@ class BuildLesson:
             if focus_confidence < _CONFIDENCE_GOOD
             else 1
         )
+        generated_min_len, generated_max_len = effective_generated_word_bounds(
+            ctx.settings.generated_word_min_len,
+            ctx.settings.generated_word_max_len,
+        )
         return generator.generate_lesson(
             alphabet_chars,
             chr(focus),
@@ -442,6 +447,8 @@ class BuildLesson:
             focus_bigram=focus_bigram,
             min_focus_words=quota,
             max_word_repeats=ctx.settings.max_word_repeats,
+            generated_min_len=generated_min_len,
+            generated_max_len=generated_max_len,
         )
 
     def _resolve_dict_words(

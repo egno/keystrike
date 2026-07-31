@@ -13,6 +13,8 @@ from .focus import FOCUS_BIGRAM_WORD_BOOST, FOCUS_WORD_BOOST
 from .markov import TransitionTable
 from .models import (
     FOCUS_WORD_MIN_FRACTION,
+    GENERATED_WORD_MAX_LEN,
+    GENERATED_WORD_MIN_LEN,
     MAX_WORD_REPEATS,
     Bigram,
     Layout,
@@ -49,6 +51,14 @@ def effective_max_word_repeats(max_repeats: int) -> int:
 def effective_lesson_word_count(word_count: int) -> int:
     """Hand-edited settings may set 0; practice needs at least one word."""
     return max(1, word_count)
+
+
+def effective_generated_word_bounds(min_len: int, max_len: int) -> tuple[int, int]:
+    """Clamp hand-edited settings; ensure min <= max and both are at least 1."""
+    min_len = max(1, min_len)
+    max_len = max(1, max_len)
+    min_len = min(min_len, max_len)
+    return min_len, max_len
 
 
 def word_matches_focus(
@@ -205,20 +215,68 @@ def wordlist_weight_for_word(
     return weight
 
 
-def typical_chars_per_word() -> float:
+def typical_chars_per_word(
+    *,
+    generated_min_len: int = GENERATED_WORD_MIN_LEN,
+    generated_max_len: int = GENERATED_WORD_MAX_LEN,
+) -> float:
     """Mean chars per generated word (spaces excluded).
 
     ponytail: midpoint of accepted word lengths; upgrade to measured corpus avg.
     """
-    return (MIN_WORD_LEN + MAX_WORD_LEN) / 2.0
+    min_len, max_len = effective_generated_word_bounds(generated_min_len, generated_max_len)
+    return (min_len + max_len) / 2.0
 
 
-def cpm_from_wpm(wpm: int) -> int:
-    return round(wpm * typical_chars_per_word())
+def cpm_from_wpm(
+    wpm: int,
+    *,
+    generated_min_len: int = GENERATED_WORD_MIN_LEN,
+    generated_max_len: int = GENERATED_WORD_MAX_LEN,
+) -> int:
+    return round(
+        wpm
+        * typical_chars_per_word(
+            generated_min_len=generated_min_len,
+            generated_max_len=generated_max_len,
+        )
+    )
 
 
-def wpm_from_cpm(cpm: int) -> int:
-    return int(cpm / typical_chars_per_word())
+def wpm_from_cpm(
+    cpm: int,
+    *,
+    generated_min_len: int = GENERATED_WORD_MIN_LEN,
+    generated_max_len: int = GENERATED_WORD_MAX_LEN,
+) -> int:
+    return int(
+        cpm
+        / typical_chars_per_word(
+            generated_min_len=generated_min_len,
+            generated_max_len=generated_max_len,
+        )
+    )
+
+
+def _ensure_generated_word_len(
+    word: str,
+    alphabet: frozenset[str],
+    rng: Random,
+    *,
+    generated_min_len: int,
+    generated_max_len: int,
+) -> str:
+    """Pad or trim ``word`` into ``[generated_min_len, generated_max_len]``."""
+    chars = sorted(alphabet)
+    if not chars:
+        return word
+    if not word:
+        word = "".join(rng.choice(chars) for _ in range(generated_min_len))
+    while len(word) < generated_min_len:
+        word += rng.choice(chars)
+    if len(word) > generated_max_len:
+        word = word[:generated_max_len]
+    return word
 
 
 @dataclass(slots=True)
@@ -232,13 +290,17 @@ class AdaptiveGenerator:
         weighting: LessonWeighting | None = None,
         *,
         weighted_wordlist: WeightedWordlist | None = None,
+        generated_min_len: int = GENERATED_WORD_MIN_LEN,
+        generated_max_len: int = GENERATED_WORD_MAX_LEN,
     ) -> str:
         weighting = weighting or LessonWeighting()
         if weighting.words:
             word = self._generate_word_from_wordlist(alphabet, weighting, weighted_wordlist)
             if word is not None:
                 return word
-        return self._generate_word_via_markov(alphabet, weighting)
+        return self._generate_word_via_markov(
+            alphabet, weighting, generated_min_len, generated_max_len
+        )
 
     def _generate_word_from_wordlist(
         self,
@@ -256,13 +318,21 @@ class AdaptiveGenerator:
         self,
         alphabet: frozenset[str],
         weighting: LessonWeighting,
+        generated_min_len: int,
+        generated_max_len: int,
     ) -> str:
         word = ""
         for _ in range(MAX_RETRIES):
-            word = self._sample_word(alphabet, weighting)
-            if MIN_WORD_LEN <= len(word) <= MAX_WORD_LEN:
+            word = self._sample_word(alphabet, weighting, generated_max_len)
+            if generated_min_len <= len(word) <= generated_max_len:
                 return word
-        return word
+        return _ensure_generated_word_len(
+            word,
+            alphabet,
+            self.rng,
+            generated_min_len=generated_min_len,
+            generated_max_len=generated_max_len,
+        )
 
     def generate_lesson(
         self,
@@ -274,6 +344,8 @@ class AdaptiveGenerator:
         focus_bigram: Bigram | None = None,
         min_focus_words: int = 1,
         max_word_repeats: int = MAX_WORD_REPEATS,
+        generated_min_len: int = GENERATED_WORD_MIN_LEN,
+        generated_max_len: int = GENERATED_WORD_MAX_LEN,
     ) -> str:
         """Generate practice text with focus-word guarantees.
 
@@ -285,6 +357,9 @@ class AdaptiveGenerator:
         min_focus_words = min(min_focus_words, word_count)
         assert 0 <= min_focus_words <= word_count
         max_word_repeats = effective_max_word_repeats(max_word_repeats)
+        generated_min_len, generated_max_len = effective_generated_word_bounds(
+            generated_min_len, generated_max_len
+        )
         weighting = weighting or LessonWeighting()
         focus_bigram_str: str | None = None
         if focus_bigram is not None:
@@ -331,6 +406,8 @@ class AdaptiveGenerator:
                     weighting,
                     weighted_wordlist=weighted_wordlist,
                     max_word_repeats=max_word_repeats,
+                    generated_min_len=generated_min_len,
+                    generated_max_len=generated_max_len,
                 )
             if focus_bigram is not None:
                 prev_char, next_char = chr(focus_bigram.prev_cp), chr(focus_bigram.next_cp)
@@ -373,6 +450,8 @@ class AdaptiveGenerator:
                     focus_bigram_str=focus_bigram_str,
                     use_wordlist=False,
                     max_word_repeats=max_word_repeats,
+                    generated_min_len=generated_min_len,
+                    generated_max_len=generated_max_len,
                 )
             while len(lesson_words) < word_count:
                 self._append_general_word_capped(
@@ -381,6 +460,8 @@ class AdaptiveGenerator:
                     weighting,
                     weighted_wordlist=weighted_wordlist,
                     max_word_repeats=max_word_repeats,
+                    generated_min_len=generated_min_len,
+                    generated_max_len=generated_max_len,
                 )
             self.rng.shuffle(lesson_words)
             _assert_lesson_focus_quota(
@@ -404,6 +485,8 @@ class AdaptiveGenerator:
         focus_pool: tuple[str, ...] = (),
         focus_weighted: WeightedWordlist | None = None,
         max_word_repeats: int = MAX_WORD_REPEATS,
+        generated_min_len: int = GENERATED_WORD_MIN_LEN,
+        generated_max_len: int = GENERATED_WORD_MAX_LEN,
     ) -> None:
         """Add one focus-matching word, respecting the per-lesson repeat cap."""
         for _ in range(MAX_REPEAT_RESAMPLE):
@@ -415,6 +498,8 @@ class AdaptiveGenerator:
                 focus_bigram_str=focus_bigram_str,
                 focus_pool=focus_pool if use_wordlist else (),
                 focus_weighted=focus_weighted if use_wordlist else None,
+                generated_min_len=generated_min_len,
+                generated_max_len=generated_max_len,
             )
             if _append_word_if_under_repeat_cap(lesson_words, word, max_repeats=max_word_repeats):
                 return
@@ -426,6 +511,8 @@ class AdaptiveGenerator:
             focus_bigram_str=focus_bigram_str,
             focus_pool=(),
             focus_weighted=None,
+            generated_min_len=generated_min_len,
+            generated_max_len=generated_max_len,
         )
         self._append_word_mutating_until_under_cap(
             lesson_words,
@@ -434,6 +521,7 @@ class AdaptiveGenerator:
             focus_char=focus_char,
             focus_bigram=focus_bigram,
             max_word_repeats=max_word_repeats,
+            generated_max_len=generated_max_len,
         )
 
     def _append_general_word_capped(
@@ -444,15 +532,33 @@ class AdaptiveGenerator:
         *,
         weighted_wordlist: WeightedWordlist | None,
         max_word_repeats: int = MAX_WORD_REPEATS,
+        generated_min_len: int = GENERATED_WORD_MIN_LEN,
+        generated_max_len: int = GENERATED_WORD_MAX_LEN,
     ) -> None:
         """Add one general word, respecting the per-lesson repeat cap."""
         for _ in range(MAX_REPEAT_RESAMPLE):
-            word = self.generate_word(alphabet, weighting, weighted_wordlist=weighted_wordlist)
+            word = self.generate_word(
+                alphabet,
+                weighting,
+                weighted_wordlist=weighted_wordlist,
+                generated_min_len=generated_min_len,
+                generated_max_len=generated_max_len,
+            )
             if _append_word_if_under_repeat_cap(lesson_words, word, max_repeats=max_word_repeats):
                 return
-        word = self.generate_word(alphabet, weighting, weighted_wordlist=weighted_wordlist)
+        word = self.generate_word(
+            alphabet,
+            weighting,
+            weighted_wordlist=weighted_wordlist,
+            generated_min_len=generated_min_len,
+            generated_max_len=generated_max_len,
+        )
         self._append_word_mutating_until_under_cap(
-            lesson_words, word, alphabet, max_word_repeats=max_word_repeats
+            lesson_words,
+            word,
+            alphabet,
+            max_word_repeats=max_word_repeats,
+            generated_max_len=generated_max_len,
         )
 
     def _append_word_mutating_until_under_cap(
@@ -464,13 +570,14 @@ class AdaptiveGenerator:
         focus_char: str | None = None,
         focus_bigram: Bigram | None = None,
         max_word_repeats: int = MAX_WORD_REPEATS,
+        generated_max_len: int = GENERATED_WORD_MAX_LEN,
     ) -> None:
         """Ensures: word is appended without exceeding the repeat cap."""
         if _append_word_if_under_repeat_cap(lesson_words, word, max_repeats=max_word_repeats):
             return
         chars = sorted(alphabet)
         for _ in range(MAX_REPEAT_RESAMPLE):
-            if len(word) < MAX_WORD_LEN:
+            if len(word) < generated_max_len:
                 word = word + self.rng.choice(chars)
             elif focus_bigram is not None:
                 prev_char, next_char = chr(focus_bigram.prev_cp), chr(focus_bigram.next_cp)
@@ -496,6 +603,8 @@ class AdaptiveGenerator:
         focus_bigram_str: str | None,
         focus_pool: tuple[str, ...],
         focus_weighted: WeightedWordlist | None,
+        generated_min_len: int = GENERATED_WORD_MIN_LEN,
+        generated_max_len: int = GENERATED_WORD_MAX_LEN,
     ) -> str:
         """Word guaranteed to match focus — wordlist pool, then Markov, then inject."""
         if focus_pool:
@@ -508,10 +617,14 @@ class AdaptiveGenerator:
             ):
                 return word
         for _ in range(MAX_RETRIES):
-            word = self._generate_word_via_markov(alphabet, weighting)
+            word = self._generate_word_via_markov(
+                alphabet, weighting, generated_min_len, generated_max_len
+            )
             if word_matches_focus(word, focus_char=focus_char, focus_bigram=focus_bigram_str):
                 return word
-        word = self._generate_word_via_markov(alphabet, weighting)
+        word = self._generate_word_via_markov(
+            alphabet, weighting, generated_min_len, generated_max_len
+        )
         if focus_bigram is not None:
             prev_char, next_char = chr(focus_bigram.prev_cp), chr(focus_bigram.next_cp)
             return self._inject_focus_bigram(word, prev_char, next_char)
@@ -536,10 +649,11 @@ class AdaptiveGenerator:
         self,
         alphabet: frozenset[str],
         weighting: LessonWeighting,
+        generated_max_len: int,
     ) -> str:
         chars: list[str] = []
-        while len(chars) < MAX_WORD_LEN:
-            p_stop = min(1.0, 1.3 ** len(chars) / MAX_WORD_LEN)
+        while len(chars) < generated_max_len:
+            p_stop = min(1.0, 1.3 ** len(chars) / generated_max_len)
             if chars and self.rng.random() < p_stop:
                 break
             ch = self.table.sample(

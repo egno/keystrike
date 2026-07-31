@@ -1,4 +1,5 @@
 from random import Random
+from unittest.mock import patch
 
 from keystrike.domain.generator import (
     FOCUS_WORD_MIN_FRACTION,
@@ -6,6 +7,7 @@ from keystrike.domain.generator import (
     LessonWeighting,
     clamp_focus_word_fraction,
     cpm_from_wpm,
+    effective_generated_word_bounds,
     min_focus_words,
     typical_chars_per_word,
     weak_focus_word_quota,
@@ -14,7 +16,7 @@ from keystrike.domain.generator import (
     wpm_from_cpm,
 )
 from keystrike.domain.markov import TransitionTable
-from keystrike.domain.models import Bigram
+from keystrike.domain.models import GENERATED_WORD_MAX_LEN, GENERATED_WORD_MIN_LEN, Bigram
 from keystrike.domain.word_bounds import MAX_WORD_LEN, MIN_WORD_LEN
 
 
@@ -27,7 +29,40 @@ def test_generate_word_length_within_bounds():
     generator = AdaptiveGenerator(table=_uniform_table("abc"), rng=Random(0))
     for _ in range(20):
         word = generator.generate_word(frozenset("abc"))
-        assert MIN_WORD_LEN <= len(word) <= MAX_WORD_LEN
+        assert GENERATED_WORD_MIN_LEN <= len(word) <= GENERATED_WORD_MAX_LEN
+
+
+def test_generate_markov_word_respects_custom_generated_bounds():
+    generator = AdaptiveGenerator(table=_uniform_table("abc"), rng=Random(0))
+    for seed in range(30):
+        generator.rng = Random(seed)
+        word = generator.generate_word(
+            frozenset("abc"),
+            generated_min_len=2,
+            generated_max_len=4,
+        )
+        assert 2 <= len(word) <= 4
+
+
+def test_effective_generated_word_bounds_clamps_invalid():
+    assert effective_generated_word_bounds(0, 10) == (1, 10)
+    assert effective_generated_word_bounds(5, 0) == (1, 1)
+    assert effective_generated_word_bounds(8, 4) == (4, 4)
+
+
+def test_generate_lesson_markov_respects_custom_generated_bounds():
+    generator = AdaptiveGenerator(table=_uniform_table("abc"), rng=Random(0))
+    for seed in range(20):
+        generator.rng = Random(seed)
+        lesson = generator.generate_lesson(
+            frozenset("abc"),
+            focus_char="a",
+            word_count=8,
+            generated_min_len=2,
+            generated_max_len=4,
+        )
+        for word in lesson.split():
+            assert 2 <= len(word) <= 4, f"seed={seed}: {word!r}"
 
 
 def test_generate_word_only_uses_alphabet_chars():
@@ -67,6 +102,21 @@ def test_generate_word_uses_wordlist_when_provided():
     words = ("cab", "bad", "dab")
     for _ in range(10):
         word = generator.generate_word(frozenset("abcd"), LessonWeighting(words=words))
+        assert word in words
+
+
+def test_wordlist_still_uses_dictionary_bounds_not_generated():
+    """Dictionary sampling keeps word_bounds (3-10) even when Markov bounds differ."""
+    generator = AdaptiveGenerator(table=_uniform_table("abc"), rng=Random(0))
+    words = ("abc", "abcd", "abcde", "abcdef", "abcdefg", "abcdefgh", "abcdefghi", "abcdefghij")
+    for _ in range(20):
+        word = generator.generate_word(
+            frozenset("abcdefghij"),
+            LessonWeighting(words=words),
+            generated_min_len=2,
+            generated_max_len=4,
+        )
+        assert MIN_WORD_LEN <= len(word) <= MAX_WORD_LEN
         assert word in words
 
 
@@ -202,6 +252,26 @@ def test_wpm_cpm_conversion_uses_typical_word_length():
     avg = typical_chars_per_word()
     assert cpm_from_wpm(80) == round(80 * avg)
     assert wpm_from_cpm(round(80 * avg)) == 80
+
+
+def test_wpm_cpm_conversion_uses_custom_generated_bounds():
+    avg = typical_chars_per_word(generated_min_len=2, generated_max_len=4)
+    assert avg == 3.0
+    assert cpm_from_wpm(80, generated_min_len=2, generated_max_len=4) == 240
+    assert wpm_from_cpm(240, generated_min_len=2, generated_max_len=4) == 80
+
+
+def test_markov_fallback_pads_to_generated_min_len():
+    generator = AdaptiveGenerator(table=_uniform_table("ab"), rng=Random(0))
+    with patch.object(
+        AdaptiveGenerator,
+        "_sample_word",
+        autospec=True,
+        return_value="ab",
+    ):
+        word = generator.generate_word(frozenset("ab"), generated_min_len=5, generated_max_len=8)
+    assert 5 <= len(word) <= 8
+    assert set(word) <= {"a", "b"}
 
 
 def test_min_focus_words_uses_ceiling():

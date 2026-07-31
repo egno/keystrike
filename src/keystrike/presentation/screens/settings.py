@@ -10,7 +10,7 @@ from textual.widgets.select import NoSelection
 from keystrike.application.settings_use_cases import SettingsUpdate, SettingsValidationError
 from keystrike.application.wordlist_use_cases import DEFAULT_WORDLIST_URL, WordListError
 from keystrike.domain.enums import TargetSpeedUnit
-from keystrike.domain.generator import cpm_from_wpm, wpm_from_cpm
+from keystrike.domain.generator import cpm_from_wpm, effective_generated_word_bounds, wpm_from_cpm
 from keystrike.presentation.bindings import BACK_BINDINGS, SAVE
 from keystrike.presentation.services import SettingsServices
 
@@ -41,6 +41,10 @@ class SettingsScreen(Screen[None]):
     def compose(self) -> ComposeResult:
         settings = self._services.settings_repo.load()
         layouts = self._layout_select_options()
+        gen_min, gen_max = effective_generated_word_bounds(
+            settings.generated_word_min_len,
+            settings.generated_word_max_len,
+        )
         with Vertical():
             yield Static("[bold]Settings[/]  [dim](Ctrl+S save, Esc/q back)[/]")
             yield Label("Layout")
@@ -48,7 +52,11 @@ class SettingsScreen(Screen[None]):
             yield Label("Target speed")
             yield Input(
                 value=str(
-                    wpm_from_cpm(settings.target_speed_cpm)
+                    wpm_from_cpm(
+                        settings.target_speed_cpm,
+                        generated_min_len=gen_min,
+                        generated_max_len=gen_max,
+                    )
                     if settings.target_speed_unit == TargetSpeedUnit.WPM
                     else settings.target_speed_cpm
                 ),
@@ -120,8 +128,17 @@ class SettingsScreen(Screen[None]):
         target_speed_unit = speed_unit_select.value
         if isinstance(target_speed_unit, NoSelection):
             return None
+        settings = self._services.settings_repo.load()
+        gen_min, gen_max = effective_generated_word_bounds(
+            settings.generated_word_min_len,
+            settings.generated_word_max_len,
+        )
         target_speed_cpm = (
-            cpm_from_wpm(target_speed_value)
+            cpm_from_wpm(
+                target_speed_value,
+                generated_min_len=gen_min,
+                generated_max_len=gen_max,
+            )
             if target_speed_unit == TargetSpeedUnit.WPM
             else target_speed_value
         )
