@@ -34,6 +34,10 @@ Confidence uses **min(speed, accuracy)**, not their product: a key must be both
 fast enough and accurate enough to read as mastered. Speed is `target_ms /
 actual_ms`; accuracy is correct attempts ÷ total attempts.
 
+Confidence uses **min(speed, accuracy)**, not their product: a key must be both
+fast enough and accurate enough to read as mastered. Speed is `target_ms /
+actual_ms`; accuracy is correct attempts ÷ total attempts.
+
 Example (defaults shown):
 
 ```toml
