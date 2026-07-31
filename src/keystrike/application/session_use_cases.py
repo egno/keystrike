@@ -150,8 +150,6 @@ def _snapshot_unlock_state(
         combined.keys,
         target,
         min_attempts=settings.min_confidence_attempts,
-        transitions=combined.transitions,
-        min_transition_attempts=settings.min_transition_confidence_attempts,
     )
     return unlocked, {
         cp: confidence_of(cp, combined.keys, target, min_attempts=settings.min_confidence_attempts)

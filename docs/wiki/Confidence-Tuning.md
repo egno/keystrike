@@ -1,10 +1,11 @@
 # Confidence tuning
 
-Keystrike's adaptive engine uses **confidence** — min(speed, accuracy), scaled by how
-much you've practiced — to decide which keys unlock, which key or bigram gets
-focus, and how the stats heatmap colors each key. Settings in this page control how
-aggressively the engine trusts your recent performance and how strongly it
-biases lesson text toward the current focus key or bigram.
+Keystrike's adaptive engine uses per-key **skill** (min(speed, accuracy) without
+attempt ramp) plus an attempt floor to decide which keys unlock, and **confidence**
+(skill scaled by how much you've practiced) for focus, HUD labels, and heatmap
+coloring. Settings on this page control how aggressively the engine trusts your
+recent performance and how strongly it biases lesson text toward the current
+focus key or bigram.
 
 Edit `{config_dir}/settings.toml` directly (see [Git sync](Git-sync) for the
 path on your OS). These fields are **not** on the Settings screen — saving
@@ -14,7 +15,7 @@ layout, speed, or other UI settings will not change them.
 
 | Setting | `settings.toml` key | Default | What it does |
 | --- | --- | --- | --- |
-| Confidence session window | `confidence_session_window` | `10` | How many recent sessions are replayed into rolling per-key stats used for confidence, unlocks, focus, and the heatmap. |
+| Confidence session window | `confidence_session_window` | `10` | How many recent sessions are replayed into rolling per-key stats used for skill, unlocks, focus, and the heatmap. |
 | Min key attempts | `min_confidence_attempts` | `10` | Minimum presses on a key before its confidence reaches full weight. Below this, confidence ramps linearly (fewer attempts → lower score). |
 | Min bigram attempts | `min_transition_confidence_attempts` | `4` | Same ramp for letter-pair (transition) confidence. Default is lower because bigrams are practiced less often than single keys. |
 | Focus char boost | `focus_char_boost` | `3.0` | Multiplier on the focus key's char weight when building lesson sampling weights. |
@@ -82,27 +83,26 @@ The first **N** keys in layout `learn_order` are always unlocked, where **N** is
 **Letters unlocked up front** in Settings (`alphabet_size`; see
 [README — Settings](https://github.com/egno/keystrike#settings)). Each further
 key in `learn_order` unlocks only when **every** currently unlocked key meets the
-confidence threshold (default 1.0) **and** every **measured** cross-key bigram
-among unlocked keys meets the same threshold. Unmeasured pairs do not block
-unlock — you are not required to practice every possible letter pair before the
-next key opens.
+skill threshold (default 1.0: min(speed, accuracy) without attempt ramp) **and**
+has at least `min_confidence_attempts` presses in the session window. Ramped
+confidence still drives HUD labels (`cal` vs `wk`) and focus weighting. Bigrams
+affect focus and lesson text only — they do not gate which letter opens next.
 
-Same-key repeats (double letters such as `ee`, `ss`) are excluded from unlock
-checks; only prev→next pairs on **different** keys count.
-
-**Focus selection** is letter-first: while any unlocked key is below threshold
-(`has_weak_unlocked_key`), the lesson emphasizes the weakest unlocked **key**
-(by confidence, with review urgency). Transition (bigram) focus activates only
-when all unlocked keys are confident; then the weakest measured cross-key bigram
-among the unlocked set drives focus. If no transition data exists yet, focus
-falls back to the weakest key.
+**Focus selection** is letter-first: while any unlocked key is below performance
+skill (`blocks_transition_focus`), the lesson emphasizes the weakest unlocked
+**key** (by ramped confidence, with review urgency). Transition (bigram) focus
+activates when every unlocked key meets the skill threshold (speed and accuracy
+without the attempt ramp), even if some keys are still calibrating on press
+count; then the weakest measured cross-key bigram among unlocked keys drives
+focus. If no transition data exists yet, focus falls back to the weakest key.
 
 ### Transition stats
 
 Same-key / double-letter bigrams are never aggregated into session stats, stored
-in the stats cache, or used in unlock checks, focus selection, or lesson
-transition weights. Only cross-key pairs (e.g. `th`, `he`) participate in
-transition confidence and bigram-weighted lesson text.
+in the stats cache, or used in unlock checks. Only cross-key pairs (e.g. `th`,
+`he`) participate in transition confidence, focus selection, and bigram-weighted
+lesson text. Transition sampling weights apply only to **measured** unlocked
+cross-key bigrams; unmeasured pairs keep the generator default (1.0).
 
 ## Tradeoffs
 
@@ -118,9 +118,53 @@ transition confidence and bigram-weighted lesson text.
   already typed many times.
 - **Transition floor** — Raise it if bigram focus switches too eagerly on thin
   data; lower it if weak pairs never get targeted.
+- **Coverage deficit** — Lesson sampling multiplies char (and transition)
+  weights by a session-scale boost when in-window attempts are below
+  `min_confidence_attempts` (peaking at zero attempts). This is separate
+  from performance weakness (`practice_weight`) and day-scale review urgency;
+  it helps large unlocked sets get enough window samples without widening the
+  session window. There is no settings knob — the boost is fixed in code
+  (`coverage_deficit_factor` in `domain/focus.py`).
 
-After changing the session window, run a practice session or open Stats so
-aggregates rebuild from the new window size.
+## Large alphabet (40+ keys)
+
+With the default session window (`10`) and lesson length (`12`), each practice
+session only touches a fraction of a 40–50 key unlocked set. Keys can drop out
+of the rolling window or stay below `min_confidence_attempts`, which stalls
+the next unlock and leaves heatmap gaps even when you are typing well.
+**Coverage-deficit weighting** (above) addresses much of this automatically;
+defaults may suffice once you have been practicing for a while.
+
+If unlocks still feel stuck or the heatmap looks sparse, widen the window and
+lesson manually in `{config_dir}/settings.toml` (these fields are **not** on
+the Settings screen):
+
+```toml
+confidence_session_window = 18
+lesson_word_count = 20
+```
+
+Starting points for 40–50 unlocked keys:
+
+| Knob | Default | Large-alphabet starting point |
+| --- | --- | --- |
+| `confidence_session_window` | `10` | `15`–`20` |
+| `lesson_word_count` | `12` | `18`–`24` |
+
+**Tradeoffs:**
+
+- **Wider window** — More keys stay represented in rolling stats, but
+  confidence reacts more slowly to recent form (see [window too long](#tradeoffs)
+  above).
+- **Longer lessons** — More keys sampled per session, but each drill takes
+  longer.
+- **`focus_word_min_fraction`** — Lower slightly (e.g. `0.5`) if strict focus
+  quotas make generated text repetitive at large N; raising it keeps weak-focus
+  keys more prominent at the cost of variety.
+
+After edits, run a practice session or open Stats so aggregates rebuild. See
+[Focus states](Focus-States) for how key vs transition focus interacts with
+calibration at scale.
 
 ## Related docs
 

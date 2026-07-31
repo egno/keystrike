@@ -1,47 +1,30 @@
 """Key-unlock policy: which keys in `learn_order` are currently unlocked,
-gated on measured per-key and per-transition confidence (§6 of PLAN.md)."""
+gated on per-key skill and attempt floor (§6 of PLAN.md). Bigrams affect focus
+and lesson text, not which letters open next."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from .confidence import (
-    MIN_CONFIDENCE_ATTEMPTS,
-    MIN_TRANSITION_CONFIDENCE_ATTEMPTS,
-    confidence_of,
-    is_same_key_transition,
-    transition_confidence_of,
-)
-from .models import Bigram, KeyStats, TransitionStats
+from .confidence import MIN_CONFIDENCE_ATTEMPTS, attempts_of, skill_of
+from .models import KeyStats
 
 
-def _measured_transitions_meet_threshold(
-    unlocked: Sequence[int],
-    transitions: Mapping[Bigram, TransitionStats],
+def _key_meets_unlock_threshold(
+    codepoint: int,
+    stats: Mapping[int, KeyStats],
     target: float,
     *,
     threshold: float,
     min_attempts: int,
 ) -> bool:
-    """True when every measured bigram among unlocked keys meets threshold."""
-    for prev in unlocked:
-        for nxt in unlocked:
-            if is_same_key_transition(prev, nxt):
-                continue
-            if Bigram(prev, nxt) not in transitions:
-                continue
-            if (
-                transition_confidence_of(
-                    prev,
-                    nxt,
-                    transitions,
-                    target,
-                    min_attempts=min_attempts,
-                )
-                < threshold
-            ):
-                return False
-    return True
+    """Performance (skill) and evidence (attempts) — ramp affects display only."""
+    key_stats = stats.get(codepoint)
+    if key_stats is None:
+        return False
+    return (
+        skill_of(codepoint, stats, target) >= threshold and attempts_of(key_stats) >= min_attempts
+    )
 
 
 def compute_unlocked(
@@ -52,26 +35,22 @@ def compute_unlocked(
     *,
     threshold: float = 1.0,
     min_attempts: int = MIN_CONFIDENCE_ATTEMPTS,
-    transitions: Mapping[Bigram, TransitionStats] | None = None,
-    min_transition_attempts: int = MIN_TRANSITION_CONFIDENCE_ATTEMPTS,
 ) -> tuple[int, ...]:
     """The first `alphabet_size` keys are always unlocked; each further key in
-    `learn_order` unlocks only once every currently-unlocked key and every
-    measured bigram among them meets `threshold`."""
+    `learn_order` unlocks only once every currently-unlocked key meets skill
+    ``threshold`` with at least ``min_attempts`` presses in window."""
     forced_count = min(alphabet_size, len(learn_order))
     unlocked = list(learn_order[:forced_count])
     for codepoint in learn_order[forced_count:]:
         if not all(
-            confidence_of(k, stats, target, min_attempts=min_attempts) >= threshold
+            _key_meets_unlock_threshold(
+                k,
+                stats,
+                target,
+                threshold=threshold,
+                min_attempts=min_attempts,
+            )
             for k in unlocked
-        ):
-            break
-        if transitions is not None and not _measured_transitions_meet_threshold(
-            unlocked,
-            transitions,
-            target,
-            threshold=threshold,
-            min_attempts=min_transition_attempts,
         ):
             break
         unlocked.append(codepoint)

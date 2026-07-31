@@ -11,8 +11,9 @@ from keystrike.domain.confidence import (
     transition_confidence_of,
 )
 from keystrike.domain.focus import (
+    blocks_transition_focus,
+    coverage_deficit_factor,
     focus_key_from_transition,
-    has_weak_unlocked_key,
     practice_weight,
     select_focus,
     select_focus_transition,
@@ -130,6 +131,36 @@ def test_confidence_of_reaches_full_value_at_minimum_attempts():
     stats = {ord("a"): _stats(ord("a"), mean_time_ns=200_000_000.0, error_count=0)}
     assert key_attempts(stats[ord("a")]) == MIN_CONFIDENCE_ATTEMPTS
     assert confidence_of(ord("a"), stats, target=200.0) == 1.0
+
+
+def test_compute_unlocked_stalls_when_calibrating_on_attempts():
+    learn_order = (1, 2, 3)
+    stats = {
+        1: _stats(1, mean_time_ns=100_000_000.0),
+        2: KeyStats(
+            2,
+            samples=9,
+            mean_time_ns=100_000_000.0,
+            error_count=0,
+            last_seen=0.0,
+            attempt_count=9,
+        ),
+    }
+    target = 200.0
+    assert skill_of(2, stats, target=target) == 1.0
+    assert confidence_of(2, stats, target=target) == 0.9
+    unlocked = compute_unlocked(learn_order, alphabet_size=2, stats=stats, target=target)
+    assert unlocked == (1, 2)
+
+
+def test_compute_unlocked_advances_when_skill_and_attempts_met():
+    learn_order = (1, 2, 3)
+    stats = {
+        1: _stats(1, mean_time_ns=100_000_000.0),
+        2: _stats(2, mean_time_ns=100_000_000.0),
+    }
+    unlocked = compute_unlocked(learn_order, alphabet_size=2, stats=stats, target=200.0)
+    assert unlocked == (1, 2, 3)
 
 
 def test_compute_unlocked_stalls_when_sparse_key_looks_fast():
@@ -282,73 +313,14 @@ def test_compute_unlocked_stalls_when_threshold_not_met():
     assert unlocked == (1,)
 
 
-def test_compute_unlocked_ignores_weak_same_key_transition():
+def test_compute_unlocked_ignores_weak_transitions():
     learn_order = tuple(ord(c) for c in "eabcdfghm")
     stats = {cp: _stats(cp, mean_time_ns=100_000_000.0) for cp in learn_order[:8]}
-    transitions = {
-        Bigram(ord("e"), ord("e")): TransitionStats(
-            ord("e"),
-            ord("e"),
-            samples=10,
-            mean_time_ns=400_000_000.0,
-            error_count=0,
-            last_seen=0.0,
-            attempt_count=10,
-        ),
-    }
     unlocked = compute_unlocked(
         learn_order,
         alphabet_size=8,
         stats=stats,
         target=200.0,
-        transitions=transitions,
-    )
-    assert unlocked == learn_order[:9]
-    assert unlocked[-1] == ord("m")
-
-
-def test_compute_unlocked_stalls_on_weak_cross_key_transition():
-    learn_order = tuple(ord(c) for c in "eabcdfghm")
-    stats = {cp: _stats(cp, mean_time_ns=100_000_000.0) for cp in learn_order[:8]}
-    transitions = {
-        Bigram(ord("e"), ord("a")): TransitionStats(
-            ord("e"),
-            ord("a"),
-            samples=10,
-            mean_time_ns=400_000_000.0,
-            error_count=0,
-            last_seen=0.0,
-            attempt_count=10,
-        ),
-    }
-    unlocked = compute_unlocked(
-        learn_order,
-        alphabet_size=8,
-        stats=stats,
-        target=200.0,
-        transitions=transitions,
-    )
-    assert unlocked == learn_order[:8]
-    assert ord("m") not in unlocked
-
-
-def test_compute_unlocked_advances_when_measured_transitions_meet_threshold():
-    learn_order = tuple(ord(c) for c in "eabcdfghm")
-    stats = {cp: _stats(cp, mean_time_ns=100_000_000.0) for cp in learn_order[:8]}
-    transitions = {
-        Bigram(ord("e"), ord("e")): _transition(
-            ord("e"),
-            ord("e"),
-            100_000_000.0,
-            attempt_count=10,
-        ),
-    }
-    unlocked = compute_unlocked(
-        learn_order,
-        alphabet_size=8,
-        stats=stats,
-        target=200.0,
-        transitions=transitions,
     )
     assert unlocked == learn_order[:9]
     assert unlocked[-1] == ord("m")
@@ -362,25 +334,26 @@ def test_select_focus_picks_weakest_unlocked_key():
     assert select_focus((1, 2), stats, target=200.0, now=1000.0) == 2
 
 
-def test_has_weak_unlocked_key_true_when_any_below_threshold():
+def test_blocks_transition_focus_false_when_key_calibrating():
     stats = {
-        1: _stats(1, mean_time_ns=200_000_000.0),
-        2: _stats(2, mean_time_ns=400_000_000.0),
+        ord("t"): KeyStats(
+            ord("t"),
+            samples=9,
+            mean_time_ns=125_000_000.0,
+            error_count=0,
+            last_seen=0.0,
+            attempt_count=9,
+        ),
     }
-    assert has_weak_unlocked_key((1, 2), stats, target=200.0) is True
+    target = target_ms_per_char(300)
+    assert skill_of(ord("t"), stats, target=target) == 1.0
+    assert confidence_of(ord("t"), stats, target=target) == 0.9
+    assert blocks_transition_focus((ord("t"),), stats, target=target) is False
 
 
-def test_has_weak_unlocked_key_false_when_all_confident():
-    stats = {
-        1: _stats(1, mean_time_ns=200_000_000.0),
-        2: _stats(2, mean_time_ns=100_000_000.0),
-    }
-    assert has_weak_unlocked_key((1, 2), stats, target=200.0) is False
-
-
-def test_has_weak_unlocked_key_true_for_never_practiced():
+def test_blocks_transition_focus_true_for_never_practiced():
     stats = {1: _stats(1, mean_time_ns=200_000_000.0)}
-    assert has_weak_unlocked_key((1, 2), stats, target=200.0) is True
+    assert blocks_transition_focus((1, 2), stats, target=200.0) is True
 
 
 def test_select_focus_prefers_never_practiced_key():
@@ -433,6 +406,23 @@ def test_practice_weight_caps_above_mastery_threshold():
 
 def test_practice_weight_scales_linearly_between_zero_and_one():
     assert practice_weight(0.5, max_bias=3.0) == 2.5
+
+
+def test_coverage_deficit_factor_at_floor_is_baseline():
+    assert coverage_deficit_factor(10, min_attempts=10) == 1.0
+    assert coverage_deficit_factor(15, min_attempts=10) == 1.0
+
+
+def test_coverage_deficit_factor_peaks_at_zero_attempts():
+    assert coverage_deficit_factor(0, min_attempts=10, max_boost=2.0) == 3.0
+
+
+def test_coverage_deficit_factor_ramps_linearly():
+    assert coverage_deficit_factor(5, min_attempts=10, max_boost=2.0) == 2.0
+
+
+def test_coverage_deficit_factor_disabled_when_min_zero():
+    assert coverage_deficit_factor(0, min_attempts=0) == 1.0
 
 
 def _transition(

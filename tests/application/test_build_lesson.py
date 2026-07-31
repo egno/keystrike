@@ -8,6 +8,7 @@ from keystrike.domain.focus import FocusReason
 from keystrike.domain.generator import weak_focus_word_quota, word_matches_focus
 from keystrike.domain.learn_order import keyboard_order
 from keystrike.domain.models import Bigram, KeyStats, LayoutAggregates, Settings, TransitionStats
+from keystrike.domain.unlock import compute_unlocked
 from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS
 from tests.fakes import (
     FakeAggregatesCache,
@@ -187,9 +188,10 @@ def test_lesson_uses_transition_focus_when_transitions_weak():
     five_days = 5 * 86_400.0
     fast = 100_000_000.0
     at_target = 200_000_000.0
+    slow = 400_000_000.0
     keys = {
         a: KeyStats(a, 10, at_target, 0, now, attempt_count=10),
-        s: KeyStats(s, 10, at_target, 0, now, attempt_count=10),
+        s: KeyStats(s, 9, at_target, 0, now, attempt_count=9),
     }
     transitions = {
         Bigram(a, a): TransitionStats(a, a, 10, fast, 0, now, attempt_count=10),
@@ -197,7 +199,7 @@ def test_lesson_uses_transition_focus_when_transitions_weak():
             a,
             s,
             10,
-            400_000_000.0,
+            slow,
             0,
             now - five_days,
             attempt_count=10,
@@ -256,14 +258,26 @@ def test_build_lesson_eo_not_zero_confidence_when_counts_zeroed():
     order = keyboard_order(layout)
     now = 1_700_000_000.0
     at_target = 200_000_000.0
-    keys = {cp: KeyStats(cp, 10, at_target, 0, now, attempt_count=10) for cp in order[:4]}
+    o = order[3]
+    keys = {
+        cp: KeyStats(
+            cp,
+            9 if cp == o else 10,
+            at_target,
+            0,
+            now,
+            attempt_count=9 if cp == o else 10,
+        )
+        for cp in order[:4]
+    }
     eo_key = Bigram(ord("e"), ord("o"))
+    slow = 566_631_000.0
     transitions = {
         eo_key: TransitionStats(
             ord("e"),
             ord("o"),
             0,
-            566_631_000.0,
+            slow,
             0,
             now,
             attempt_count=0,
@@ -346,13 +360,13 @@ def test_lesson_uses_transition_review_when_stale_and_mastered():
     now = 1_700_000_000.0
     five_days = 5 * 86_400.0
     at_target = 200_000_000.0
-    # s→h stays weak enough to block unlocking the next key; stale a→s still
+    # s→h stays weak; h still calibrating so unlock stops at a,s,h. Stale a→s
     # wins transition focus via review scoring (see test_select_focus_transition_*).
     slow = 380_000_000.0
     keys = {
         a: KeyStats(a, 10, at_target, 0, now, attempt_count=10),
         s: KeyStats(s, 10, at_target, 0, now, attempt_count=10),
-        h: KeyStats(h, 10, at_target, 0, now, attempt_count=10),
+        h: KeyStats(h, 9, at_target, 0, now, attempt_count=9),
     }
     transitions = {
         Bigram(a, a): TransitionStats(
@@ -462,9 +476,10 @@ def test_lesson_wordlist_biases_weak_transition():
     five_days = 5 * 86_400.0
     fast = 100_000_000.0
     at_target = 200_000_000.0
+    slow = 400_000_000.0
     keys = {
         a: KeyStats(a, 10, at_target, 0, now, attempt_count=10),
-        s: KeyStats(s, 10, at_target, 0, now, attempt_count=10),
+        s: KeyStats(s, 9, at_target, 0, now, attempt_count=9),
     }
     transitions = {
         Bigram(a, a): TransitionStats(a, a, 10, fast, 0, now, attempt_count=10),
@@ -472,7 +487,7 @@ def test_lesson_wordlist_biases_weak_transition():
             a,
             s,
             10,
-            400_000_000.0,
+            slow,
             0,
             now - five_days,
             attempt_count=10,
@@ -525,9 +540,10 @@ def test_weak_transition_focus_over_represented_in_lesson_words():
     now = 1_700_000_000.0
     fast = 100_000_000.0
     at_target = 200_000_000.0
+    slow = 400_000_000.0
     keys = {
         a: KeyStats(a, 10, at_target, 0, now, attempt_count=10),
-        s: KeyStats(s, 10, at_target, 0, now, attempt_count=10),
+        s: KeyStats(s, 9, at_target, 0, now, attempt_count=9),
     }
     transitions = {
         Bigram(a, a): TransitionStats(a, a, 10, fast, 0, now, attempt_count=10),
@@ -535,7 +551,7 @@ def test_weak_transition_focus_over_represented_in_lesson_words():
             a,
             s,
             10,
-            400_000_000.0,
+            slow,
             0,
             now,
             attempt_count=10,
@@ -754,3 +770,68 @@ def test_lesson_uses_markov_when_url_saved_without_cache():
     assert all(
         set(word) <= {chr(k.codepoint) for k in lesson.state.keys} for word in lesson.text.split()
     )
+
+
+def test_lesson_boosts_coverage_starved_key_among_mastered_alphabet():
+    """Under-sampled keys get extra weight vs fully-sampled mastered keys."""
+    layout = BUNDLED_LAYOUTS["qwerty"]
+    order = keyboard_order(layout)
+    now = 1_700_000_000.0
+    at_target = 200_000_000.0
+    min_attempts = 10
+    alphabet_size = 30
+    unlocked = order[:alphabet_size]
+    starved = unlocked[-1]
+    keys = {
+        cp: KeyStats(cp, 10, at_target, 0, now, attempt_count=min_attempts) for cp in unlocked[:-1]
+    }
+    keys[starved] = KeyStats(starved, 3, at_target, 0, now, attempt_count=3)
+    cache = FakeAggregatesCache(
+        by_layout={"qwerty": LayoutAggregates(keys=keys, transitions={})},
+    )
+    settings = Settings(alphabet_size=alphabet_size, min_confidence_attempts=min_attempts)
+    builder = BuildLesson(
+        layout_repo=FakeLayoutRepository(dict(BUNDLED_LAYOUTS)),
+        aggregates_cache=cache,
+        settings_repo=FakeSettingsRepository(settings),
+        language_provider=FakeLanguageProvider(),
+        wordlist_store=FakeWordListStore(),
+        rng=Random(0),
+        clock=FakeClock(),
+    )
+    starved_char = chr(starved)
+    starved_hits = 0
+    total_chars = 0
+    for seed in range(50):
+        builder.rng = Random(seed)
+        text = builder("qwerty").text.replace(" ", "")
+        total_chars += len(text)
+        starved_hits += text.count(starved_char)
+    share = starved_hits / total_chars
+    expected_uniform = 1 / alphabet_size
+    assert share > expected_uniform * 2, (
+        f"starved key share {share:.1%} vs uniform {expected_uniform:.1%}"
+    )
+
+
+def test_large_alphabet_unlock_advances_when_keys_rotated():
+    """26+ keys with sparse window stats still unlock next key once all meet floor."""
+    layout = BUNDLED_LAYOUTS["qwerty"]
+    order = keyboard_order(layout)
+    now = 1_700_000_000.0
+    at_target = 200_000_000.0
+    min_attempts = 3
+    forced = 26
+    target = target_ms_per_char(300)
+    stats: dict[int, KeyStats] = {
+        cp: KeyStats(cp, 0, at_target, 0, now, attempt_count=0) for cp in order[:forced]
+    }
+    assert len(compute_unlocked(order, forced, stats, target, min_attempts=min_attempts)) == forced
+    for i, cp in enumerate(order[:forced]):
+        stats[cp] = KeyStats(cp, 0, at_target, 0, now, attempt_count=min_attempts)
+        unlocked = compute_unlocked(order, forced, stats, target, min_attempts=min_attempts)
+        if i < forced - 1:
+            assert len(unlocked) == forced
+        else:
+            assert len(unlocked) == forced + 1
+            assert unlocked[-1] == order[forced]

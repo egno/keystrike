@@ -12,9 +12,9 @@ from .confidence import (
     MIN_TRANSITION_CONFIDENCE_ATTEMPTS,
     HasConfidenceFields,
     confidence_from_stats,
-    confidence_of,
     is_same_key_transition,
     review_urgency,
+    skill_of,
 )
 from .enums import FocusKind
 from .models import (
@@ -88,18 +88,15 @@ def _focus_score(
     )
 
 
-def has_weak_unlocked_key(
+def blocks_transition_focus(
     unlocked: Sequence[int],
     stats: Mapping[int, KeyStats],
     target: float,
     *,
     threshold: float = 1.0,
-    min_attempts: int = MIN_CONFIDENCE_ATTEMPTS,
 ) -> bool:
-    """True when any unlocked key is below mastery threshold."""
-    return any(
-        confidence_of(cp, stats, target, min_attempts=min_attempts) < threshold for cp in unlocked
-    )
+    """True when any unlocked key is below performance skill (ignores attempt ramp)."""
+    return any(skill_of(cp, stats, target) < threshold for cp in unlocked)
 
 
 def select_focus(
@@ -183,6 +180,23 @@ def select_focus_transition(
 def focus_key_from_transition(_prev_cp: int, next_cp: int) -> int:
     """Endpoint key to mark as lesson focus for a transition-driven bigram."""
     return next_cp
+
+
+def coverage_deficit_factor(
+    attempts: int,
+    *,
+    min_attempts: int = MIN_CONFIDENCE_ATTEMPTS,
+    max_boost: float = 2.0,
+) -> float:
+    """Session-scale boost when in-window attempts are below ``min_attempts``.
+
+    Separate from performance weakness (``practice_weight``) and day-scale
+    ``review_urgency`` — targets keys that need more window samples to unlock
+    or calibrate, peaking at zero attempts."""
+    if min_attempts <= 0 or attempts >= min_attempts:
+        return 1.0
+    deficit = 1.0 - attempts / min_attempts
+    return 1.0 + max_boost * deficit
 
 
 def practice_weight(

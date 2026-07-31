@@ -26,8 +26,9 @@ from keystrike.domain.confidence import (
 from keystrike.domain.enums import FocusKind
 from keystrike.domain.focus import (
     FocusReason,
+    blocks_transition_focus,
+    coverage_deficit_factor,
     focus_key_from_transition,
-    has_weak_unlocked_key,
     practice_weight,
     select_focus,
     select_focus_transition,
@@ -258,15 +259,12 @@ def _lesson_progress(
         ctx.stats,
         ctx.target,
         min_attempts=ctx.settings.min_confidence_attempts,
-        transitions=ctx.transitions,
-        min_transition_attempts=ctx.settings.min_transition_confidence_attempts,
     )
-    keys_need_focus = has_weak_unlocked_key(
+    keys_need_focus = blocks_transition_focus(
         unlocked,
         ctx.stats,
         ctx.target,
         threshold=_CONFIDENCE_GOOD,
-        min_attempts=ctx.settings.min_confidence_attempts,
     )
     focus_bigram: Bigram | None = None
     if not keys_need_focus and ctx.transitions:
@@ -330,6 +328,8 @@ def _compute_weights(
     """Per-char and per-transition sampling weights for practice-text
     generation, biased toward weak/stale keys and boosted further for
     today's focus (see `domain.focus.practice_weight`)."""
+    min_key_attempts = ctx.settings.min_confidence_attempts
+    min_transition_attempts = ctx.settings.min_transition_confidence_attempts
     char_weights = {
         chr(k.codepoint): practice_weight(
             k.confidence,
@@ -338,28 +338,33 @@ def _compute_weights(
                 ctx.now,
             ),
         )
+        * coverage_deficit_factor(
+            attempts_of(ctx.stats[k.codepoint]) if k.codepoint in ctx.stats else 0,
+            min_attempts=min_key_attempts,
+        )
         for k in state.keys
     }
     char_weights[chr(focus)] *= ctx.settings.focus_char_boost
+    unlocked_set = frozenset(unlocked)
     transition_weights = {
-        Bigram(prev, nxt): transition_practice_weight(
+        key: transition_practice_weight(
             transition_confidence_of(
-                prev,
-                nxt,
+                key.prev_cp,
+                key.next_cp,
                 ctx.transitions,
                 ctx.target,
-                min_attempts=ctx.settings.min_transition_confidence_attempts,
+                min_attempts=min_transition_attempts,
             ),
-            urgency=review_urgency(
-                ctx.transitions[Bigram(prev, nxt)].last_seen
-                if Bigram(prev, nxt) in ctx.transitions
-                else 0.0,
-                ctx.now,
-            ),
+            urgency=review_urgency(ctx.transitions[key].last_seen, ctx.now),
         )
-        for prev in unlocked
-        for nxt in unlocked
-        if not is_same_key_transition(prev, nxt)
+        * coverage_deficit_factor(
+            attempts_of(ctx.transitions[key]),
+            min_attempts=min_transition_attempts,
+        )
+        for key in ctx.transitions
+        if key.prev_cp in unlocked_set
+        and key.next_cp in unlocked_set
+        and not is_same_key_transition(key.prev_cp, key.next_cp)
     }
     if focus_bigram is not None:
         transition_weights[focus_bigram] *= ctx.settings.focus_transition_boost
