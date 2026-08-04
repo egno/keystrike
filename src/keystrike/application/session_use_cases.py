@@ -30,7 +30,7 @@ from keystrike.domain.session import (
     note_keystroke_for_timer,
     skip_leading_whitespace,
 )
-from keystrike.domain.unlock import compute_unlocked
+from keystrike.domain.unlock import compute_unlocked, default_transition_stall_attempts_cap
 
 
 @dataclass(slots=True)
@@ -150,6 +150,11 @@ def _snapshot_unlock_state(
         combined.keys,
         target,
         min_attempts=settings.min_confidence_attempts,
+        transitions=combined.transitions,
+        transition_min_attempts=settings.min_transition_confidence_attempts,
+        transition_stall_attempts_cap=default_transition_stall_attempts_cap(
+            settings.min_transition_confidence_attempts
+        ),
     )
     return unlocked, {
         cp: confidence_of(cp, combined.keys, target, min_attempts=settings.min_confidence_attempts)

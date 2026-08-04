@@ -14,12 +14,13 @@ from keystrike.domain.focus import (
     blocks_transition_focus,
     coverage_deficit_factor,
     focus_key_from_transition,
+    newest_key_unmeasured_pairs,
     practice_weight,
     select_focus,
     select_focus_transition,
 )
 from keystrike.domain.models import Bigram, KeyStats, TransitionStats
-from keystrike.domain.unlock import compute_unlocked
+from keystrike.domain.unlock import compute_unlocked, newest_key_clears_transition_gate
 
 
 def test_target_ms_per_char():
@@ -326,6 +327,77 @@ def test_compute_unlocked_ignores_weak_transitions():
     assert unlocked[-1] == ord("m")
 
 
+def test_compute_unlocked_gate_blocks_next_key_on_weak_newest_bigram():
+    """With a transitions gate, the newest key's weakest bigram must clear
+    before the next key opens -- unlike the transitions-agnostic default."""
+    e, a, b = ord("e"), ord("a"), ord("b")
+    learn_order = (e, a, b)
+    now = 1_700_000_000.0
+    stats = {
+        e: _stats(e, mean_time_ns=100_000_000.0, last_seen=now),
+        a: _stats(a, mean_time_ns=100_000_000.0, last_seen=now),
+    }
+    transitions = {
+        Bigram(e, a): _transition(e, a, 400_000_000.0, last_seen=now, attempt_count=4),
+        Bigram(a, e): _transition(a, e, 100_000_000.0, last_seen=now, attempt_count=4),
+    }
+    unlocked = compute_unlocked(
+        learn_order,
+        alphabet_size=2,
+        stats=stats,
+        target=200.0,
+        transitions=transitions,
+    )
+    assert unlocked == (e, a)
+
+
+def test_compute_unlocked_gate_allows_next_key_once_newest_bigram_clears():
+    e, a, b = ord("e"), ord("a"), ord("b")
+    learn_order = (e, a, b)
+    now = 1_700_000_000.0
+    stats = {
+        e: _stats(e, mean_time_ns=100_000_000.0, last_seen=now),
+        a: _stats(a, mean_time_ns=100_000_000.0, last_seen=now),
+    }
+    transitions = {
+        Bigram(e, a): _transition(e, a, 100_000_000.0, last_seen=now, attempt_count=4),
+        Bigram(a, e): _transition(a, e, 100_000_000.0, last_seen=now, attempt_count=4),
+    }
+    unlocked = compute_unlocked(
+        learn_order,
+        alphabet_size=2,
+        stats=stats,
+        target=200.0,
+        transitions=transitions,
+    )
+    assert unlocked == (e, a, b)
+
+
+def test_compute_unlocked_gate_stall_cap_unblocks_stuck_bigram():
+    """A bigram that never clears threshold shouldn't block progression
+    forever once it's been drilled past the stall cap."""
+    e, a, b = ord("e"), ord("a"), ord("b")
+    learn_order = (e, a, b)
+    now = 1_700_000_000.0
+    stats = {
+        e: _stats(e, mean_time_ns=100_000_000.0, last_seen=now),
+        a: _stats(a, mean_time_ns=100_000_000.0, last_seen=now),
+    }
+    transitions = {
+        Bigram(e, a): _transition(e, a, 400_000_000.0, last_seen=now, attempt_count=12),
+        Bigram(a, e): _transition(a, e, 100_000_000.0, last_seen=now, attempt_count=12),
+    }
+    unlocked = compute_unlocked(
+        learn_order,
+        alphabet_size=2,
+        stats=stats,
+        target=200.0,
+        transitions=transitions,
+        transition_stall_attempts_cap=12,
+    )
+    assert unlocked == (e, a, b)
+
+
 def test_select_focus_picks_weakest_unlocked_key():
     stats = {
         1: _stats(1, mean_time_ns=100_000_000.0),  # confidence 2.0
@@ -598,6 +670,202 @@ def test_select_focus_transition_ignores_unmeasured_pairs():
         ),
     }
     assert select_focus_transition(unlocked, transitions, 200.0, now) == (ord("a"), ord("b"))
+
+
+def test_select_focus_transition_prefers_newest_key_over_older_measured_pair():
+    """Once a third key is unlocked, its bigrams should win focus over an
+    already-measured (and merely weak, not unmeasured) older pair, so a
+    freshly-opened letter gets bigram practice right away."""
+    unlocked = (ord("a"), ord("b"), ord("c"))
+    now = 1_700_000_000.0
+    stats = {
+        ord("a"): KeyStats(ord("a"), 10, 200_000_000.0, 0, now, attempt_count=10),
+        ord("b"): KeyStats(ord("b"), 10, 200_000_000.0, 0, now, attempt_count=10),
+        ord("c"): KeyStats(ord("c"), 10, 200_000_000.0, 0, now, attempt_count=10),
+    }
+    transitions = {
+        Bigram(ord("a"), ord("b")): _transition(
+            ord("a"),
+            ord("b"),
+            400_000_000.0,
+            last_seen=now,
+            attempt_count=10,
+        ),
+    }
+    # c is unlocked and practiced solo, but none of its transitions are
+    # measured yet -- it should still win over the already-measured (a, b).
+    result = select_focus_transition(unlocked, transitions, 200.0, now, key_stats=stats)
+    assert result is not None
+    assert ord("c") in result
+
+
+def test_select_focus_transition_uses_measured_pairs_once_newest_key_has_data():
+    """Once the newest key has its own measured transition, ordinary
+    weakest-pair scoring resumes -- no permanent bias toward the newest key."""
+    unlocked = (ord("a"), ord("b"), ord("c"))
+    now = 1_700_000_000.0
+    fast = 100_000_000.0
+    stats = {
+        ord("a"): KeyStats(ord("a"), 10, 200_000_000.0, 0, now, attempt_count=10),
+        ord("b"): KeyStats(ord("b"), 10, 200_000_000.0, 0, now, attempt_count=10),
+        ord("c"): KeyStats(ord("c"), 10, 200_000_000.0, 0, now, attempt_count=10),
+    }
+    transitions = {
+        Bigram(ord("a"), ord("b")): _transition(
+            ord("a"),
+            ord("b"),
+            400_000_000.0,
+            last_seen=now,
+            attempt_count=10,
+        ),
+        Bigram(ord("b"), ord("c")): _transition(
+            ord("b"),
+            ord("c"),
+            fast,
+            last_seen=now,
+            attempt_count=10,
+        ),
+    }
+    assert select_focus_transition(unlocked, transitions, 200.0, now, key_stats=stats) == (
+        ord("a"),
+        ord("b"),
+    )
+
+
+def test_newest_key_unmeasured_pairs_excludes_unpracticed_cascade_key():
+    """A key unlocked by cascade (no KeyStats yet) shouldn't get bigram
+    candidacy just for sitting next to the newest practiced key."""
+    unlocked = (ord("a"), ord("s"), ord("h"), ord("d"), ord("l"))
+    now = 1_700_000_000.0
+    stats = {
+        cp: KeyStats(cp, 10, 200_000_000.0, 0, now, attempt_count=10)
+        for cp in (ord("a"), ord("s"), ord("h"), ord("d"))
+    }
+    pairs = newest_key_unmeasured_pairs(unlocked, {}, stats)
+    assert pairs
+    assert all(ord("l") not in (p.prev_cp, p.next_cp) for p in pairs)
+    assert all(ord("d") in (p.prev_cp, p.next_cp) for p in pairs)
+
+
+def test_newest_key_unmeasured_pairs_empty_once_newest_has_any_measured_pair():
+    unlocked = (ord("a"), ord("s"), ord("d"))
+    now = 1_700_000_000.0
+    stats = {
+        cp: KeyStats(cp, 10, 200_000_000.0, 0, now, attempt_count=10)
+        for cp in (ord("a"), ord("s"), ord("d"))
+    }
+    transitions = {
+        Bigram(ord("s"), ord("d")): _transition(
+            ord("s"), ord("d"), 200_000_000.0, last_seen=now, attempt_count=10
+        ),
+    }
+    assert newest_key_unmeasured_pairs(unlocked, transitions, stats) == []
+
+
+def test_newest_key_clears_transition_gate_vacuous_with_one_key():
+    now = 1_700_000_000.0
+    stats = {ord("a"): _stats(ord("a"), mean_time_ns=100_000_000.0, last_seen=now)}
+    assert newest_key_clears_transition_gate((ord("a"),), {}, 200.0, stats) is True
+
+
+def test_newest_key_clears_transition_gate_false_when_no_pair_measured_yet():
+    """Newest key practiced solo but hasn't typed any bigram with a peer
+    yet -- gate stays closed; lesson weighting is what pushes exposure."""
+    unlocked = (ord("a"), ord("b"))
+    now = 1_700_000_000.0
+    stats = {
+        ord("a"): _stats(ord("a"), mean_time_ns=100_000_000.0, last_seen=now),
+        ord("b"): _stats(ord("b"), mean_time_ns=100_000_000.0, last_seen=now),
+    }
+    assert newest_key_clears_transition_gate(unlocked, {}, 200.0, stats) is False
+
+
+def test_newest_key_clears_transition_gate_false_when_weakest_pair_weak():
+    unlocked = (ord("a"), ord("b"))
+    now = 1_700_000_000.0
+    stats = {
+        ord("a"): _stats(ord("a"), mean_time_ns=100_000_000.0, last_seen=now),
+        ord("b"): _stats(ord("b"), mean_time_ns=100_000_000.0, last_seen=now),
+    }
+    transitions = {
+        Bigram(ord("a"), ord("b")): _transition(
+            ord("a"), ord("b"), 400_000_000.0, last_seen=now, attempt_count=4
+        ),
+        Bigram(ord("b"), ord("a")): _transition(
+            ord("b"), ord("a"), 100_000_000.0, last_seen=now, attempt_count=4
+        ),
+    }
+    assert newest_key_clears_transition_gate(unlocked, transitions, 200.0, stats) is False
+
+
+def test_newest_key_clears_transition_gate_true_when_weakest_pair_solid():
+    unlocked = (ord("a"), ord("b"))
+    now = 1_700_000_000.0
+    stats = {
+        ord("a"): _stats(ord("a"), mean_time_ns=100_000_000.0, last_seen=now),
+        ord("b"): _stats(ord("b"), mean_time_ns=100_000_000.0, last_seen=now),
+    }
+    transitions = {
+        Bigram(ord("a"), ord("b")): _transition(
+            ord("a"), ord("b"), 100_000_000.0, last_seen=now, attempt_count=4
+        ),
+        Bigram(ord("b"), ord("a")): _transition(
+            ord("b"), ord("a"), 100_000_000.0, last_seen=now, attempt_count=4
+        ),
+    }
+    assert newest_key_clears_transition_gate(unlocked, transitions, 200.0, stats) is True
+
+
+def test_newest_key_clears_transition_gate_ignores_untouched_peer_pair():
+    """Regression: one measured (weak-but-clearable) pair and one entirely
+    untouched peer pair -- the gate must judge only the measured pair, not
+    treat the untouched one as an automatic (and un-releasable) failure."""
+    unlocked = (ord("a"), ord("b"), ord("c"))
+    now = 1_700_000_000.0
+    stats = {
+        ord("a"): _stats(ord("a"), mean_time_ns=100_000_000.0, last_seen=now),
+        ord("b"): _stats(ord("b"), mean_time_ns=100_000_000.0, last_seen=now),
+        ord("c"): _stats(ord("c"), mean_time_ns=100_000_000.0, last_seen=now),
+    }
+    # Only a<->c is measured (and solid); b<->c is never touched at all.
+    transitions = {
+        Bigram(ord("a"), ord("c")): _transition(
+            ord("a"), ord("c"), 100_000_000.0, last_seen=now, attempt_count=4
+        ),
+        Bigram(ord("c"), ord("a")): _transition(
+            ord("c"), ord("a"), 100_000_000.0, last_seen=now, attempt_count=4
+        ),
+    }
+    assert newest_key_clears_transition_gate(unlocked, transitions, 200.0, stats) is True
+
+
+def test_newest_key_clears_transition_gate_stall_cap_overrides_weak_pair():
+    unlocked = (ord("a"), ord("b"))
+    now = 1_700_000_000.0
+    stats = {
+        ord("a"): _stats(ord("a"), mean_time_ns=100_000_000.0, last_seen=now),
+        ord("b"): _stats(ord("b"), mean_time_ns=100_000_000.0, last_seen=now),
+    }
+    transitions = {
+        Bigram(ord("a"), ord("b")): _transition(
+            ord("a"), ord("b"), 400_000_000.0, last_seen=now, attempt_count=12
+        ),
+        Bigram(ord("b"), ord("a")): _transition(
+            ord("b"), ord("a"), 100_000_000.0, last_seen=now, attempt_count=12
+        ),
+    }
+    assert (
+        newest_key_clears_transition_gate(
+            unlocked, transitions, 200.0, stats, stall_attempts_cap=12
+        )
+        is True
+    )
+    assert (
+        newest_key_clears_transition_gate(
+            unlocked, transitions, 200.0, stats, stall_attempts_cap=13
+        )
+        is False
+    )
 
 
 def test_select_focus_transition_falls_back_to_unmeasured_unlocked_pair():

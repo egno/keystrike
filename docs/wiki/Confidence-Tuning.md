@@ -85,8 +85,20 @@ The first **N** keys in layout `learn_order` are always unlocked, where **N** is
 key in `learn_order` unlocks only when **every** currently unlocked key meets the
 skill threshold (default 1.0: min(speed, accuracy) without attempt ramp) **and**
 has at least `min_confidence_attempts` presses in the session window. Ramped
-confidence still drives HUD labels (`cal` vs `wk`) and focus weighting. Bigrams
-affect focus and lesson text only — they do not gate which letter opens next.
+confidence still drives HUD labels (`cal` vs `wk`) and focus weighting.
+
+Beyond solo-key mastery, the most-recently-unlocked key's bigrams with its
+peers also gate the next key: it needs at least one measured cross-key pair,
+and its single *weakest* measured pair must clear `transition_threshold`
+(`domain.unlock.compute_unlocked`'s `transitions` argument, wired from
+`build_lesson`/`session_use_cases` via `newest_key_clears_transition_gate`).
+This is deliberately bounded to one pair, not every peer combination, so the
+bar doesn't grow with alphabet depth — and an untouched peer pair never
+counts against it, only pairs that have actually been typed at least once.
+A `transition_stall_attempts_cap` (`domain.unlock.default_transition_stall_attempts_cap`,
+3× the transition calibration floor by default) releases a specific pair
+that's been drilled past the cap without clearing threshold, so one stubborn
+bigram can't block progression forever.
 
 **Focus selection** is letter-first: while any unlocked key is below performance
 skill (`blocks_transition_focus`), the lesson emphasizes the weakest unlocked
@@ -94,15 +106,32 @@ skill (`blocks_transition_focus`), the lesson emphasizes the weakest unlocked
 activates when every unlocked key meets the skill threshold (speed and accuracy
 without the attempt ramp), even if some keys are still calibrating on press
 count; then the weakest measured cross-key bigram among unlocked keys drives
-focus. If no transition data exists yet, focus falls back to the weakest key.
+focus — unless the most-recently-practiced unlocked key has no measured
+transitions of its own yet, in which case its weakest unmeasured pair takes
+priority instead (`newest_key_unmeasured_pairs`), so a freshly-mastered key
+gets bigram focus before older, merely-weak measured pairs. This unmeasured-pair
+fallback is what fires when no transition data exists at all, as long as the
+newest practiced key has a practiced peer to pair with — only when it has no
+such peer (or nothing's been practiced yet) does focus fall further back to
+the weakest key.
 
 ### Transition stats
 
 Same-key / double-letter bigrams are never aggregated into session stats, stored
-in the stats cache, or used in unlock checks. Only cross-key pairs (e.g. `th`,
-`he`) participate in transition confidence, focus selection, and bigram-weighted
-lesson text. Transition sampling weights apply only to **measured** unlocked
-cross-key bigrams; unmeasured pairs keep the generator default (1.0).
+in the stats cache, or used in unlock checks — including the transition gate
+above. Only cross-key pairs (e.g. `th`, `he`) participate in transition
+confidence, focus selection, the unlock gate, and bigram-weighted lesson
+text. Transition sampling weights apply to **measured** unlocked
+cross-key bigrams; other unmeasured pairs keep the generator default (1.0) —
+except pairs between the most-recently-*practiced* unlocked key and other
+already-practiced unlocked keys, which get an explicit zero-attempt weight
+(`transition_practice_weight(0.0, ...) * coverage_deficit_factor(0, ...)`,
+12.0 at default settings) instead of 1.0, so a newly-mastered key's bigrams
+show up in generated text right away rather than waiting on chance. This
+stops as soon as any of that key's pairs gets measured data — see
+`domain.focus.newest_key_unmeasured_pairs`, the single source of truth for
+this "newest key" candidate set shared by focus selection and lesson
+weighting.
 
 ## Tradeoffs
 

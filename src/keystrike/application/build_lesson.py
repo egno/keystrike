@@ -29,6 +29,7 @@ from keystrike.domain.focus import (
     blocks_transition_focus,
     coverage_deficit_factor,
     focus_key_from_transition,
+    newest_key_unmeasured_pairs,
     practice_weight,
     select_focus,
     select_focus_transition,
@@ -59,7 +60,7 @@ from keystrike.domain.protocols import (
     SettingsRepository,
     WordListStore,
 )
-from keystrike.domain.unlock import compute_unlocked
+from keystrike.domain.unlock import compute_unlocked, default_transition_stall_attempts_cap
 from keystrike.domain.wordlist import words_for_alphabet
 
 _CONFIDENCE_GOOD = 1.0
@@ -262,6 +263,11 @@ def _lesson_progress(
         ctx.stats,
         ctx.target,
         min_attempts=ctx.settings.min_confidence_attempts,
+        transitions=ctx.transitions,
+        transition_min_attempts=ctx.settings.min_transition_confidence_attempts,
+        transition_stall_attempts_cap=default_transition_stall_attempts_cap(
+            ctx.settings.min_transition_confidence_attempts
+        ),
     )
     keys_need_focus = blocks_transition_focus(
         unlocked,
@@ -370,6 +376,13 @@ def _compute_weights(
         and key.next_cp in unlocked_set
         and not is_same_key_transition(key.prev_cp, key.next_cp)
     }
+    newest_pairs = newest_key_unmeasured_pairs(unlocked, ctx.transitions, ctx.stats)
+    if newest_pairs:
+        default_weight = transition_practice_weight(0.0, urgency=0.0) * coverage_deficit_factor(
+            0, min_attempts=min_transition_attempts
+        )
+        for pair in newest_pairs:
+            transition_weights.setdefault(pair, default_weight)
     if focus_bigram is not None:
         transition_weights.setdefault(
             focus_bigram,

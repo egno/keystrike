@@ -1,6 +1,12 @@
 from random import Random
 
-from keystrike.application.build_lesson import BuildLesson, _transition_focus_metrics
+from keystrike.application.build_lesson import (
+    BuildLesson,
+    _compute_weights,
+    _lesson_progress,
+    _resolve_focus_confidence,
+    _transition_focus_metrics,
+)
 from keystrike.domain.aggregate import _combine_transition_maps_weighted, session_recency_weights
 from keystrike.domain.confidence import target_ms_per_char, transition_confidence_of
 from keystrike.domain.enums import FocusKind
@@ -315,6 +321,112 @@ def test_lesson_uses_transition_focus_when_newly_unlocked_key_unpracticed():
     pair_bigram = Bigram(a, s)
     assert lesson.focus_key == s
     assert lesson.focus_reason == FocusReason(kind=FocusKind.TRANSITION_WEAK, pair=pair_bigram)
+
+
+def test_lesson_focuses_newest_key_bigram_over_older_weak_measured_pair():
+    """Once the newly-unlocked key has been practiced solo but has no
+    measured transitions of its own, its bigrams should win lesson focus
+    over an older, merely-weak (already-measured) pair -- not wait for one
+    of its pairs to show up in generated text by chance."""
+    layout = BUNDLED_LAYOUTS["qwerty"]
+    order = keyboard_order(layout)
+    a, s, h, d = order[0], order[1], order[2], order[3]
+    now = 1_700_000_000.0
+    fast = 100_000_000.0
+    at_target = 200_000_000.0
+    slow = 400_000_000.0
+    keys = {
+        a: KeyStats(a, 10, at_target, 0, now, attempt_count=10),
+        s: KeyStats(s, 10, at_target, 0, now, attempt_count=10),
+        h: KeyStats(h, 10, at_target, 0, now, attempt_count=10),
+        d: KeyStats(d, 10, at_target, 0, now, attempt_count=10),
+    }
+    # Without a transitions gate, a, s, h, d being all mastered would cascade
+    # the next key open too (sanity check on the key-only unlock policy).
+    unlocked = compute_unlocked(order, alphabet_size=4, stats=keys, target=200.0)
+    assert d in unlocked
+    assert len(unlocked) == 5
+    transitions = {
+        Bigram(a, s): TransitionStats(a, s, 10, slow, 0, now, attempt_count=10),
+        Bigram(s, a): TransitionStats(s, a, 10, fast, 0, now, attempt_count=10),
+        Bigram(a, h): TransitionStats(a, h, 10, fast, 0, now, attempt_count=10),
+        Bigram(h, a): TransitionStats(h, a, 10, fast, 0, now, attempt_count=10),
+        Bigram(s, h): TransitionStats(s, h, 10, fast, 0, now, attempt_count=10),
+        Bigram(h, s): TransitionStats(h, s, 10, fast, 0, now, attempt_count=10),
+        # d is unlocked and practiced solo, but none of its transitions are
+        # measured yet.
+    }
+    cache = FakeAggregatesCache(
+        by_layout={"qwerty": LayoutAggregates(keys=keys, transitions=transitions)},
+    )
+    builder = BuildLesson(
+        layout_repo=FakeLayoutRepository(dict(BUNDLED_LAYOUTS)),
+        aggregates_cache=cache,
+        settings_repo=FakeSettingsRepository(Settings(alphabet_size=4)),
+        language_provider=FakeLanguageProvider(),
+        wordlist_store=FakeWordListStore(),
+        rng=Random(0),
+        clock=FakeClock(),
+    )
+    lesson = builder("qwerty")
+    assert lesson.focus_reason is not None
+    assert lesson.focus_reason.kind == FocusKind.TRANSITION_WEAK
+    focus_pair = lesson.focus_reason.pair
+    assert focus_pair is not None
+    assert d in focus_pair
+    # With the transitions gate wired in, the next key does NOT cascade open
+    # until d's weakest bigram clears -- unlike the bare compute_unlocked
+    # call above.
+    assert {k.codepoint for k in lesson.state.keys} == {a, s, h, d}
+
+
+def test_compute_weights_gives_newest_key_pairs_a_default_weight():
+    layout = BUNDLED_LAYOUTS["qwerty"]
+    order = keyboard_order(layout)
+    a, s, h, d = order[0], order[1], order[2], order[3]
+    now = 1_700_000_000.0
+    fast = 100_000_000.0
+    at_target = 200_000_000.0
+    keys = {
+        a: KeyStats(a, 10, at_target, 0, now, attempt_count=10),
+        s: KeyStats(s, 10, at_target, 0, now, attempt_count=10),
+        h: KeyStats(h, 10, at_target, 0, now, attempt_count=10),
+        d: KeyStats(d, 10, at_target, 0, now, attempt_count=10),
+    }
+    transitions = {
+        Bigram(a, s): TransitionStats(a, s, 10, fast, 0, now, attempt_count=10),
+        Bigram(s, a): TransitionStats(s, a, 10, fast, 0, now, attempt_count=10),
+    }
+    cache = FakeAggregatesCache(
+        by_layout={"qwerty": LayoutAggregates(keys=keys, transitions=transitions)},
+    )
+    builder = BuildLesson(
+        layout_repo=FakeLayoutRepository(dict(BUNDLED_LAYOUTS)),
+        aggregates_cache=cache,
+        settings_repo=FakeSettingsRepository(Settings(alphabet_size=4)),
+        language_provider=FakeLanguageProvider(),
+        wordlist_store=FakeWordListStore(),
+        rng=Random(0),
+        clock=FakeClock(),
+    )
+    ctx = builder._load_context("qwerty")
+    progress = _lesson_progress("qwerty", ctx)
+    focus_confidence = _resolve_focus_confidence(progress.focus, progress.focus_bigram, ctx)
+    _, transition_weights = _compute_weights(
+        progress.state,
+        progress.focus,
+        progress.focus_bigram,
+        focus_confidence,
+        unlocked=progress.unlocked,
+        ctx=ctx,
+    )
+    # d is unlocked but has no measured transitions -- it should still get a
+    # default (non-boosted) weight for each pair with an older unlocked key,
+    # not be entirely absent from the weighting map.
+    assert Bigram(d, a) in transition_weights
+    assert Bigram(a, d) in transition_weights
+    assert Bigram(d, s) in transition_weights
+    assert Bigram(d, h) in transition_weights
 
 
 def test_transition_focus_metrics_reports_accuracy_when_speed_measured():

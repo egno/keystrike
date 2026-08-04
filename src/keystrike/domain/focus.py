@@ -12,7 +12,6 @@ from .confidence import (
     MIN_TRANSITION_CONFIDENCE_ATTEMPTS,
     HasConfidenceFields,
     confidence_from_stats,
-    is_same_key_transition,
     review_urgency,
     skill_of,
 )
@@ -24,12 +23,11 @@ from .models import (
     KeyStats,
     TransitionStats,
 )
+from .newest_key import newest_practiced_key_pairs, unlocked_cross_key_pairs
 
 # Re-exported for domain.generator, which imports these boost defaults from
 # this module rather than `domain.models` directly.
 __all__ = ["FOCUS_BIGRAM_WORD_BOOST", "FOCUS_WORD_BOOST"]
-
-_UNMEASURED_PAIR_FALLBACK_UNLOCKED_SIZE = 2
 
 _TRANSITION_KINDS = (
     FocusKind.TRANSITION_WEAK,
@@ -148,13 +146,23 @@ def _transition_focus_score(
     )
 
 
-def _unlocked_cross_key_pairs(unlocked: Sequence[int]) -> list[Bigram]:
-    return [
-        Bigram(prev, nxt)
-        for prev in unlocked
-        for nxt in unlocked
-        if not is_same_key_transition(prev, nxt)
-    ]
+def newest_key_unmeasured_pairs(
+    unlocked: Sequence[int],
+    transitions: Mapping[Bigram, TransitionStats],
+    key_stats: Mapping[int, KeyStats] | None,
+) -> list[Bigram]:
+    """Cross-key pairs between the most-recently-*practiced* unlocked key and
+    its other already-practiced unlocked peers, when none of those pairs
+    have measured transition data yet.
+
+    Built on `domain.newest_key.newest_practiced_key_pairs`, the single
+    source of truth shared with `domain.unlock.newest_key_clears_transition_gate`.
+    Returns empty once the newest key has *any* measured transition
+    (ordinary weakest-pair scoring takes over from there for focus
+    selection), when no unlocked key has been practiced yet, or when it has
+    no other practiced key to pair with."""
+    unmeasured, measured = newest_practiced_key_pairs(unlocked, transitions, key_stats)
+    return [] if measured else unmeasured
 
 
 def select_focus_transition(
@@ -169,43 +177,29 @@ def select_focus_transition(
 ) -> Bigram | None:
     """Weakest unlocked bigram by transition confidence.
 
-    Measured pairs are preferred. When none exist yet but every unlocked key
-    has been practiced (typical two-key drills before cross-key stats land),
-    fall back to the weakest-scoring unmeasured cross-key pair."""
-    pairs = [pair for pair in _unlocked_cross_key_pairs(unlocked) if pair in transitions]
-    if pairs:
-        return min(
-            pairs,
-            key=lambda p: _transition_focus_score(
-                p.prev_cp,
-                p.next_cp,
-                transitions,
-                target,
-                now,
-                review_penalty=review_penalty,
-                min_attempts=min_attempts,
-            ),
-        )
-    if key_stats is None or not all(cp in key_stats for cp in unlocked):
-        return None
-    # ponytail: two-key drills only; larger alphabets should wait for measured pairs
-    if len(unlocked) != _UNMEASURED_PAIR_FALLBACK_UNLOCKED_SIZE:
-        return None
-    candidates = _unlocked_cross_key_pairs(unlocked)
-    if not candidates:
-        return None
-    return min(
-        candidates,
-        key=lambda p: _transition_focus_score(
-            p.prev_cp,
-            p.next_cp,
+    Measured pairs are preferred. But when the newest practiced key has no
+    measured transitions of its own yet (`newest_key_unmeasured_pairs`), fall
+    back to its weakest-scoring unmeasured pair — so a freshly-opened letter
+    gets bigram focus right away instead of waiting for its pairs to appear
+    by chance."""
+
+    def _score(pair: Bigram) -> float:
+        return _transition_focus_score(
+            pair.prev_cp,
+            pair.next_cp,
             transitions,
             target,
             now,
             review_penalty=review_penalty,
             min_attempts=min_attempts,
-        ),
-    )
+        )
+
+    candidates = newest_key_unmeasured_pairs(unlocked, transitions, key_stats)
+    if candidates:
+        return min(candidates, key=_score)
+
+    measured = [pair for pair in unlocked_cross_key_pairs(unlocked) if pair in transitions]
+    return min(measured, key=_score) if measured else None
 
 
 def focus_key_from_transition(_prev_cp: int, next_cp: int) -> int:

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from random import Random
 from typing import TypedDict
 
+from keystrike.application.build_lesson import BuildLesson
 from keystrike.application.session_use_cases import (
     AbortSession,
     FinishSession,
@@ -15,6 +17,7 @@ from keystrike.application.session_use_cases import (
     count_words_completed,
     previous_session_header,
 )
+from keystrike.application.stats_use_cases import RebuildAggregates
 from keystrike.domain.aggregate import combine_sessions
 from keystrike.domain.confidence import (
     CONFIDENCE_SESSION_WINDOW,
@@ -28,11 +31,14 @@ from keystrike.domain.unlock import compute_unlocked
 from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS
 from keystrike.presentation.formatting.trends import format_session_stats_line
 from tests.fakes import (
+    FakeAggregatesCache,
     FakeClock,
     FakeIdGenerator,
+    FakeLanguageProvider,
     FakeLayoutRepository,
     FakeSessionRepository,
     FakeSettingsRepository,
+    FakeWordListStore,
 )
 
 
@@ -570,3 +576,57 @@ def test_finish_session_persists_target_speed_cpm(clock, id_gen):
 
     assert result.target_speed_cpm == 400
     assert repo.headers[0].target_speed_cpm == 400
+
+
+def test_finish_session_alphabet_bump_respects_transition_gate(clock, id_gen):
+    """Regression: solo-mastering four keys without ever typing a bigram
+    between them must not bump alphabet_size -- the old `_snapshot_unlock_state`
+    computed `unlocked_keys` without passing `transitions` at all, so it
+    silently persisted an ungated count. The next `BuildLesson` call then
+    force-unlocked that many keys via `forced_count`, bypassing the
+    transition gate entirely regardless of what `compute_unlocked` would
+    otherwise require."""
+    layout_name = "qwerty"
+    layout = BUNDLED_LAYOUTS[layout_name]
+    order = keyboard_order(layout)
+    settings_repo = FakeSettingsRepository(Settings(alphabet_size=4))
+    layout_repo = FakeLayoutRepository(dict(BUNDLED_LAYOUTS))
+    repo = FakeSessionRepository()
+    finish = FinishSession(
+        clock=clock,
+        repo=repo,
+        settings_repo=settings_repo,
+        layout_repo=layout_repo,
+    )
+    start = StartSession(clock=clock, id_gen=id_gen)
+    record = RecordKeystroke(clock=clock)
+
+    # Master a, s, h, d solo -- each in its OWN session, repeating a single
+    # character, so no cross-key bigram is ever produced (same-key deltas
+    # are dropped, see `without_same_key_transitions`).
+    for cp in order[:4]:
+        text = chr(cp) * 10
+        session = start(text, layout=layout_name, mode=Mode.ADAPTIVE, focus_key=cp)
+        for c in text:
+            clock.advance(50_000_000)
+            record(session, c)
+        finish(session)
+
+    assert settings_repo.settings.alphabet_size == 4
+
+    aggregates_cache = FakeAggregatesCache()
+    RebuildAggregates(repo=repo, cache=aggregates_cache, settings_repo=settings_repo)(layout_name)
+
+    builder = BuildLesson(
+        layout_repo=layout_repo,
+        aggregates_cache=aggregates_cache,
+        settings_repo=settings_repo,
+        language_provider=FakeLanguageProvider(),
+        wordlist_store=FakeWordListStore(),
+        rng=Random(0),
+        clock=clock,
+    )
+    lesson = builder(layout_name)
+    unlocked_cps = {k.codepoint for k in lesson.state.keys}
+    assert unlocked_cps == set(order[:4])
+    assert order[4] not in unlocked_cps
