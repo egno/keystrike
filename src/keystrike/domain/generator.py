@@ -449,7 +449,18 @@ class AdaptiveGenerator:
                     generated_min_len=generated_min_len,
                     generated_max_len=generated_max_len,
                 )
-            self._ensure_single_focus_match(lesson_words, focus_char, focus_bigram)
+            self._ensure_single_focus_match(
+                lesson_words,
+                focus_char,
+                focus_bigram,
+                alphabet=alphabet,
+                weighting=weighting,
+                focus_bigram_str=focus_bigram_str,
+                focus_pool=focus_pool,
+                focus_weighted=focus_weighted,
+                generated_min_len=generated_min_len,
+                generated_max_len=generated_max_len,
+            )
         else:
             focus_quota = min(min_focus_words, word_count)
             pool_draws = _sample_focus_words_without_replacement(
@@ -502,6 +513,7 @@ class AdaptiveGenerator:
             focus_bigrams,
             alphabet,
             weighting,
+            focus_char=focus_char,
             min_focus_words=min_focus_words,
             max_word_repeats=max_word_repeats,
             generated_min_len=generated_min_len,
@@ -514,6 +526,14 @@ class AdaptiveGenerator:
         lesson_words: list[str],
         focus_char: str,
         focus_bigram: Bigram | None,
+        *,
+        alphabet: frozenset[str],
+        weighting: LessonWeighting,
+        focus_bigram_str: str | None,
+        focus_pool: tuple[str, ...],
+        focus_weighted: WeightedWordlist | None,
+        generated_min_len: int,
+        generated_max_len: int,
     ) -> None:
         """Guarantee at least one lesson word contains the focus (used when
         ``min_focus_words <= 1``, where no quota loop already guarantees it)."""
@@ -522,12 +542,32 @@ class AdaptiveGenerator:
             bigram = prev_char + next_char
             if not any(bigram in w for w in lesson_words):
                 idx = self.rng.randrange(len(lesson_words))
-                lesson_words[idx] = self._inject_focus_bigram(
-                    lesson_words[idx], prev_char, next_char
+                lesson_words[idx] = self._focus_word_or_inject(
+                    lesson_words[idx],
+                    alphabet=alphabet,
+                    weighting=weighting,
+                    focus_char=focus_char,
+                    focus_bigram=focus_bigram,
+                    focus_bigram_str=focus_bigram_str,
+                    focus_pool=focus_pool,
+                    focus_weighted=focus_weighted,
+                    generated_min_len=generated_min_len,
+                    generated_max_len=generated_max_len,
                 )
         elif not any(focus_char in w for w in lesson_words):
             idx = self.rng.randrange(len(lesson_words))
-            lesson_words[idx] = self._inject_focus(lesson_words[idx], focus_char)
+            lesson_words[idx] = self._focus_word_or_inject(
+                lesson_words[idx],
+                alphabet=alphabet,
+                weighting=weighting,
+                focus_char=focus_char,
+                focus_bigram=None,
+                focus_bigram_str=None,
+                focus_pool=focus_pool,
+                focus_weighted=focus_weighted,
+                generated_min_len=generated_min_len,
+                generated_max_len=generated_max_len,
+            )
 
     def _distribute_focus_bigram_coverage(
         self,
@@ -536,6 +576,7 @@ class AdaptiveGenerator:
         alphabet: frozenset[str],
         weighting: LessonWeighting,
         *,
+        focus_char: str,
         min_focus_words: int,
         max_word_repeats: int,
         generated_min_len: int,
@@ -546,21 +587,37 @@ class AdaptiveGenerator:
         coverage_slots = min(len(lesson_words), max(min_focus_words, len(focus_bigrams)))
         for index in range(coverage_slots):
             pair = focus_bigrams[index % len(focus_bigrams)]
-            candidate = self._inject_focus_bigram(
-                lesson_words[index], chr(pair.prev_cp), chr(pair.next_cp)
-            )
+            prev_char, next_char = chr(pair.prev_cp), chr(pair.next_cp)
+            bigram_str = pair.chars()
             other_words = lesson_words[:index] + lesson_words[index + 1 :]
-            if Counter(other_words)[candidate] >= max_word_repeats:
-                for _ in range(MAX_REPEAT_RESAMPLE):
-                    candidate = self._inject_focus_bigram(
-                        self._generate_word_via_markov(
-                            alphabet, weighting, generated_min_len, generated_max_len
-                        ),
-                        chr(pair.prev_cp),
-                        chr(pair.next_cp),
+            candidate = self._sample_wordlist_with_bigram(
+                alphabet,
+                weighting,
+                focus_char=focus_char,
+                bigram_str=bigram_str,
+                exclude_counts=Counter(other_words),
+                max_repeats=max_word_repeats,
+            )
+            if candidate is None:
+                base = (
+                    self._generate_word_via_markov(
+                        alphabet, weighting, generated_min_len, generated_max_len
                     )
-                    if Counter(other_words)[candidate] < max_word_repeats:
-                        break
+                    if weighting.words
+                    else lesson_words[index]
+                )
+                candidate = self._inject_focus_bigram(base, prev_char, next_char)
+                if Counter(other_words)[candidate] >= max_word_repeats:
+                    for _ in range(MAX_REPEAT_RESAMPLE):
+                        candidate = self._inject_focus_bigram(
+                            self._generate_word_via_markov(
+                                alphabet, weighting, generated_min_len, generated_max_len
+                            ),
+                            prev_char,
+                            next_char,
+                        )
+                        if Counter(other_words)[candidate] < max_word_repeats:
+                            break
             lesson_words[index] = candidate
         if len(lesson_words) >= len(focus_bigrams):
             missing = [
@@ -617,9 +674,14 @@ class AdaptiveGenerator:
             lesson_words,
             word,
             alphabet,
+            weighting=weighting,
             focus_char=focus_char,
             focus_bigram=focus_bigram,
+            focus_bigram_str=focus_bigram_str,
+            focus_pool=focus_pool if use_wordlist else (),
+            focus_weighted=focus_weighted if use_wordlist else None,
             max_word_repeats=max_word_repeats,
+            generated_min_len=generated_min_len,
             generated_max_len=generated_max_len,
         )
 
@@ -666,23 +728,37 @@ class AdaptiveGenerator:
         word: str,
         alphabet: frozenset[str],
         *,
+        weighting: LessonWeighting | None = None,
         focus_char: str | None = None,
         focus_bigram: Bigram | None = None,
+        focus_bigram_str: str | None = None,
+        focus_pool: tuple[str, ...] = (),
+        focus_weighted: WeightedWordlist | None = None,
         max_word_repeats: int = MAX_WORD_REPEATS,
+        generated_min_len: int = GENERATED_WORD_MIN_LEN,
         generated_max_len: int = GENERATED_WORD_MAX_LEN,
     ) -> None:
         """Ensures: word is appended without exceeding the repeat cap."""
         if _append_word_if_under_repeat_cap(lesson_words, word, max_repeats=max_word_repeats):
             return
+        weighting = weighting or LessonWeighting()
         chars = sorted(alphabet)
         for _ in range(MAX_REPEAT_RESAMPLE):
-            if len(word) < generated_max_len:
+            if focus_char is not None or focus_bigram is not None:
+                word = self._focus_word_or_inject(
+                    word,
+                    alphabet=alphabet,
+                    weighting=weighting,
+                    focus_char=focus_char or "",
+                    focus_bigram=focus_bigram,
+                    focus_bigram_str=focus_bigram_str,
+                    focus_pool=focus_pool,
+                    focus_weighted=focus_weighted,
+                    generated_min_len=generated_min_len,
+                    generated_max_len=generated_max_len,
+                )
+            elif len(word) < generated_max_len:
                 word = word + self.rng.choice(chars)
-            elif focus_bigram is not None:
-                prev_char, next_char = chr(focus_bigram.prev_cp), chr(focus_bigram.next_cp)
-                word = self._inject_focus_bigram(word, prev_char, next_char)
-            elif focus_char is not None:
-                word = self._inject_focus(word, focus_char)
             else:
                 pos = self.rng.randrange(len(word))
                 word = word[:pos] + self.rng.choice(chars) + word[pos + 1 :]
@@ -691,6 +767,65 @@ class AdaptiveGenerator:
         # ponytail: small alphabet caps distinct words below lesson_word_count x max_repeats;
         # append anyway rather than abort practice.
         lesson_words.append(word)
+
+    def _sample_wordlist_with_bigram(
+        self,
+        alphabet: frozenset[str],
+        weighting: LessonWeighting,
+        *,
+        focus_char: str,
+        bigram_str: str,
+        exclude_counts: Counter[str],
+        max_repeats: int,
+    ) -> str | None:
+        """Resample a dictionary word containing ``bigram_str``, respecting repeat cap."""
+        if not weighting.words:
+            return None
+        pool = _focus_pool_from_wordlist(
+            weighting.words,
+            alphabet,
+            focus_char=focus_char,
+            focus_bigram=bigram_str,
+        )
+        if not pool:
+            return None
+        for _ in range(MAX_REPEAT_RESAMPLE):
+            word = self.rng.choice(pool)
+            if exclude_counts[word] < max_repeats:
+                return word
+        return None
+
+    def _focus_word_or_inject(
+        self,
+        word: str,
+        *,
+        alphabet: frozenset[str],
+        weighting: LessonWeighting,
+        focus_char: str,
+        focus_bigram: Bigram | None,
+        focus_bigram_str: str | None,
+        focus_pool: tuple[str, ...],
+        focus_weighted: WeightedWordlist | None,
+        generated_min_len: int,
+        generated_max_len: int,
+    ) -> str:
+        """Focus-matching word without corrupting dictionary entries."""
+        if weighting.words:
+            return self._generate_focus_word(
+                alphabet,
+                weighting,
+                focus_char=focus_char,
+                focus_bigram=focus_bigram,
+                focus_bigram_str=focus_bigram_str,
+                focus_pool=focus_pool,
+                focus_weighted=focus_weighted,
+                generated_min_len=generated_min_len,
+                generated_max_len=generated_max_len,
+            )
+        if focus_bigram is not None:
+            prev_char, next_char = chr(focus_bigram.prev_cp), chr(focus_bigram.next_cp)
+            return self._inject_focus_bigram(word, prev_char, next_char)
+        return self._inject_focus(word, focus_char)
 
     def _generate_focus_word(
         self,

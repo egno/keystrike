@@ -534,6 +534,52 @@ def test_generate_lesson_weak_guarantees_focus_bigram_fraction():
         assert focus_words >= quota, f"seed={seed}: {focus_words}/{len(words)} bigram words"
 
 
+def test_wordlist_words_not_corrupted_by_focus_injection():
+    """Dictionary words must stay intact; focus comes from resampling, not splicing."""
+    generator = AdaptiveGenerator(table=_uniform_table("abcdefghijklmnopqrstuvwxyz"), rng=Random(0))
+    words = ("insertion", "manage", "earning", "learn", "inner", "running", "help", "hello")
+    alphabet = frozenset("abcdefghijklmnopqrstuvwxyz")
+    for seed in range(100):
+        generator.rng = Random(seed)
+        lesson = generator.generate_lesson(
+            alphabet,
+            focus_char="n",
+            word_count=12,
+            min_focus_words=min_focus_words(12, FOCUS_WORD_MIN_FRACTION),
+            focus_bigram=Bigram(ord("r"), ord("n")),
+            focus_bigrams=(
+                Bigram(ord("r"), ord("n")),
+                Bigram(ord("n"), ord("g")),
+            ),
+            weighting=LessonWeighting(words=words),
+        )
+        for word in lesson.split():
+            if word in words:
+                continue
+            assert GENERATED_WORD_MIN_LEN <= len(word) <= GENERATED_WORD_MAX_LEN, (
+                f"seed={seed}: corrupted-looking word {word!r}"
+            )
+
+
+def test_wordlist_single_focus_resamples_not_injects():
+    """Strong focus with wordlist replaces via resample, not char splice."""
+    generator = AdaptiveGenerator(table=_uniform_table("ab"), rng=Random(0))
+    words = ("bbb", "aba", "bab")
+    for seed in range(30):
+        generator.rng = Random(seed)
+        lesson = generator.generate_lesson(
+            frozenset("ab"),
+            focus_char="a",
+            word_count=6,
+            min_focus_words=1,
+            weighting=LessonWeighting(words=words),
+        )
+        for word in lesson.split():
+            assert word in words or (
+                GENERATED_WORD_MIN_LEN <= len(word) <= GENERATED_WORD_MAX_LEN
+            ), f"seed={seed}: {word!r}"
+
+
 def test_generate_lesson_distributes_multi_bigram_coverage():
     generator = AdaptiveGenerator(table=_uniform_table("abcd"), rng=Random(0))
     pairs = (
