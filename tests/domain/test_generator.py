@@ -17,6 +17,7 @@ from keystrike.domain.generator import (
 )
 from keystrike.domain.markov import TransitionTable
 from keystrike.domain.models import GENERATED_WORD_MAX_LEN, GENERATED_WORD_MIN_LEN, Bigram
+from keystrike.domain.word_bounds import MAX_WORD_LEN, MIN_WORD_LEN
 
 
 def _uniform_table(alphabet: str) -> TransitionTable:
@@ -104,20 +105,50 @@ def test_generate_word_uses_wordlist_when_provided():
         assert word in words
 
 
-def test_wordlist_respects_generated_bounds():
-    """Dictionary sampling honors generated_word_min/max, not dictionary 3-10."""
-    generator = AdaptiveGenerator(table=_uniform_table("abc"), rng=Random(0))
-    words = ("abc", "abcd", "abcde", "abcdef", "abcdefg", "abcdefgh", "abcdefghi", "abcdefghij")
-    for _ in range(20):
+def test_wordlist_respects_dictionary_bounds_not_generated():
+    """Imported words use dictionary 3-10 bounds, not generated_word_min/max."""
+    generator = AdaptiveGenerator(table=_uniform_table("abcdefghijk"), rng=Random(0))
+    words = ("abc", "abcde", "abcdef", "abcdefgh", "abcdefghij")
+    seen: set[str] = set()
+    for _ in range(50):
         word = generator.generate_word(
-            frozenset("abcdefghij"),
+            frozenset("abcdefghijk"),
+            LessonWeighting(words=words),
+            generated_min_len=2,
+            generated_max_len=4,
+        )
+        if word in words:
+            assert MIN_WORD_LEN <= len(word) <= MAX_WORD_LEN
+        seen.add(word)
+    assert seen & {"abcdefgh", "abcdefghij"}  # longer than generated max 4
+
+
+def test_wordlist_allows_longer_words_than_generated_max():
+    """Dictionary may sample words longer than generated_word_max_len."""
+    generator = AdaptiveGenerator(table=_uniform_table("abcdefgh"), rng=Random(0))
+    words = ("abcdefgh",)  # len 8 — within dictionary bounds, above generated max 4
+    word = generator.generate_word(
+        frozenset("abcdefgh"),
+        LessonWeighting(words=words),
+        generated_min_len=2,
+        generated_max_len=4,
+    )
+    assert word == "abcdefgh"
+
+
+def test_markov_still_respects_generated_bounds_with_wordlist_present():
+    """When wordlist words do not fit alphabet, Markov fallback keeps generated bounds."""
+    generator = AdaptiveGenerator(table=_uniform_table("abc"), rng=Random(0))
+    words = ("xyz", "qrs")  # outside alphabet — forces Markov
+    for seed in range(20):
+        generator.rng = Random(seed)
+        word = generator.generate_word(
+            frozenset("abc"),
             LessonWeighting(words=words),
             generated_min_len=2,
             generated_max_len=4,
         )
         assert 2 <= len(word) <= 4
-        if word in words:
-            assert len(word) <= 4
 
 
 def test_generate_word_falls_back_to_markov_without_wordlist():
@@ -501,3 +532,70 @@ def test_generate_lesson_weak_guarantees_focus_bigram_fraction():
             1 for w in words if word_matches_focus(w, focus_char="b", focus_bigram=bigram_str)
         )
         assert focus_words >= quota, f"seed={seed}: {focus_words}/{len(words)} bigram words"
+
+
+def test_wordlist_words_not_corrupted_by_focus_injection():
+    """Dictionary words must stay intact; focus comes from resampling, not splicing."""
+    generator = AdaptiveGenerator(table=_uniform_table("abcdefghijklmnopqrstuvwxyz"), rng=Random(0))
+    words = ("insertion", "manage", "earning", "learn", "inner", "running", "help", "hello")
+    alphabet = frozenset("abcdefghijklmnopqrstuvwxyz")
+    for seed in range(100):
+        generator.rng = Random(seed)
+        lesson = generator.generate_lesson(
+            alphabet,
+            focus_char="n",
+            word_count=12,
+            min_focus_words=min_focus_words(12, FOCUS_WORD_MIN_FRACTION),
+            focus_bigram=Bigram(ord("r"), ord("n")),
+            focus_bigrams=(
+                Bigram(ord("r"), ord("n")),
+                Bigram(ord("n"), ord("g")),
+            ),
+            weighting=LessonWeighting(words=words),
+        )
+        for word in lesson.split():
+            if word in words:
+                continue
+            assert GENERATED_WORD_MIN_LEN <= len(word) <= GENERATED_WORD_MAX_LEN, (
+                f"seed={seed}: corrupted-looking word {word!r}"
+            )
+
+
+def test_wordlist_single_focus_resamples_not_injects():
+    """Strong focus with wordlist replaces via resample, not char splice."""
+    generator = AdaptiveGenerator(table=_uniform_table("ab"), rng=Random(0))
+    words = ("bbb", "aba", "bab")
+    for seed in range(30):
+        generator.rng = Random(seed)
+        lesson = generator.generate_lesson(
+            frozenset("ab"),
+            focus_char="a",
+            word_count=6,
+            min_focus_words=1,
+            weighting=LessonWeighting(words=words),
+        )
+        for word in lesson.split():
+            assert word in words or (
+                GENERATED_WORD_MIN_LEN <= len(word) <= GENERATED_WORD_MAX_LEN
+            ), f"seed={seed}: {word!r}"
+
+
+def test_generate_lesson_distributes_multi_bigram_coverage():
+    generator = AdaptiveGenerator(table=_uniform_table("abcd"), rng=Random(0))
+    pairs = (
+        Bigram(ord("a"), ord("d")),
+        Bigram(ord("d"), ord("a")),
+        Bigram(ord("b"), ord("d")),
+        Bigram(ord("d"), ord("b")),
+    )
+    lesson = generator.generate_lesson(
+        frozenset("abcd"),
+        focus_char="d",
+        word_count=12,
+        focus_bigram=pairs[0],
+        focus_bigrams=pairs,
+        min_focus_words=8,
+    )
+    words = lesson.split()
+    assert all(any(pair.chars() in word for word in words) for pair in pairs)
+    assert sum(any(pair.chars() in word for pair in pairs) for word in words) >= 8

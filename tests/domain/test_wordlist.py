@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from keystrike.domain.word_bounds import MAX_WORD_LEN, MIN_WORD_LEN
+from keystrike.domain.word_bounds import MAX_WORD_LEN, MIN_WORD_LEN, effective_wordlist_bounds
 from keystrike.domain.wordlist import parse_wordlist_text, words_for_alphabet
 
 
@@ -15,6 +15,12 @@ def test_parse_wordlist_text_matches_fixture():
     assert "the" in words
     assert "ONE" not in words
     assert "a1b" not in words
+
+
+def test_effective_wordlist_bounds_clamps_invalid():
+    assert effective_wordlist_bounds() == (MIN_WORD_LEN, MAX_WORD_LEN)
+    assert effective_wordlist_bounds(0, 10) == (1, 10)
+    assert effective_wordlist_bounds(5, 0) == (1, 1)
 
 
 def test_words_for_alphabet_filters_length_and_chars():

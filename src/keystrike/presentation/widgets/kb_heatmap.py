@@ -5,50 +5,55 @@ from textual.app import ComposeResult
 from textual.widget import Widget
 from textual.widgets import Static
 
+from keystrike.domain.confidence import CONFIDENCE_GOOD
 from keystrike.domain.enums import FocusKind
 from keystrike.domain.focus import FocusReason
 from keystrike.domain.models import Bigram, Layout
 
 _ROWS = 3
 _COLS = 10
-_CONFIDENCE_GOOD = 1.0
 _CONFIDENCE_OK = 0.6
-_CONFIDENCE_GOAL = _CONFIDENCE_GOOD
 _FOCUS_MASTERED_STYLE = "underline cyan"
 _FOCUS_STYLE = "underline"
 _REVIEW_STYLE = "underline magenta"
-
-_TRANSITION_KINDS = (FocusKind.TRANSITION_WEAK, FocusKind.TRANSITION_REVIEW)
 
 
 def focus_transition_pair(focus_reason: FocusReason | None) -> Bigram | None:
     """The bigram a transition-kind focus reason is about, or None for a
     key-kind reason (or no reason at all)."""
-    if focus_reason is None or focus_reason.kind not in _TRANSITION_KINDS:
+    if focus_reason is None or not focus_reason.is_transition:
         return None
     return focus_reason.pair
 
 
-def focus_reason_label(focus_reason: FocusReason) -> str:
-    """Display text for a focus reason, e.g. "weak", "review", or
-    "eo weak transition" — matches the old ad-hoc focus-reason strings."""
+_FULL_REASON_WORD = {"wk": "weak", "cal": "calibrating", "rev": "review"}
+
+
+def focus_reason_label_short(focus_reason: FocusReason) -> str:
+    """Compact HUD/note label: wk, cal, rev."""
     match focus_reason.kind:
-        case FocusKind.KEY_WEAK:
-            return "weak"
-        case FocusKind.KEY_REVIEW:
-            return "review"
-        case FocusKind.TRANSITION_WEAK:
-            assert focus_reason.pair is not None
-            return f"{focus_reason.pair.chars()} weak transition"
-        case FocusKind.TRANSITION_REVIEW:
-            assert focus_reason.pair is not None
-            return f"{focus_reason.pair.chars()} review transition"
+        case FocusKind.KEY_WEAK | FocusKind.TRANSITION_WEAK:
+            return "wk"
+        case FocusKind.KEY_CALIBRATING | FocusKind.TRANSITION_CALIBRATING:
+            return "cal"
+        case FocusKind.KEY_REVIEW | FocusKind.TRANSITION_REVIEW:
+            return "rev"
+
+
+def focus_reason_label(focus_reason: FocusReason) -> str:
+    """Full display text for a focus reason (wiki/docs). UI uses
+    `focus_reason_label_short` instead."""
+    word = _FULL_REASON_WORD[focus_reason_label_short(focus_reason)]
+    if focus_reason.is_transition:
+        assert focus_reason.pair is not None
+        return f"{focus_reason.pair.chars()} {word} transition"
+    return word
 
 
 def _confidence_style(confidence: float | None) -> str:
     if confidence is None:
         return "grey37"
-    if confidence >= _CONFIDENCE_GOOD:
+    if confidence >= CONFIDENCE_GOOD:
         return "bold green"
     if confidence >= _CONFIDENCE_OK:
         return "yellow"
@@ -67,7 +72,7 @@ def _key_style(
     if is_focus:
         focus_style = (
             _FOCUS_MASTERED_STYLE
-            if confidence is not None and confidence >= _CONFIDENCE_GOOD
+            if confidence is not None and confidence >= CONFIDENCE_GOOD
             else _FOCUS_STYLE
         )
         style = f"{style} {focus_style}"
@@ -161,40 +166,28 @@ def format_focus_note(
     confidence: float | None = None,
     speed: float | None = None,
     accuracy: float | None = None,
-    goal: float = _CONFIDENCE_GOAL,
+    attempts: int | None = None,
+    min_attempts: int | None = None,
 ) -> str | None:
     if focus_key is None or focus_reason is None:
         return None
-    actual = f"{confidence:.2f}" if confidence is not None else "0.00"
-    goal_s = f"{goal:.2f}"
-    parts: list[str] = []
+    transition = focus_transition_pair(focus_reason)
+    subject = transition.chars() if transition is not None else chr(focus_key)
+    reason = focus_reason_label_short(focus_reason)
+    if (
+        focus_reason.kind in (FocusKind.KEY_CALIBRATING, FocusKind.TRANSITION_CALIBRATING)
+        and attempts is not None
+        and min_attempts is not None
+    ):
+        reason = f"{reason} {attempts}/{min_attempts}"
+    parts = [subject, reason]
     if speed is not None:
-        parts.append(f"speed {speed:.2f}")
+        parts.append(f"{speed:.2f}")
     if accuracy is not None:
-        parts.append(f"accuracy {accuracy * 100:.1f}%")
-    parts.append(f"confidence {actual} / {goal_s}")
-    metrics = ", ".join(parts)
-    label = focus_reason_label(focus_reason)
-
-    match focus_reason.kind:
-        case FocusKind.KEY_WEAK:
-            return f"[dim]Focus [bold]{chr(focus_key)}[/] ({label}): {metrics}.[/]"
-        case FocusKind.KEY_REVIEW:
-            return (
-                f"[dim]Focus [bold]{chr(focus_key)}[/] ({label}): {metrics}. "
-                "Resurfacing before it fades.[/]"
-            )
-        case FocusKind.TRANSITION_WEAK:
-            assert focus_reason.pair is not None
-            pair = focus_reason.pair.chars()
-            return (
-                f"[dim]Focus [bold]{pair}[/] ({label}): {metrics}. "
-                "Practice text favors this pair.[/]"
-            )
-        case FocusKind.TRANSITION_REVIEW:
-            assert focus_reason.pair is not None
-            pair = focus_reason.pair.chars()
-            return f"[dim]Focus [bold]{pair}[/] ({label}): {metrics}. Transition due for review.[/]"
+        parts.append(f"{accuracy * 100:.0f}%")
+    conf_s = f"{confidence:.2f}" if confidence is not None else "0.00"
+    parts.append(conf_s)
+    return f"[dim]{' · '.join(parts)}[/]"
 
 
 class KbHeatmap(Widget):

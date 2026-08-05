@@ -54,6 +54,8 @@ class FocusKind(Enum):
     presentation code had to parse via substring/suffix matching."""
 
     KEY_WEAK = auto()
+    KEY_CALIBRATING = auto()
     KEY_REVIEW = auto()
     TRANSITION_WEAK = auto()
+    TRANSITION_CALIBRATING = auto()
     TRANSITION_REVIEW = auto()

@@ -9,11 +9,8 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 
-from keystrike.application.session_use_cases import (
-    SessionStatsBaseline,
-    compute_accuracy,
-    compute_wpm,
-)
+from keystrike.application.session_queries import compute_accuracy, compute_wpm
+from keystrike.application.session_use_cases import SessionStatsBaseline
 from keystrike.domain.confidence import target_ms_per_char
 from keystrike.domain.models import SessionResult
 from keystrike.presentation.theme import (

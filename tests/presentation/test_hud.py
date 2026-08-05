@@ -74,14 +74,14 @@ def test_hud_shows_transition_pair_in_focus_label():
     assert "Focus:" in text
     assert "[bold]eo[/]" in text
     assert "[bold]o[/]" not in text
-    assert "eo weak transition" in text
+    assert "· [dim]wk[/]" in text
 
 
 def test_hud_shows_focus_reason_when_given():
     reason = FocusReason(kind=FocusKind.KEY_REVIEW)
     text = _format_hud(_session(), _UNLIMITED, focus_reason=reason)
     assert "Focus:" in text
-    assert "review" in text
+    assert "rev" in text
 
 
 def test_hud_shows_single_key_focus_for_non_transition():
@@ -90,6 +90,14 @@ def test_hud_shows_single_key_focus_for_non_transition():
     reason = FocusReason(kind=FocusKind.KEY_WEAK)
     text = _format_hud(session, _UNLIMITED, focus_reason=reason)
     assert "[bold]a[/]" in text
+
+
+def test_hud_shows_calibrating_focus_reason():
+    reason = FocusReason(kind=FocusKind.KEY_CALIBRATING)
+    text = _format_hud(_session(), _UNLIMITED, focus_reason=reason)
+    assert "Focus:" in text
+    assert "cal" in text
+    assert "wk" not in text
 
 
 def test_hud_omits_focus_when_reason_missing():
@@ -149,7 +157,7 @@ def test_hud_distinct_labels_for_daily_budget_and_focus():
     assert "/10 min" in text
     assert "left" not in text
     assert "Focus:" in text
-    assert "weak" in text
+    assert "wk" in text
     assert text.count("Goal:") == 0
 
 

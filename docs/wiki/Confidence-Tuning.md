@@ -1,10 +1,11 @@
 # Confidence tuning
 
-Keystrike's adaptive engine uses **confidence** — min(speed, accuracy), scaled by how
-much you've practiced — to decide which keys unlock, which key or bigram gets
-focus, and how the stats heatmap colors each key. Settings in this page control how
-aggressively the engine trusts your recent performance and how strongly it
-biases lesson text toward the current focus key or bigram.
+Keystrike's adaptive engine uses per-key **skill** (min(speed, accuracy) without
+attempt ramp) plus an attempt floor to decide which keys unlock, and **confidence**
+(skill scaled by how much you've practiced) for focus, HUD labels, and heatmap
+coloring. Settings on this page control how aggressively the engine trusts your
+recent performance and how strongly it biases lesson text toward the current
+focus key or bigram.
 
 Edit `{config_dir}/settings.toml` directly (see [Git sync](Git-sync) for the
 path on your OS). These fields are **not** on the Settings screen — saving
@@ -14,9 +15,10 @@ layout, speed, or other UI settings will not change them.
 
 | Setting | `settings.toml` key | Default | What it does |
 | --- | --- | --- | --- |
-| Confidence session window | `confidence_session_window` | `10` | How many recent sessions are replayed into rolling per-key stats used for confidence, unlocks, focus, and the heatmap. |
+| Confidence session window | `confidence_session_window` | `10` | How many recent sessions are replayed into rolling per-key stats used for skill, unlocks, focus, and the heatmap. |
 | Min key attempts | `min_confidence_attempts` | `10` | Minimum presses on a key before its confidence reaches full weight. Below this, confidence ramps linearly (fewer attempts → lower score). |
 | Min bigram attempts | `min_transition_confidence_attempts` | `4` | Same ramp for letter-pair (transition) confidence. Default is lower because bigrams are practiced less often than single keys. |
+| Gating bigram limit | `gating_bigram_limit` | `4` | Directed newest-letter bigrams that must calibrate before the next letter opens. Values are clamped to `2`–`4`. |
 | Focus char boost | `focus_char_boost` | `3.0` | Multiplier on the focus key's char weight when building lesson sampling weights. |
 | Focus word boost | `focus_word_boost` | `3.0` | Extra multiplier on dictionary/Markov words that contain the focus character. |
 | Focus bigram word boost | `focus_bigram_word_boost` | `4.0` | Extra multiplier on words containing the focus letter pair (when transition focus is active). |
@@ -28,15 +30,17 @@ layout, speed, or other UI settings will not change them.
 | Generated word min length | `generated_word_min_len` | `2` | Minimum length for Markov-generated words (dictionary import still filters 3–10). |
 | Generated word max length | `generated_word_max_len` | `4` | Maximum length for Markov-generated words. |
 
-Valid ranges: window and both attempt floors are **1–100**. Boost multipliers should be **≥ 1.0**. `lesson_word_count` should be **≥ 1**. `focus_word_min_fraction` should be in **(0.0, 1.0]**. `max_word_repeats` should be **≥ 1**. `generated_word_min_len` and `generated_word_max_len` should be **≥ 1** with min ≤ max (invalid pairs are clamped at lesson build time).
+Valid ranges: window and both attempt floors are **1–100**.
+`gating_bigram_limit` is **2–4** (hand-edited values are clamped). Boost
+multipliers should be **≥ 1.0**. `lesson_word_count` should be **≥ 1**.
+`focus_word_min_fraction` should be in **(0.0, 1.0]**. `max_word_repeats`
+should be **≥ 1**. Generated word bounds should be **≥ 1** with min ≤ max.
 
-Confidence uses **min(speed, accuracy)**, not their product: a key must be both
-fast enough and accurate enough to read as mastered. Speed is `target_ms /
-actual_ms`; accuracy is correct attempts ÷ total attempts.
-
-Confidence uses **min(speed, accuracy)**, not their product: a key must be both
-fast enough and accurate enough to read as mastered. Speed is `target_ms /
-actual_ms`; accuracy is correct attempts ÷ total attempts.
+Skill and confidence both use **min(speed, accuracy)**, not their product: a key
+must be both fast enough and accurate enough to read as mastered. Speed is
+`target_ms / actual_ms`; accuracy is correct attempts ÷ total attempts. Skill
+is that ratio without attempt ramp; confidence scales skill by how many presses
+you have in the window (see min attempt floors above).
 
 Example (defaults shown):
 
@@ -44,6 +48,7 @@ Example (defaults shown):
 confidence_session_window = 10
 min_confidence_attempts = 10
 min_transition_confidence_attempts = 4
+gating_bigram_limit = 4
 focus_char_boost = 3.0
 focus_word_boost = 3.0
 focus_bigram_word_boost = 4.0
@@ -82,27 +87,63 @@ The first **N** keys in layout `learn_order` are always unlocked, where **N** is
 **Letters unlocked up front** in Settings (`alphabet_size`; see
 [README — Settings](https://github.com/egno/keystrike#settings)). Each further
 key in `learn_order` unlocks only when **every** currently unlocked key meets the
-confidence threshold (default 1.0) **and** every **measured** cross-key bigram
-among unlocked keys meets the same threshold. Unmeasured pairs do not block
-unlock — you are not required to practice every possible letter pair before the
-next key opens.
+skill threshold (default 1.0: min(speed, accuracy) without attempt ramp) **and**
+has at least `min_confidence_attempts` presses in the session window. Ramped
+confidence still drives HUD labels (`cal` vs `wk`) and focus weighting.
 
-Same-key repeats (double letters such as `ee`, `ss`) are excluded from unlock
-checks; only prev→next pairs on **different** keys count.
+Beyond solo-key mastery, a deterministic cohort of directed bigrams involving
+the most-recently-practiced key gates the next key. It pairs that key in both
+directions with up to its two most-recent practiced peers, bounded by
+`gating_bigram_limit`. The cohort is derived from key order, not observed
+transition data, so incidental measurements cannot expand or replace it.
+Every member must reach confidence 1.0 with
+`min_transition_confidence_attempts` attempts.
+A `transition_stall_attempts_cap` (`domain.unlock.default_transition_stall_attempts_cap`,
+3× the transition calibration floor by default) releases a specific pair
+that's been drilled past the cap without clearing threshold, so one stubborn
+bigram can't block progression forever.
 
-**Focus selection** is letter-first: while any unlocked key is below threshold
-(`has_weak_unlocked_key`), the lesson emphasizes the weakest unlocked **key**
-(by confidence, with review urgency). Transition (bigram) focus activates only
-when all unlocked keys are confident; then the weakest measured cross-key bigram
-among the unlocked set drives focus. If no transition data exists yet, focus
-falls back to the weakest key.
+**Focus selection** is letter-first: while any unlocked key is below the skill
+threshold or key-attempt floor, the lesson emphasizes the weakest unlocked
+**key**. While transition progression is blocked, deficient members of the
+same gating cohort drive transition focus and share guaranteed lesson coverage.
+An older pair can preempt only after enough samples show genuine raw
+speed/accuracy regression; sparse old calibration does not delay progression.
+Outside a blocked progression gate, normal measured transition review remains.
+
+**Focus is sticky.** Once a key or bigram becomes the focus, it keeps that
+focus across lesson builds until it individually clears both the skill
+threshold and its attempt floor (the same two-part gate as unlocks, via
+`domain.confidence.clears_threshold`) — an unrelated stale-but-mastered key's
+review urgency, or the transition gate activating, cannot steal focus away
+mid-calibration. Only once *every* unlocked key/bigram has cleared does
+review-urgency-based staleness compete for focus across the whole set.
+
+## Lesson WPM gate
+
+A finished session's own words-per-minute is compared against its own target
+speed (converted CPM→WPM the same way `SettingsScreen` does). If that
+session's WPM fell short, the *next* lesson's focus is confined to the
+weakest key or bigram from that session's own `lesson_alphabet` — the letters
+that actually appeared in the text — instead of ordinary weakest-across-window
+selection or the newest-key transition gate picking elsewhere. This remains in
+effect lesson-over-lesson until a lesson's WPM meets target again, at which
+point normal focus selection (including stickiness, above) resumes. Sessions
+with no recorded target (`target_speed_cpm == 0`, e.g. very old data) never
+trigger this gate. There is no separate HUD label — the gate only narrows
+*which* key/bigram is eligible for focus, so the usual `wk`/`cal`/`rev` reason
+still applies to whichever one is chosen.
 
 ### Transition stats
 
 Same-key / double-letter bigrams are never aggregated into session stats, stored
-in the stats cache, or used in unlock checks, focus selection, or lesson
-transition weights. Only cross-key pairs (e.g. `th`, `he`) participate in
-transition confidence and bigram-weighted lesson text.
+in the stats cache, or used in unlock checks — including the transition gate
+above. Only cross-key pairs (e.g. `th`, `he`) participate in transition
+confidence, focus selection, the unlock gate, and bigram-weighted lesson
+text. Transition sampling weights apply to measured unlocked cross-key bigrams.
+Unmeasured members of the stable newest-key cohort receive explicit
+zero-attempt weighting, and deficient cohort members are distributed across
+guaranteed lesson slots instead of waiting to appear by chance.
 
 ## Tradeoffs
 
@@ -118,11 +159,56 @@ transition confidence and bigram-weighted lesson text.
   already typed many times.
 - **Transition floor** — Raise it if bigram focus switches too eagerly on thin
   data; lower it if weak pairs never get targeted.
+- **Coverage deficit** — Lesson sampling multiplies char (and transition)
+  weights by a session-scale boost when in-window attempts are below
+  `min_confidence_attempts` (peaking at zero attempts). This is separate
+  from performance weakness (`practice_weight`) and day-scale review urgency;
+  it helps large unlocked sets get enough window samples without widening the
+  session window. There is no settings knob — the boost is fixed in code
+  (`coverage_deficit_factor` in `domain/focus.py`).
 
-After changing the session window, run a practice session or open Stats so
-aggregates rebuild from the new window size.
+## Large alphabet (40+ keys)
+
+With the default session window (`10`) and lesson length (`12`), each practice
+session only touches a fraction of a 40–50 key unlocked set. Keys can drop out
+of the rolling window or stay below `min_confidence_attempts`, which stalls
+the next unlock and leaves heatmap gaps even when you are typing well.
+**Coverage-deficit weighting** (above) addresses much of this automatically;
+defaults may suffice once you have been practicing for a while.
+
+If unlocks still feel stuck or the heatmap looks sparse, widen the window and
+lesson manually in `{config_dir}/settings.toml` (these fields are **not** on
+the Settings screen):
+
+```toml
+confidence_session_window = 18
+lesson_word_count = 20
+```
+
+Starting points for 40–50 unlocked keys:
+
+| Knob | Default | Large-alphabet starting point |
+| --- | --- | --- |
+| `confidence_session_window` | `10` | `15`–`20` |
+| `lesson_word_count` | `12` | `18`–`24` |
+
+**Tradeoffs:**
+
+- **Wider window** — More keys stay represented in rolling stats, but
+  confidence reacts more slowly to recent form (see [window too long](#tradeoffs)
+  above).
+- **Longer lessons** — More keys sampled per session, but each drill takes
+  longer.
+- **`focus_word_min_fraction`** — Lower slightly (e.g. `0.5`) if strict focus
+  quotas make generated text repetitive at large N; raising it keeps weak-focus
+  keys more prominent at the cost of variety.
+
+After edits, run a practice session or open Stats so aggregates rebuild. See
+[Focus states](Focus-States) for how key vs transition focus interacts with
+calibration at scale.
 
 ## Related docs
 
+- [Focus states](Focus-States) — compact HUD labels and practice-screen metrics.
 - [Word lists](Word-Lists) — optional dictionary drills (same confidence engine).
 - [Git sync](Git-sync) — settings (including these fields) sync with your repo.

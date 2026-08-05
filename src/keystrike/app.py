@@ -9,6 +9,7 @@ from keystrike.application.prepare_practice import PreparePracticeSession
 from keystrike.application.session_use_cases import (
     AbortSession,
     FinishSession,
+    GetLatestSessionHeader,
     GetSessionBaseline,
     RecordKeystroke,
     StartSession,
@@ -97,6 +98,7 @@ def build() -> KeystrikeApp:
     )
     abort = AbortSession()
     get_session_baseline = GetSessionBaseline(repo=session_repo, settings_repo=settings_repo)
+    get_latest_session_header = GetLatestSessionHeader(repo=session_repo)
     rebuild_aggregates = RebuildAggregates(
         repo=session_repo,
         cache=aggregates_cache,
@@ -137,6 +139,7 @@ def build() -> KeystrikeApp:
         wordlist_store=wordlist_store,
         rng=Random(),
         clock=clock,
+        session_repo=session_repo,
     )
     prepare_practice = PreparePracticeSession(
         settings_repo=settings_repo,
@@ -159,6 +162,7 @@ def build() -> KeystrikeApp:
             finish=finish,
             abort=abort,
             prepare_practice=prepare_practice,
+            get_latest_session_header=get_latest_session_header,
             get_session_baseline=get_session_baseline,
             rebuild_aggregates=rebuild_aggregates,
             get_daily_learn_budget=get_daily_learn_budget,

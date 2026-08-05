@@ -1,13 +1,18 @@
 from collections.abc import Iterable
 from dataclasses import dataclass, field, replace
 
+from keystrike.application.session_queries import (
+    compute_accuracy,
+    compute_wpm,
+    latest_session_header,
+)
 from keystrike.domain.aggregate import SessionTiming, combine_sessions, session_recency_weights
 from keystrike.domain.confidence import (
     confidence_of,
     target_ms_per_char,
 )
 from keystrike.domain.enums import Mode, SessionState
-from keystrike.domain.generator import typical_chars_per_word
+from keystrike.domain.generator import effective_generated_word_bounds
 from keystrike.domain.learn_order import keyboard_order
 from keystrike.domain.models import Keystroke, SessionResult
 from keystrike.domain.null_adapters import (
@@ -30,7 +35,7 @@ from keystrike.domain.session import (
     note_keystroke_for_timer,
     skip_leading_whitespace,
 )
-from keystrike.domain.unlock import compute_unlocked
+from keystrike.domain.unlock import compute_unlocked, default_transition_stall_attempts_cap
 
 
 @dataclass(slots=True)
@@ -151,7 +156,11 @@ def _snapshot_unlock_state(
         target,
         min_attempts=settings.min_confidence_attempts,
         transitions=combined.transitions,
-        min_transition_attempts=settings.min_transition_confidence_attempts,
+        transition_min_attempts=settings.min_transition_confidence_attempts,
+        transition_stall_attempts_cap=default_transition_stall_attempts_cap(
+            settings.min_transition_confidence_attempts
+        ),
+        gating_bigram_limit=settings.gating_bigram_limit,
     )
     return unlocked, {
         cp: confidence_of(cp, combined.keys, target, min_attempts=settings.min_confidence_attempts)
@@ -195,8 +204,12 @@ class FinishSession:
         )
         _sync_alphabet_size(unlocked_keys, self.settings_repo)
 
+        generated_min_len, generated_max_len = effective_generated_word_bounds(
+            settings.generated_word_min_len,
+            settings.generated_word_max_len,
+        )
         result = SessionResult(
-            schema_version=3,
+            schema_version=4,
             session_id=session.id,
             started_at=session.started_at_wall,
             duration_ns=duration_ns,
@@ -211,6 +224,8 @@ class FinishSession:
             unlocked_keys=unlocked_keys,
             key_confidence=key_confidence,
             target_speed_cpm=target_speed_cpm,
+            generated_min_len=generated_min_len,
+            generated_max_len=generated_max_len,
         )
         self.repo.append_keystrokes(session.id, session.started_at_wall, session.keystrokes)
         self.repo.save_header(result)
@@ -234,41 +249,6 @@ def count_words_completed(text: str, position: int) -> int:
     if " " not in text[:position]:
         return 0
     return text[:position].count(" ")
-
-
-def _words_for_wpm(result: SessionResult) -> float:
-    if result.words_completed > 0:
-        return float(result.words_completed)
-    if result.correct_keystrokes <= 0:
-        return 0.0
-    # Legacy sessions without words_completed: estimate from char count.
-    return result.correct_keystrokes / typical_chars_per_word()
-
-
-def compute_wpm(result: SessionResult) -> float:
-    """Words per minute from completed lesson words, not chars/5."""
-    minutes = result.duration_ns / 1e9 / 60.0
-    if minutes <= 0:
-        return 0.0
-    return _words_for_wpm(result) / minutes
-
-
-def compute_accuracy(result: SessionResult) -> float:
-    if result.total_keystrokes == 0:
-        return 0.0
-    return result.correct_keystrokes / result.total_keystrokes
-
-
-def previous_session_header(
-    repo: SessionRepository,
-    result: SessionResult,
-) -> SessionResult | None:
-    """Session immediately before ``result`` for the same layout, if any."""
-    ordered = sorted(repo.iter_headers(result.layout), key=lambda h: h.started_at)
-    for i, header in enumerate(ordered):
-        if header.session_id == result.session_id:
-            return ordered[i - 1] if i > 0 else None
-    return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -320,3 +300,11 @@ class GetSessionBaseline:
     def __call__(self, result: SessionResult) -> SessionStatsBaseline | None:
         window = self.settings_repo.load().confidence_session_window
         return confidence_window_session_baseline(self.repo, result, window=window)
+
+
+@dataclass(slots=True)
+class GetLatestSessionHeader:
+    repo: SessionRepository
+
+    def __call__(self, layout: str) -> SessionResult | None:
+        return latest_session_header(self.repo, layout)

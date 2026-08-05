@@ -10,7 +10,12 @@ from pathlib import Path
 from typing import cast
 
 from keystrike.domain.enums import Mode, migrate_legacy_mode
-from keystrike.domain.models import Keystroke, SessionResult
+from keystrike.domain.models import (
+    GENERATED_WORD_MAX_LEN,
+    GENERATED_WORD_MIN_LEN,
+    Keystroke,
+    SessionResult,
+)
 from keystrike.domain.sync_merge import validate_session_id
 
 from .json_coerce import coerce_float, coerce_int, require_float, require_int, require_str
@@ -162,6 +167,8 @@ def _header_to_dict(h: SessionResult) -> dict[str, object]:
         "unlocked_keys": list(h.unlocked_keys),
         "key_confidence": {str(k): v for k, v in h.key_confidence.items()},
         "target_speed_cpm": h.target_speed_cpm,
+        "generated_min_len": h.generated_min_len,
+        "generated_max_len": h.generated_max_len,
     }
 
 
@@ -210,4 +217,6 @@ def _header_from_dict(d: dict[str, object]) -> SessionResult:
         unlocked_keys=_require_int_tuple(d, "unlocked_keys"),
         key_confidence=_parse_key_confidence(d.get("key_confidence", {})),
         target_speed_cpm=require_int(d, "target_speed_cpm", 0),
+        generated_min_len=require_int(d, "generated_min_len", GENERATED_WORD_MIN_LEN),
+        generated_max_len=require_int(d, "generated_max_len", GENERATED_WORD_MAX_LEN),
     )
