@@ -31,7 +31,7 @@ class SessionPrep:
     focus_min_attempts: int | None
     layout_obj: Layout | None
     lesson_heatmap: dict[int, float] | None
-    lesson_urgency: dict[int, float] | None
+    bigram_calibration: tuple[int, int] | None
 
 
 @dataclass(slots=True)
@@ -59,5 +59,5 @@ class PreparePracticeSession:
             focus_min_attempts=lesson.focus_min_attempts,
             layout_obj=self.layout_repo.get(settings.layout),
             lesson_heatmap=lesson.skill_heatmap,
-            lesson_urgency=lesson.urgency,
+            bigram_calibration=lesson.bigram_calibration,
         )

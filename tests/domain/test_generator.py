@@ -532,3 +532,24 @@ def test_generate_lesson_weak_guarantees_focus_bigram_fraction():
             1 for w in words if word_matches_focus(w, focus_char="b", focus_bigram=bigram_str)
         )
         assert focus_words >= quota, f"seed={seed}: {focus_words}/{len(words)} bigram words"
+
+
+def test_generate_lesson_distributes_multi_bigram_coverage():
+    generator = AdaptiveGenerator(table=_uniform_table("abcd"), rng=Random(0))
+    pairs = (
+        Bigram(ord("a"), ord("d")),
+        Bigram(ord("d"), ord("a")),
+        Bigram(ord("b"), ord("d")),
+        Bigram(ord("d"), ord("b")),
+    )
+    lesson = generator.generate_lesson(
+        frozenset("abcd"),
+        focus_char="d",
+        word_count=12,
+        focus_bigram=pairs[0],
+        focus_bigrams=pairs,
+        min_focus_words=8,
+    )
+    words = lesson.split()
+    assert all(any(pair.chars() in word for word in words) for pair in pairs)
+    assert sum(any(pair.chars() in word for pair in pairs) for word in words) >= 8

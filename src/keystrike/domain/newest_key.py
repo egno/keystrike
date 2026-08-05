@@ -12,7 +12,15 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 
 from .confidence import is_same_key_transition
-from .models import Bigram, KeyStats, TransitionStats
+from .models import GATING_BIGRAM_LIMIT, Bigram, KeyStats, TransitionStats
+
+_GATING_BIGRAM_MIN = 2
+_GATING_BIGRAM_MAX = 4
+
+
+def effective_gating_bigram_limit(limit: int) -> int:
+    """Clamp hand-edited settings to the supported bounded cohort size."""
+    return min(_GATING_BIGRAM_MAX, max(_GATING_BIGRAM_MIN, limit))
 
 
 def unlocked_cross_key_pairs(unlocked: Sequence[int]) -> list[Bigram]:
@@ -57,3 +65,25 @@ def newest_practiced_key_pairs(
     measured = [pair for pair in pairs if pair in transitions]
     unmeasured = [pair for pair in pairs if pair not in transitions]
     return unmeasured, measured
+
+
+def newest_key_gating_cohort(
+    unlocked: Sequence[int],
+    key_stats: Mapping[int, KeyStats] | None,
+    *,
+    limit: int = GATING_BIGRAM_LIMIT,
+) -> tuple[Bigram, ...]:
+    """Stable 2-4 directed bigrams for the newest practiced key.
+
+    Pair it bidirectionally with at most its two most-recent practiced peers.
+    The cohort depends only on learn/unlock order and which keys have been
+    practiced, so incidental transition measurements cannot expand or replace
+    it while the letter is being calibrated.
+    """
+    practiced = [cp for cp in unlocked if key_stats is not None and cp in key_stats]
+    if len(practiced) < _GATING_BIGRAM_MIN:
+        return ()
+    newest = practiced[-1]
+    peers = practiced[-3:-1]
+    cohort = tuple(pair for peer in peers for pair in (Bigram(peer, newest), Bigram(newest, peer)))
+    return cohort[-effective_gating_bigram_limit(limit) :]

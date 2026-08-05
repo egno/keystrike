@@ -18,6 +18,7 @@ layout, speed, or other UI settings will not change them.
 | Confidence session window | `confidence_session_window` | `10` | How many recent sessions are replayed into rolling per-key stats used for skill, unlocks, focus, and the heatmap. |
 | Min key attempts | `min_confidence_attempts` | `10` | Minimum presses on a key before its confidence reaches full weight. Below this, confidence ramps linearly (fewer attempts → lower score). |
 | Min bigram attempts | `min_transition_confidence_attempts` | `4` | Same ramp for letter-pair (transition) confidence. Default is lower because bigrams are practiced less often than single keys. |
+| Gating bigram limit | `gating_bigram_limit` | `4` | Directed newest-letter bigrams that must calibrate before the next letter opens. Values are clamped to `2`–`4`. |
 | Focus char boost | `focus_char_boost` | `3.0` | Multiplier on the focus key's char weight when building lesson sampling weights. |
 | Focus word boost | `focus_word_boost` | `3.0` | Extra multiplier on dictionary/Markov words that contain the focus character. |
 | Focus bigram word boost | `focus_bigram_word_boost` | `4.0` | Extra multiplier on words containing the focus letter pair (when transition focus is active). |
@@ -29,7 +30,11 @@ layout, speed, or other UI settings will not change them.
 | Generated word min length | `generated_word_min_len` | `2` | Minimum length for Markov-generated words (dictionary import still filters 3–10). |
 | Generated word max length | `generated_word_max_len` | `4` | Maximum length for Markov-generated words. |
 
-Valid ranges: window and both attempt floors are **1–100**. Boost multipliers should be **≥ 1.0**. `lesson_word_count` should be **≥ 1**. `focus_word_min_fraction` should be in **(0.0, 1.0]**. `max_word_repeats` should be **≥ 1**. `generated_word_min_len` and `generated_word_max_len` should be **≥ 1** with min ≤ max (invalid pairs are clamped at lesson build time).
+Valid ranges: window and both attempt floors are **1–100**.
+`gating_bigram_limit` is **2–4** (hand-edited values are clamped). Boost
+multipliers should be **≥ 1.0**. `lesson_word_count` should be **≥ 1**.
+`focus_word_min_fraction` should be in **(0.0, 1.0]**. `max_word_repeats`
+should be **≥ 1**. Generated word bounds should be **≥ 1** with min ≤ max.
 
 Confidence uses **min(speed, accuracy)**, not their product: a key must be both
 fast enough and accurate enough to read as mastered. Speed is `target_ms /
@@ -45,6 +50,7 @@ Example (defaults shown):
 confidence_session_window = 10
 min_confidence_attempts = 10
 min_transition_confidence_attempts = 4
+gating_bigram_limit = 4
 focus_char_boost = 3.0
 focus_word_boost = 3.0
 focus_bigram_word_boost = 4.0
@@ -87,33 +93,48 @@ skill threshold (default 1.0: min(speed, accuracy) without attempt ramp) **and**
 has at least `min_confidence_attempts` presses in the session window. Ramped
 confidence still drives HUD labels (`cal` vs `wk`) and focus weighting.
 
-Beyond solo-key mastery, the most-recently-unlocked key's bigrams with its
-peers also gate the next key: it needs at least one measured cross-key pair,
-and its single *weakest* measured pair must clear `transition_threshold`
-(`domain.unlock.compute_unlocked`'s `transitions` argument, wired from
-`build_lesson`/`session_use_cases` via `newest_key_clears_transition_gate`).
-This is deliberately bounded to one pair, not every peer combination, so the
-bar doesn't grow with alphabet depth — and an untouched peer pair never
-counts against it, only pairs that have actually been typed at least once.
+Beyond solo-key mastery, a deterministic cohort of directed bigrams involving
+the most-recently-practiced key gates the next key. It pairs that key in both
+directions with up to its two most-recent practiced peers, bounded by
+`gating_bigram_limit`. The cohort is derived from key order, not observed
+transition data, so incidental measurements cannot expand or replace it.
+Every member must reach confidence 1.0 with
+`min_transition_confidence_attempts` attempts.
 A `transition_stall_attempts_cap` (`domain.unlock.default_transition_stall_attempts_cap`,
 3× the transition calibration floor by default) releases a specific pair
 that's been drilled past the cap without clearing threshold, so one stubborn
 bigram can't block progression forever.
 
-**Focus selection** is letter-first: while any unlocked key is below performance
-skill (`blocks_transition_focus`), the lesson emphasizes the weakest unlocked
-**key** (by ramped confidence, with review urgency). Transition (bigram) focus
-activates when every unlocked key meets the skill threshold (speed and accuracy
-without the attempt ramp), even if some keys are still calibrating on press
-count; then the weakest measured cross-key bigram among unlocked keys drives
-focus — unless the most-recently-practiced unlocked key has no measured
-transitions of its own yet, in which case its weakest unmeasured pair takes
-priority instead (`newest_key_unmeasured_pairs`), so a freshly-mastered key
-gets bigram focus before older, merely-weak measured pairs. This unmeasured-pair
-fallback is what fires when no transition data exists at all, as long as the
-newest practiced key has a practiced peer to pair with — only when it has no
-such peer (or nothing's been practiced yet) does focus fall further back to
-the weakest key.
+**Focus selection** is letter-first: while any unlocked key is below the skill
+threshold or key-attempt floor, the lesson emphasizes the weakest unlocked
+**key**. While transition progression is blocked, deficient members of the
+same gating cohort drive transition focus and share guaranteed lesson coverage.
+An older pair can preempt only after enough samples show genuine raw
+speed/accuracy regression; sparse old calibration does not delay progression.
+Outside a blocked progression gate, normal measured transition review remains.
+
+**Focus is sticky.** Once a key or bigram becomes the focus, it keeps that
+focus across lesson builds until it individually clears both the skill
+threshold and its attempt floor (the same two-part gate as unlocks, via
+`domain.confidence.clears_threshold`) — an unrelated stale-but-mastered key's
+review urgency, or the transition gate activating, cannot steal focus away
+mid-calibration. Only once *every* unlocked key/bigram has cleared does
+review-urgency-based staleness compete for focus across the whole set.
+
+## Lesson WPM gate
+
+A finished session's own words-per-minute is compared against its own target
+speed (converted CPM→WPM the same way `SettingsScreen` does). If that
+session's WPM fell short, the *next* lesson's focus is confined to the
+weakest key or bigram from that session's own `lesson_alphabet` — the letters
+that actually appeared in the text — instead of ordinary weakest-across-window
+selection or the newest-key transition gate picking elsewhere. This remains in
+effect lesson-over-lesson until a lesson's WPM meets target again, at which
+point normal focus selection (including stickiness, above) resumes. Sessions
+with no recorded target (`target_speed_cpm == 0`, e.g. very old data) never
+trigger this gate. There is no separate HUD label — the gate only narrows
+*which* key/bigram is eligible for focus, so the usual `wk`/`cal`/`rev` reason
+still applies to whichever one is chosen.
 
 ### Transition stats
 
@@ -121,17 +142,10 @@ Same-key / double-letter bigrams are never aggregated into session stats, stored
 in the stats cache, or used in unlock checks — including the transition gate
 above. Only cross-key pairs (e.g. `th`, `he`) participate in transition
 confidence, focus selection, the unlock gate, and bigram-weighted lesson
-text. Transition sampling weights apply to **measured** unlocked
-cross-key bigrams; other unmeasured pairs keep the generator default (1.0) —
-except pairs between the most-recently-*practiced* unlocked key and other
-already-practiced unlocked keys, which get an explicit zero-attempt weight
-(`transition_practice_weight(0.0, ...) * coverage_deficit_factor(0, ...)`,
-12.0 at default settings) instead of 1.0, so a newly-mastered key's bigrams
-show up in generated text right away rather than waiting on chance. This
-stops as soon as any of that key's pairs gets measured data — see
-`domain.focus.newest_key_unmeasured_pairs`, the single source of truth for
-this "newest key" candidate set shared by focus selection and lesson
-weighting.
+text. Transition sampling weights apply to measured unlocked cross-key bigrams.
+Unmeasured members of the stable newest-key cohort receive explicit
+zero-attempt weighting, and deficient cohort members are distributed across
+guaranteed lesson slots instead of waiting to appear by chance.
 
 ## Tradeoffs
 

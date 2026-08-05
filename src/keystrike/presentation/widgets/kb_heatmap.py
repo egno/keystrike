@@ -5,29 +5,23 @@ from textual.app import ComposeResult
 from textual.widget import Widget
 from textual.widgets import Static
 
+from keystrike.domain.confidence import CONFIDENCE_GOOD
 from keystrike.domain.enums import FocusKind
 from keystrike.domain.focus import FocusReason
 from keystrike.domain.models import Bigram, Layout
 
 _ROWS = 3
 _COLS = 10
-_CONFIDENCE_GOOD = 1.0
 _CONFIDENCE_OK = 0.6
 _FOCUS_MASTERED_STYLE = "underline cyan"
 _FOCUS_STYLE = "underline"
 _REVIEW_STYLE = "underline magenta"
 
-_TRANSITION_KINDS = (
-    FocusKind.TRANSITION_WEAK,
-    FocusKind.TRANSITION_CALIBRATING,
-    FocusKind.TRANSITION_REVIEW,
-)
-
 
 def focus_transition_pair(focus_reason: FocusReason | None) -> Bigram | None:
     """The bigram a transition-kind focus reason is about, or None for a
     key-kind reason (or no reason at all)."""
-    if focus_reason is None or focus_reason.kind not in _TRANSITION_KINDS:
+    if focus_reason is None or not focus_reason.is_transition:
         return None
     return focus_reason.pair
 
@@ -50,7 +44,7 @@ def focus_reason_label(focus_reason: FocusReason) -> str:
     """Full display text for a focus reason (wiki/docs). UI uses
     `focus_reason_label_short` instead."""
     word = _FULL_REASON_WORD[focus_reason_label_short(focus_reason)]
-    if focus_reason.kind in _TRANSITION_KINDS:
+    if focus_reason.is_transition:
         assert focus_reason.pair is not None
         return f"{focus_reason.pair.chars()} {word} transition"
     return word
@@ -59,7 +53,7 @@ def focus_reason_label(focus_reason: FocusReason) -> str:
 def _confidence_style(confidence: float | None) -> str:
     if confidence is None:
         return "grey37"
-    if confidence >= _CONFIDENCE_GOOD:
+    if confidence >= CONFIDENCE_GOOD:
         return "bold green"
     if confidence >= _CONFIDENCE_OK:
         return "yellow"
@@ -78,7 +72,7 @@ def _key_style(
     if is_focus:
         focus_style = (
             _FOCUS_MASTERED_STYLE
-            if confidence is not None and confidence >= _CONFIDENCE_GOOD
+            if confidence is not None and confidence >= CONFIDENCE_GOOD
             else _FOCUS_STYLE
         )
         style = f"{style} {focus_style}"

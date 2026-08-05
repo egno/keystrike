@@ -32,6 +32,8 @@ _REVIEW_URGENCY_FULL_DAYS = 3.0
 SESSION_RECENCY_DECAY = 0.7
 # Confidence scores are rounded before thresholds, focus, heatmap, and UI.
 CONFIDENCE_DECIMALS = 2
+# Mastery threshold: skill/confidence at or above this counts as "good".
+CONFIDENCE_GOOD = 1.0
 
 
 def round_confidence(value: float) -> float:
@@ -190,6 +192,22 @@ def confidence_of(
 def skill_of(codepoint: int, stats: Mapping[int, KeyStats], target: float) -> float:
     """Live skill for one key — min(speed, accuracy) without attempt ramp."""
     return skill_from_stats(stats.get(codepoint), target)
+
+
+def clears_threshold(
+    stats: HasConfidenceFields | None,
+    target: float,
+    *,
+    threshold: float,
+    min_attempts: int,
+) -> bool:
+    """Skill (unramped) meets ``threshold`` AND attempts meet ``min_attempts``
+    — the shared two-part "no longer needs calibration" gate used by key
+    unlock, the transition gate, and focus stickiness (`domain.unlock`,
+    `domain.focus`) so the three can't drift on what counts as cleared."""
+    if stats is None:
+        return False
+    return skill_from_stats(stats, target) >= threshold and attempts_of(stats) >= min_attempts
 
 
 def review_urgency(last_seen: float, now: float) -> float:

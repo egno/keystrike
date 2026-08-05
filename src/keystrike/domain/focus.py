@@ -11,9 +11,11 @@ from .confidence import (
     MIN_CONFIDENCE_ATTEMPTS,
     MIN_TRANSITION_CONFIDENCE_ATTEMPTS,
     HasConfidenceFields,
+    attempts_of,
+    clears_threshold,
     confidence_from_stats,
     review_urgency,
-    skill_of,
+    skill_from_stats,
 )
 from .enums import FocusKind
 from .models import (
@@ -29,12 +31,6 @@ from .newest_key import newest_practiced_key_pairs, unlocked_cross_key_pairs
 # this module rather than `domain.models` directly.
 __all__ = ["FOCUS_BIGRAM_WORD_BOOST", "FOCUS_WORD_BOOST"]
 
-_TRANSITION_KINDS = (
-    FocusKind.TRANSITION_WEAK,
-    FocusKind.TRANSITION_CALIBRATING,
-    FocusKind.TRANSITION_REVIEW,
-)
-
 
 @dataclass(frozen=True, slots=True)
 class FocusReason:
@@ -46,8 +42,16 @@ class FocusReason:
     kind: FocusKind
     pair: Bigram | None = None
 
+    @property
+    def is_transition(self) -> bool:
+        return self.kind in (
+            FocusKind.TRANSITION_WEAK,
+            FocusKind.TRANSITION_CALIBRATING,
+            FocusKind.TRANSITION_REVIEW,
+        )
+
     def __post_init__(self) -> None:
-        is_transition_kind = self.kind in _TRANSITION_KINDS
+        is_transition_kind = self.is_transition
         if is_transition_kind and self.pair is None:
             raise ValueError(f"{self.kind} requires a pair")
         if not is_transition_kind and self.pair is not None:
@@ -94,12 +98,13 @@ def blocks_transition_focus(
     target: float,
     *,
     threshold: float = 1.0,
+    min_attempts: int = MIN_CONFIDENCE_ATTEMPTS,
 ) -> bool:
-    """True when any unlocked key with measured stats is below performance skill.
-
-    Never-practiced keys (absent from stats) do not block — e.g. a key just
-    auto-unlocked before its first press. Keys in stats with skill 0 still block."""
-    return any(cp in stats and skill_of(cp, stats, target) < threshold for cp in unlocked)
+    """True when any unlocked key lacks required performance or evidence."""
+    return any(
+        not clears_threshold(stats.get(cp), target, threshold=threshold, min_attempts=min_attempts)
+        for cp in unlocked
+    )
 
 
 def select_focus(
@@ -109,13 +114,28 @@ def select_focus(
     now: float,
     *,
     review_penalty: float = 0.5,
+    threshold: float = 1.0,
     min_attempts: int = MIN_CONFIDENCE_ATTEMPTS,
 ) -> int:
-    """The unlocked key a lesson should emphasize — weakest by confidence, but
-    stale keys are treated as weaker so high-confidence keys due for review
-    still surface (SlimStampen-style spacing; see typing-pedagogy.md)."""
+    """The unlocked key a lesson should emphasize.
+
+    Any key that hasn't yet cleared both the skill threshold and the attempt
+    floor (`clears_threshold`) wins over every key that has — so focus stays
+    on an in-progress key across lesson builds instead of a mastered-but-
+    stale key's review-urgency discount stealing it away mid-calibration.
+    Only once every unlocked key has cleared does review-urgency-based
+    staleness compete for focus among the whole set (SlimStampen-style
+    spacing; see typing-pedagogy.md)."""
+    candidates = [
+        cp
+        for cp in unlocked
+        if not clears_threshold(
+            stats.get(cp), target, threshold=threshold, min_attempts=min_attempts
+        )
+    ]
+    pool = candidates or unlocked
     return min(
-        unlocked,
+        pool,
         key=lambda cp: _focus_score(
             cp,
             stats,
@@ -172,7 +192,9 @@ def select_focus_transition(
     now: float,
     *,
     key_stats: Mapping[int, KeyStats] | None = None,
+    gating_candidates: Sequence[Bigram] | None = None,
     review_penalty: float = 0.5,
+    threshold: float = 1.0,
     min_attempts: int = MIN_TRANSITION_CONFIDENCE_ATTEMPTS,
 ) -> Bigram | None:
     """Weakest unlocked bigram by transition confidence.
@@ -181,7 +203,15 @@ def select_focus_transition(
     measured transitions of its own yet (`newest_key_unmeasured_pairs`), fall
     back to its weakest-scoring unmeasured pair — so a freshly-opened letter
     gets bigram focus right away instead of waiting for its pairs to appear
-    by chance."""
+    by chance.
+
+    Among measured pairs (outside `gating_candidates` mode), a pair that
+    hasn't cleared both the skill threshold and attempt floor
+    (`clears_threshold`) always wins over an already-cleared, merely-stale
+    pair — the same stickiness `select_focus` applies to keys, so an
+    in-progress bigram isn't preempted by review urgency before it's done
+    calibrating. Once every measured pair has cleared, review-urgency-based
+    staleness competes for focus among all of them, same as before."""
 
     def _score(pair: Bigram) -> float:
         return _transition_focus_score(
@@ -194,17 +224,80 @@ def select_focus_transition(
             min_attempts=min_attempts,
         )
 
+    measured = [pair for pair in unlocked_cross_key_pairs(unlocked) if pair in transitions]
+    if gating_candidates is not None:
+        gating_set = frozenset(gating_candidates)
+        regressions = [
+            pair
+            for pair in measured
+            if pair not in gating_set
+            and attempts_of(transitions[pair]) >= min_attempts
+            and skill_from_stats(transitions[pair], target) < 1.0
+        ]
+        if regressions:
+            return min(regressions, key=_score)
+        return min(gating_candidates, key=_score) if gating_candidates else None
+
     candidates = newest_key_unmeasured_pairs(unlocked, transitions, key_stats)
     if candidates:
         return min(candidates, key=_score)
-
-    measured = [pair for pair in unlocked_cross_key_pairs(unlocked) if pair in transitions]
-    return min(measured, key=_score) if measured else None
+    if not measured:
+        return None
+    not_cleared = [
+        pair
+        for pair in measured
+        if not clears_threshold(
+            transitions.get(pair), target, threshold=threshold, min_attempts=min_attempts
+        )
+    ]
+    return min(not_cleared or measured, key=_score)
 
 
 def focus_key_from_transition(_prev_cp: int, next_cp: int) -> int:
     """Endpoint key to mark as lesson focus for a transition-driven bigram."""
     return next_cp
+
+
+def remedial_focus(
+    lesson_alphabet: Sequence[int],
+    unlocked: Sequence[int],
+    stats: Mapping[int, KeyStats],
+    transitions: Mapping[Bigram, TransitionStats],
+    target: float,
+    *,
+    now: float,
+    threshold: float = 1.0,
+    min_attempts: int = MIN_CONFIDENCE_ATTEMPTS,
+    min_transition_attempts: int = MIN_TRANSITION_CONFIDENCE_ATTEMPTS,
+) -> tuple[int, Bigram | None] | None:
+    """Weakest key or bigram confined to one already-finished lesson's own
+    alphabet — pulls focus back onto that lesson's own weak point when its
+    WPM fell short of target, instead of ordinary weakest-across-window
+    selection (or the newest-key transition gate) drifting focus elsewhere.
+
+    None once every key in the pool has cleared and no bigram among them is
+    left wanting either — callers should fall back to ordinary focus
+    selection at that point (the lesson's weak point is resolved)."""
+    pool = [cp for cp in unlocked if cp in frozenset(lesson_alphabet)]
+    if not pool:
+        return None
+    if blocks_transition_focus(pool, stats, target, threshold=threshold, min_attempts=min_attempts):
+        focus = select_focus(
+            pool, stats, target, now, threshold=threshold, min_attempts=min_attempts
+        )
+        return focus, None
+    bigram = select_focus_transition(
+        pool,
+        transitions,
+        target,
+        now,
+        key_stats=stats,
+        threshold=threshold,
+        min_attempts=min_transition_attempts,
+    )
+    if bigram is None:
+        return None
+    return focus_key_from_transition(*bigram), bigram
 
 
 def coverage_deficit_factor(
@@ -243,19 +336,3 @@ def practice_weight(
     keys still appear in generated text."""
     base = 1.0 + max_bias * (1.0 - min(confidence, 1.0))
     return base * (1.0 + review_bias * urgency)
-
-
-def transition_practice_weight(
-    confidence: float,
-    *,
-    max_bias: float = 3.0,
-    urgency: float = 0.0,
-    review_bias: float = 1.0,
-) -> float:
-    """Sampling weight for a prev→next pair — mirrors `practice_weight`."""
-    return practice_weight(
-        confidence,
-        max_bias=max_bias,
-        urgency=urgency,
-        review_bias=review_bias,
-    )

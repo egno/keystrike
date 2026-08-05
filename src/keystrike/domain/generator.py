@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import math
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from random import Random
 
@@ -86,23 +86,24 @@ def _assert_lesson_focus_quota(
     matching = sum(
         1 for w in words if word_matches_focus(w, focus_char=focus_char, focus_bigram=focus_bigram)
     )
-    assert matching >= min_focus_words, (
-        f"focus quota unmet: {matching}/{len(words)} words match (required {min_focus_words})"
-    )
+    if matching < min_focus_words:
+        raise ValueError(
+            f"focus quota unmet: {matching}/{len(words)} words match (required {min_focus_words})"
+        )
 
 
 def _assert_wordlist_word_len(word: str, *, min_len: int, max_len: int) -> None:
     """Ensures: imported word length is within dictionary bounds."""
-    assert min_len <= len(word) <= max_len, (
-        f"wordlist word {word!r} length {len(word)} not in [{min_len}, {max_len}]"
-    )
+    if not (min_len <= len(word) <= max_len):
+        raise ValueError(f"wordlist word {word!r} length {len(word)} not in [{min_len}, {max_len}]")
 
 
 def _assert_generated_word_len(word: str, *, min_len: int, max_len: int) -> None:
     """Ensures: Markov-generated word length is within generated bounds."""
-    assert min_len <= len(word) <= max_len, (
-        f"generated word {word!r} length {len(word)} not in [{min_len}, {max_len}]"
-    )
+    if not (min_len <= len(word) <= max_len):
+        raise ValueError(
+            f"generated word {word!r} length {len(word)} not in [{min_len}, {max_len}]"
+        )
 
 
 def _wordlist_word_fits(
@@ -379,6 +380,7 @@ class AdaptiveGenerator:
         word_count: int = DEFAULT_WORD_COUNT,
         weighting: LessonWeighting | None = None,
         focus_bigram: Bigram | None = None,
+        focus_bigrams: Sequence[Bigram] = (),
         min_focus_words: int = 1,
         max_word_repeats: int = MAX_WORD_REPEATS,
         generated_min_len: int = GENERATED_WORD_MIN_LEN,
@@ -392,7 +394,8 @@ class AdaptiveGenerator:
         """
         word_count = effective_lesson_word_count(word_count)
         min_focus_words = min(min_focus_words, word_count)
-        assert 0 <= min_focus_words <= word_count
+        if not (0 <= min_focus_words <= word_count):
+            raise ValueError(f"min_focus_words must be in [0, {word_count}], got {min_focus_words}")
         max_word_repeats = effective_max_word_repeats(max_word_repeats)
         generated_min_len, generated_max_len = effective_generated_word_bounds(
             generated_min_len, generated_max_len
@@ -434,8 +437,8 @@ class AdaptiveGenerator:
                     if word in pool_set
                 ),
             )
+        lesson_words: list[str] = []
         if min_focus_words <= 1:
-            lesson_words: list[str] = []
             while len(lesson_words) < word_count:
                 self._append_general_word_capped(
                     lesson_words,
@@ -446,22 +449,9 @@ class AdaptiveGenerator:
                     generated_min_len=generated_min_len,
                     generated_max_len=generated_max_len,
                 )
-            if focus_bigram is not None:
-                prev_char, next_char = chr(focus_bigram.prev_cp), chr(focus_bigram.next_cp)
-                bigram = prev_char + next_char
-                if not any(bigram in w for w in lesson_words):
-                    idx = self.rng.randrange(len(lesson_words))
-                    lesson_words[idx] = self._inject_focus_bigram(
-                        lesson_words[idx],
-                        prev_char,
-                        next_char,
-                    )
-            elif not any(focus_char in w for w in lesson_words):
-                idx = self.rng.randrange(len(lesson_words))
-                lesson_words[idx] = self._inject_focus(lesson_words[idx], focus_char)
+            self._ensure_single_focus_match(lesson_words, focus_char, focus_bigram)
         else:
             focus_quota = min(min_focus_words, word_count)
-            lesson_words: list[str] = []
             pool_draws = _sample_focus_words_without_replacement(
                 self.rng,
                 focus_pool,
@@ -507,7 +497,79 @@ class AdaptiveGenerator:
                 focus_char=focus_char,
                 focus_bigram=focus_bigram_str,
             )
+        self._distribute_focus_bigram_coverage(
+            lesson_words,
+            focus_bigrams,
+            alphabet,
+            weighting,
+            min_focus_words=min_focus_words,
+            max_word_repeats=max_word_repeats,
+            generated_min_len=generated_min_len,
+            generated_max_len=generated_max_len,
+        )
         return " ".join(lesson_words)
+
+    def _ensure_single_focus_match(
+        self,
+        lesson_words: list[str],
+        focus_char: str,
+        focus_bigram: Bigram | None,
+    ) -> None:
+        """Guarantee at least one lesson word contains the focus (used when
+        ``min_focus_words <= 1``, where no quota loop already guarantees it)."""
+        if focus_bigram is not None:
+            prev_char, next_char = chr(focus_bigram.prev_cp), chr(focus_bigram.next_cp)
+            bigram = prev_char + next_char
+            if not any(bigram in w for w in lesson_words):
+                idx = self.rng.randrange(len(lesson_words))
+                lesson_words[idx] = self._inject_focus_bigram(
+                    lesson_words[idx], prev_char, next_char
+                )
+        elif not any(focus_char in w for w in lesson_words):
+            idx = self.rng.randrange(len(lesson_words))
+            lesson_words[idx] = self._inject_focus(lesson_words[idx], focus_char)
+
+    def _distribute_focus_bigram_coverage(
+        self,
+        lesson_words: list[str],
+        focus_bigrams: Sequence[Bigram],
+        alphabet: frozenset[str],
+        weighting: LessonWeighting,
+        *,
+        min_focus_words: int,
+        max_word_repeats: int,
+        generated_min_len: int,
+        generated_max_len: int,
+    ) -> None:
+        if not focus_bigrams:
+            return
+        coverage_slots = min(len(lesson_words), max(min_focus_words, len(focus_bigrams)))
+        for index in range(coverage_slots):
+            pair = focus_bigrams[index % len(focus_bigrams)]
+            candidate = self._inject_focus_bigram(
+                lesson_words[index], chr(pair.prev_cp), chr(pair.next_cp)
+            )
+            other_words = lesson_words[:index] + lesson_words[index + 1 :]
+            if Counter(other_words)[candidate] >= max_word_repeats:
+                for _ in range(MAX_REPEAT_RESAMPLE):
+                    candidate = self._inject_focus_bigram(
+                        self._generate_word_via_markov(
+                            alphabet, weighting, generated_min_len, generated_max_len
+                        ),
+                        chr(pair.prev_cp),
+                        chr(pair.next_cp),
+                    )
+                    if Counter(other_words)[candidate] < max_word_repeats:
+                        break
+            lesson_words[index] = candidate
+        if len(lesson_words) >= len(focus_bigrams):
+            missing = [
+                pair
+                for pair in focus_bigrams
+                if not any(pair.chars() in word for word in lesson_words)
+            ]
+            if missing:
+                raise ValueError(f"focus bigrams missing from lesson: {missing!r}")
 
     def _append_focus_word_capped(
         self,

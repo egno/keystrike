@@ -77,6 +77,7 @@ def test_round_trip(paths):
         confidence_session_window=8,
         min_confidence_attempts=12,
         min_transition_confidence_attempts=5,
+        gating_bigram_limit=3,
         focus_char_boost=2.5,
         focus_word_boost=5.0,
         focus_bigram_word_boost=6.0,
@@ -95,6 +96,7 @@ def test_round_trip(paths):
     assert loaded.confidence_session_window == 8
     assert loaded.min_confidence_attempts == 12
     assert loaded.min_transition_confidence_attempts == 5
+    assert loaded.gating_bigram_limit == 3
     assert loaded.focus_char_boost == 2.5
     assert loaded.focus_word_boost == 5.0
     assert loaded.focus_bigram_word_boost == 6.0
@@ -154,6 +156,19 @@ def test_malformed_enum_value_falls_back_to_default(paths):
     )
     s = TomlSettingsRepository(paths).load()
     assert s.target_speed_unit == Settings().target_speed_unit
+
+
+def test_existing_toml_defaults_gating_bigram_limit(paths):
+    paths.settings_file.write_text('schema_version = 1\nlayout = "qwerty"\n', encoding="utf-8")
+    assert TomlSettingsRepository(paths).load().gating_bigram_limit == 4
+
+
+def test_loads_gating_bigram_limit(paths):
+    paths.settings_file.write_text(
+        "schema_version = 1\ngating_bigram_limit = 2\n",
+        encoding="utf-8",
+    )
+    assert TomlSettingsRepository(paths).load().gating_bigram_limit == 2
 
 
 def test_coerce_field_rejects_non_bool_for_bool_default():

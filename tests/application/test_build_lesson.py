@@ -9,11 +9,19 @@ from keystrike.application.build_lesson import (
 )
 from keystrike.domain.aggregate import _combine_transition_maps_weighted, session_recency_weights
 from keystrike.domain.confidence import target_ms_per_char, transition_confidence_of
-from keystrike.domain.enums import FocusKind
-from keystrike.domain.focus import FocusReason
+from keystrike.domain.enums import FocusKind, Mode
+from keystrike.domain.focus import FocusReason, select_focus
 from keystrike.domain.generator import weak_focus_word_quota, word_matches_focus
 from keystrike.domain.learn_order import keyboard_order
-from keystrike.domain.models import Bigram, KeyStats, LayoutAggregates, Settings, TransitionStats
+from keystrike.domain.models import (
+    Bigram,
+    KeyStats,
+    LayoutAggregates,
+    SessionResult,
+    Settings,
+    TransitionStats,
+)
+from keystrike.domain.newest_key import newest_key_gating_cohort
 from keystrike.domain.unlock import compute_unlocked
 from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS
 from tests.fakes import (
@@ -21,6 +29,7 @@ from tests.fakes import (
     FakeClock,
     FakeLanguageProvider,
     FakeLayoutRepository,
+    FakeSessionRepository,
     FakeSettingsRepository,
     FakeWordListStore,
 )
@@ -202,7 +211,7 @@ def test_lesson_uses_transition_focus_when_transitions_weak():
     slow = 400_000_000.0
     keys = {
         a: KeyStats(a, 10, at_target, 0, now, attempt_count=10),
-        s: KeyStats(s, 9, at_target, 0, now, attempt_count=9),
+        s: KeyStats(s, 10, at_target, 0, now, attempt_count=10),
     }
     transitions = {
         Bigram(a, a): TransitionStats(a, a, 10, fast, 0, now, attempt_count=10),
@@ -248,10 +257,10 @@ def test_lesson_uses_transition_focus_for_colemak_two_keys_before_third_unlocks(
     now = 1_700_000_000.0
     at_target = 200_000_000.0
     keys = {
-        e: KeyStats(e, 8, at_target, 0, now, attempt_count=8),
-        t: KeyStats(t, 8, at_target, 0, now, attempt_count=8),
+        e: KeyStats(e, 10, at_target, 0, now, attempt_count=10),
+        t: KeyStats(t, 10, at_target, 0, now, attempt_count=10),
     }
-    assert a not in compute_unlocked(order, alphabet_size=2, stats=keys, target=200.0)
+    assert a in compute_unlocked(order, alphabet_size=2, stats=keys, target=200.0)
     cache = FakeAggregatesCache(
         by_layout={"colemak_dh": LayoutAggregates(keys=keys, transitions={})},
     )
@@ -265,9 +274,11 @@ def test_lesson_uses_transition_focus_for_colemak_two_keys_before_third_unlocks(
         clock=FakeClock(),
     )
     lesson = builder("colemak_dh")
-    pair = Bigram(e, t)
-    assert lesson.focus_key == t
-    assert lesson.focus_reason == FocusReason(kind=FocusKind.TRANSITION_WEAK, pair=pair)
+    assert lesson.focus_reason is not None
+    assert lesson.focus_reason.kind == FocusKind.TRANSITION_WEAK
+    assert lesson.focus_reason.pair in (Bigram(e, t), Bigram(t, e))
+    pair = lesson.focus_reason.pair
+    assert pair is not None
     assert pair.chars() in lesson.text.replace(" ", "")
 
 
@@ -318,9 +329,8 @@ def test_lesson_uses_transition_focus_when_newly_unlocked_key_unpracticed():
         clock=FakeClock(),
     )
     lesson = builder("qwerty")
-    pair_bigram = Bigram(a, s)
-    assert lesson.focus_key == s
-    assert lesson.focus_reason == FocusReason(kind=FocusKind.TRANSITION_WEAK, pair=pair_bigram)
+    assert lesson.focus_key == d
+    assert lesson.focus_reason == FocusReason(kind=FocusKind.KEY_WEAK)
 
 
 def test_lesson_focuses_newest_key_bigram_over_older_weak_measured_pair():
@@ -347,7 +357,7 @@ def test_lesson_focuses_newest_key_bigram_over_older_weak_measured_pair():
     assert d in unlocked
     assert len(unlocked) == 5
     transitions = {
-        Bigram(a, s): TransitionStats(a, s, 10, slow, 0, now, attempt_count=10),
+        Bigram(a, s): TransitionStats(a, s, 3, slow, 0, now, attempt_count=3),
         Bigram(s, a): TransitionStats(s, a, 10, fast, 0, now, attempt_count=10),
         Bigram(a, h): TransitionStats(a, h, 10, fast, 0, now, attempt_count=10),
         Bigram(h, a): TransitionStats(h, a, 10, fast, 0, now, attempt_count=10),
@@ -374,6 +384,10 @@ def test_lesson_focuses_newest_key_bigram_over_older_weak_measured_pair():
     focus_pair = lesson.focus_reason.pair
     assert focus_pair is not None
     assert d in focus_pair
+    cohort = newest_key_gating_cohort((a, s, h, d), keys)
+    assert lesson.bigram_calibration == (0, 4)
+    assert focus_pair in cohort
+    assert all(pair.chars() in lesson.text.replace(" ", "") for pair in cohort)
     # With the transitions gate wired in, the next key does NOT cascade open
     # until d's weakest bigram clears -- unlike the bare compute_unlocked
     # call above.
@@ -420,11 +434,9 @@ def test_compute_weights_gives_newest_key_pairs_a_default_weight():
         unlocked=progress.unlocked,
         ctx=ctx,
     )
-    # d is unlocked but has no measured transitions -- it should still get a
-    # default (non-boosted) weight for each pair with an older unlocked key,
-    # not be entirely absent from the weighting map.
-    assert Bigram(d, a) in transition_weights
-    assert Bigram(a, d) in transition_weights
+    # The bounded cohort uses only the two most-recent practiced peers.
+    assert Bigram(d, a) not in transition_weights
+    assert Bigram(a, d) not in transition_weights
     assert Bigram(d, s) in transition_weights
     assert Bigram(d, h) in transition_weights
 
@@ -453,38 +465,48 @@ def test_transition_focus_metrics_reports_accuracy_when_speed_measured():
     assert metrics.accuracy > 0
 
 
-def test_build_lesson_eo_not_zero_confidence_when_counts_zeroed():
+def test_build_lesson_gating_pair_not_zero_confidence_when_counts_zeroed():
     """Full BuildLesson path: stale samples=0 must not show 0.00 with speed/acc."""
     layout_name = "colemak_dh"
     layout = BUNDLED_LAYOUTS[layout_name]
     order = keyboard_order(layout)
     now = 1_700_000_000.0
     at_target = 200_000_000.0
-    o = order[3]
     keys = {
         cp: KeyStats(
             cp,
-            9 if cp == o else 10,
+            10,
             at_target,
             0,
             now,
-            attempt_count=9 if cp == o else 10,
+            attempt_count=10,
         )
         for cp in order[:4]
     }
-    eo_key = Bigram(ord("e"), ord("o"))
+    cohort = newest_key_gating_cohort(order[:4], keys)
+    eo_key = cohort[0]
     slow = 566_631_000.0
     transitions = {
-        eo_key: TransitionStats(
-            ord("e"),
-            ord("o"),
-            0,
-            slow,
+        pair: TransitionStats(
+            pair.prev_cp,
+            pair.next_cp,
+            4,
+            100_000_000.0,
             0,
             now,
-            attempt_count=0,
-        ),
+            attempt_count=4,
+        )
+        for pair in cohort
     }
+    transitions[eo_key] = TransitionStats(
+        eo_key.prev_cp,
+        eo_key.next_cp,
+        0,
+        slow,
+        0,
+        now,
+        attempt_count=0,
+    )
     cache = FakeAggregatesCache(
         by_layout={layout_name: LayoutAggregates(keys=keys, transitions=transitions)},
     )
@@ -568,7 +590,7 @@ def test_lesson_uses_transition_review_when_stale_and_mastered():
     keys = {
         a: KeyStats(a, 10, at_target, 0, now, attempt_count=10),
         s: KeyStats(s, 10, at_target, 0, now, attempt_count=10),
-        h: KeyStats(h, 9, at_target, 0, now, attempt_count=9),
+        h: KeyStats(h, 10, at_target, 0, now, attempt_count=10),
     }
     transitions = {
         Bigram(a, a): TransitionStats(
@@ -666,8 +688,8 @@ def test_lesson_uses_transition_review_when_stale_and_mastered():
         clock=FakeClock(),
     )
     lesson = builder("qwerty")
-    assert lesson.focus_key == s
-    assert lesson.focus_reason == FocusReason(kind=FocusKind.TRANSITION_REVIEW, pair=Bigram(a, s))
+    assert lesson.focus_key == h
+    assert lesson.focus_reason == FocusReason(kind=FocusKind.TRANSITION_WEAK, pair=Bigram(s, h))
 
 
 def test_lesson_wordlist_biases_weak_transition():
@@ -681,7 +703,7 @@ def test_lesson_wordlist_biases_weak_transition():
     slow = 400_000_000.0
     keys = {
         a: KeyStats(a, 10, at_target, 0, now, attempt_count=10),
-        s: KeyStats(s, 9, at_target, 0, now, attempt_count=9),
+        s: KeyStats(s, 10, at_target, 0, now, attempt_count=10),
     }
     transitions = {
         Bigram(a, a): TransitionStats(a, a, 10, fast, 0, now, attempt_count=10),
@@ -745,7 +767,7 @@ def test_weak_transition_focus_over_represented_in_lesson_words():
     slow = 400_000_000.0
     keys = {
         a: KeyStats(a, 10, at_target, 0, now, attempt_count=10),
-        s: KeyStats(s, 9, at_target, 0, now, attempt_count=9),
+        s: KeyStats(s, 10, at_target, 0, now, attempt_count=10),
     }
     transitions = {
         Bigram(a, a): TransitionStats(a, a, 10, fast, 0, now, attempt_count=10),
@@ -1015,6 +1037,206 @@ def test_lesson_boosts_coverage_starved_key_among_mastered_alphabet():
     assert share > expected_uniform * 2, (
         f"starved key share {share:.1%} vs uniform {expected_uniform:.1%}"
     )
+
+
+def test_focus_stays_on_calibrating_key_despite_stale_mastered_peer():
+    """Sticky focus: a key still short of skill+attempts keeps lesson focus
+    across repeated builds even though an already-mastered, stale peer key
+    exists (that peer's review-urgency discount previously could steal
+    focus). Once the calibrating key clears both conditions, focus moves on."""
+    layout = BUNDLED_LAYOUTS["qwerty"]
+    order = keyboard_order(layout)
+    a, s = order[0], order[1]
+    now = 1_700_000_000.0
+    five_days = 5 * 86_400.0
+    at_target = 200_000_000.0
+    keys = {
+        a: KeyStats(a, 8, at_target, 0, now, attempt_count=8),
+        s: KeyStats(s, 10, at_target, 0, now - five_days, attempt_count=10),
+    }
+    cache = FakeAggregatesCache(
+        by_layout={"qwerty": LayoutAggregates(keys=keys, transitions={})},
+    )
+    builder = BuildLesson(
+        layout_repo=FakeLayoutRepository(dict(BUNDLED_LAYOUTS)),
+        aggregates_cache=cache,
+        settings_repo=FakeSettingsRepository(Settings(alphabet_size=2)),
+        language_provider=FakeLanguageProvider(),
+        wordlist_store=FakeWordListStore(),
+        rng=Random(0),
+        clock=FakeClock(),
+    )
+    for _ in range(3):
+        assert builder("qwerty").focus_key == a
+
+    # Once a clears skill + attempts, focus is free to move on.
+    keys[a] = KeyStats(a, 10, at_target, 0, now, attempt_count=10)
+    cache.put("qwerty", LayoutAggregates(keys=keys, transitions={}))
+    assert builder("qwerty").focus_key != a
+
+
+def test_remedial_focus_targets_weak_key_from_low_wpm_lesson_alphabet():
+    """A lesson that finished under its own WPM target pulls the next
+    lesson's focus back onto that lesson's own weak point, even though a
+    different key is weaker across the whole rolling window."""
+    layout = BUNDLED_LAYOUTS["qwerty"]
+    order = keyboard_order(layout)
+    a, s, h, d = order[0], order[1], order[2], order[3]
+    now = 1_700_000_000.0
+    at_target = 200_000_000.0
+    keys = {
+        a: KeyStats(a, 10, at_target, 0, now, attempt_count=10),  # mastered
+        s: KeyStats(s, 10, at_target, 0, now, attempt_count=10),  # mastered
+        h: KeyStats(h, 10, at_target / 0.2, 0, now, attempt_count=10),  # globally weakest
+        d: KeyStats(d, 10, at_target / 0.6, 0, now, attempt_count=10),  # weak, but not weakest
+    }
+    target = target_ms_per_char(300)
+    # Sanity: plain weakest-across-window selection would land on h, not d.
+    assert select_focus((a, s, h, d), keys, target, now) == h
+
+    cache = FakeAggregatesCache(
+        by_layout={"qwerty": LayoutAggregates(keys=keys, transitions={})},
+    )
+    slow_session = SessionResult(
+        schema_version=3,
+        session_id="slow",
+        started_at=1.0,
+        duration_ns=60_000_000_000,
+        layout="qwerty",
+        mode=Mode.ADAPTIVE,
+        lesson_alphabet=(a, d),
+        focus_key=d,
+        total_keystrokes=1,
+        correct_keystrokes=1,
+        words_completed=1,
+        target_speed_cpm=300,
+    )
+    session_repo = FakeSessionRepository(headers=[slow_session])
+    builder = BuildLesson(
+        layout_repo=FakeLayoutRepository(dict(BUNDLED_LAYOUTS)),
+        aggregates_cache=cache,
+        settings_repo=FakeSettingsRepository(Settings(alphabet_size=4, target_speed_cpm=300)),
+        language_provider=FakeLanguageProvider(),
+        wordlist_store=FakeWordListStore(),
+        rng=Random(0),
+        clock=FakeClock(),
+        session_repo=session_repo,
+    )
+    assert builder("qwerty").focus_key == d
+
+
+def test_remedial_focus_uses_session_word_bounds_not_current_settings():
+    """Changing word-length bounds after a session finishes must not alter
+    whether that session triggers remedial focus on the next lesson."""
+    layout = BUNDLED_LAYOUTS["qwerty"]
+    order = keyboard_order(layout)
+    a, s, h, d = order[0], order[1], order[2], order[3]
+    now = 1_700_000_000.0
+    at_target = 200_000_000.0
+    keys = {
+        a: KeyStats(a, 10, at_target, 0, now, attempt_count=10),
+        s: KeyStats(s, 10, at_target, 0, now, attempt_count=10),
+        h: KeyStats(h, 10, at_target / 0.2, 0, now, attempt_count=10),
+        d: KeyStats(d, 10, at_target / 0.6, 0, now, attempt_count=10),
+    }
+    cache = FakeAggregatesCache(
+        by_layout={"qwerty": LayoutAggregates(keys=keys, transitions={})},
+    )
+    # 50 wpm: below 100 wpm target at snapshotted 2-4 bounds, above 46 at 3-10.
+    slow_session = SessionResult(
+        schema_version=4,
+        session_id="slow",
+        started_at=1.0,
+        duration_ns=60_000_000_000,
+        layout="qwerty",
+        mode=Mode.ADAPTIVE,
+        lesson_alphabet=(a, d),
+        focus_key=d,
+        total_keystrokes=1,
+        correct_keystrokes=1,
+        words_completed=50,
+        target_speed_cpm=300,
+        generated_min_len=2,
+        generated_max_len=4,
+    )
+    session_repo = FakeSessionRepository(headers=[slow_session])
+    builder = BuildLesson(
+        layout_repo=FakeLayoutRepository(dict(BUNDLED_LAYOUTS)),
+        aggregates_cache=cache,
+        settings_repo=FakeSettingsRepository(
+            Settings(
+                alphabet_size=4,
+                target_speed_cpm=300,
+                generated_word_min_len=3,
+                generated_word_max_len=10,
+            )
+        ),
+        language_provider=FakeLanguageProvider(),
+        wordlist_store=FakeWordListStore(),
+        rng=Random(0),
+        clock=FakeClock(),
+        session_repo=session_repo,
+    )
+    assert builder("qwerty").focus_key == d
+
+
+def test_remedial_focus_clears_once_lesson_wpm_meets_target():
+    """Once the most recent session's own WPM meets its own target again,
+    normal weakest-across-window focus selection resumes."""
+    layout = BUNDLED_LAYOUTS["qwerty"]
+    order = keyboard_order(layout)
+    a, s, h, d = order[0], order[1], order[2], order[3]
+    now = 1_700_000_000.0
+    at_target = 200_000_000.0
+    keys = {
+        a: KeyStats(a, 10, at_target, 0, now, attempt_count=10),
+        s: KeyStats(s, 10, at_target, 0, now, attempt_count=10),
+        h: KeyStats(h, 10, at_target / 0.2, 0, now, attempt_count=10),
+        d: KeyStats(d, 10, at_target / 0.6, 0, now, attempt_count=10),
+    }
+    cache = FakeAggregatesCache(
+        by_layout={"qwerty": LayoutAggregates(keys=keys, transitions={})},
+    )
+    slow_session = SessionResult(
+        schema_version=3,
+        session_id="slow",
+        started_at=1.0,
+        duration_ns=60_000_000_000,
+        layout="qwerty",
+        mode=Mode.ADAPTIVE,
+        lesson_alphabet=(a, d),
+        focus_key=d,
+        total_keystrokes=1,
+        correct_keystrokes=1,
+        words_completed=1,
+        target_speed_cpm=300,
+    )
+    fast_session = SessionResult(
+        schema_version=3,
+        session_id="fast",
+        started_at=2.0,
+        duration_ns=1_000_000_000,
+        layout="qwerty",
+        mode=Mode.ADAPTIVE,
+        lesson_alphabet=(a, d),
+        focus_key=d,
+        total_keystrokes=1,
+        correct_keystrokes=1,
+        words_completed=10,
+        target_speed_cpm=300,
+    )
+    session_repo = FakeSessionRepository(headers=[slow_session, fast_session])
+    builder = BuildLesson(
+        layout_repo=FakeLayoutRepository(dict(BUNDLED_LAYOUTS)),
+        aggregates_cache=cache,
+        settings_repo=FakeSettingsRepository(Settings(alphabet_size=4, target_speed_cpm=300)),
+        language_provider=FakeLanguageProvider(),
+        wordlist_store=FakeWordListStore(),
+        rng=Random(0),
+        clock=FakeClock(),
+        session_repo=session_repo,
+    )
+    assert builder("qwerty").focus_key == h
 
 
 def test_large_alphabet_unlock_advances_when_keys_rotated():

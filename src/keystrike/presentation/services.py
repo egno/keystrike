@@ -9,6 +9,7 @@ from keystrike.application.prepare_practice import PreparePracticeSession
 from keystrike.application.session_use_cases import (
     AbortSession,
     FinishSession,
+    GetLatestSessionHeader,
     GetSessionBaseline,
     RecordKeystroke,
     StartSession,
@@ -50,6 +51,7 @@ class PracticeServices:
     finish: FinishSession
     abort: AbortSession
     prepare_practice: PreparePracticeSession
+    get_latest_session_header: GetLatestSessionHeader
     get_session_baseline: GetSessionBaseline
     rebuild_aggregates: StatsRebuilder
     get_daily_learn_budget: DailyLearnBudgetProvider = NULL_DAILY_LEARN_BUDGET

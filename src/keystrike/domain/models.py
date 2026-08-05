@@ -12,6 +12,7 @@ from .enums import Finger, Hand, Mode, TargetSpeedUnit
 CONFIDENCE_SESSION_WINDOW = 10
 MIN_CONFIDENCE_ATTEMPTS = 10
 MIN_TRANSITION_CONFIDENCE_ATTEMPTS = 4
+GATING_BIGRAM_LIMIT = 4
 FOCUS_CHAR_BOOST = 3.0
 FOCUS_WORD_BOOST = 3.0
 FOCUS_BIGRAM_WORD_BOOST = 4.0
@@ -53,6 +54,8 @@ class SessionResult:
     unlocked_keys: tuple[int, ...] = ()
     key_confidence: Mapping[int, float] = field(default_factory=_empty_key_confidence)
     target_speed_cpm: int = 0  # goal active at finish; 0 = legacy sessions
+    generated_min_len: int = GENERATED_WORD_MIN_LEN  # word bounds at finish; legacy default
+    generated_max_len: int = GENERATED_WORD_MAX_LEN
 
     def __post_init__(self) -> None:
         # Freezing the dataclass only blocks attribute rebinding — wrap the
@@ -162,6 +165,7 @@ class Settings:
     confidence_session_window: int = CONFIDENCE_SESSION_WINDOW  # sessions in rolling stats
     min_confidence_attempts: int = MIN_CONFIDENCE_ATTEMPTS  # presses before full weight
     min_transition_confidence_attempts: int = MIN_TRANSITION_CONFIDENCE_ATTEMPTS  # bigrams sparser
+    gating_bigram_limit: int = GATING_BIGRAM_LIMIT  # newest-key cohort, clamped to 2-4
     focus_char_boost: float = FOCUS_CHAR_BOOST  # char weight multiplier for focus key
     focus_word_boost: float = FOCUS_WORD_BOOST  # wordlist/Markov boost when focus char present
     focus_bigram_word_boost: float = FOCUS_BIGRAM_WORD_BOOST  # word boost when focus bigram present

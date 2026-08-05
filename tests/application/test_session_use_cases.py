@@ -5,17 +5,21 @@ from random import Random
 from typing import TypedDict
 
 from keystrike.application.build_lesson import BuildLesson
+from keystrike.application.session_queries import (
+    compute_accuracy,
+    compute_wpm,
+    latest_session_header,
+    previous_session_header,
+    session_wpm_below_target,
+)
 from keystrike.application.session_use_cases import (
     AbortSession,
     FinishSession,
     RecordKeystroke,
     SessionStatsBaseline,
     StartSession,
-    compute_accuracy,
-    compute_wpm,
     confidence_window_session_baseline,
     count_words_completed,
-    previous_session_header,
 )
 from keystrike.application.stats_use_cases import RebuildAggregates
 from keystrike.domain.aggregate import combine_sessions
@@ -55,7 +59,7 @@ class _SessionStatsCommon(TypedDict):
 
 def _session_stats_common(*, duration_ns: int = 60_000_000_000) -> _SessionStatsCommon:
     return _SessionStatsCommon(
-        schema_version=3,
+        schema_version=4,
         started_at=1.0,
         duration_ns=duration_ns,
         layout="qwerty",
@@ -417,6 +421,82 @@ def test_previous_session_header_skips_current(clock, id_gen):
     assert previous_session_header(repo, first) is None
 
 
+def test_latest_session_header_picks_most_recent_by_started_at():
+    older = SessionResult(
+        session_id="s1", total_keystrokes=1, correct_keystrokes=1, **_session_stats_common()
+    )
+    newer = replace(older, session_id="s2", started_at=2.0)
+    repo = FakeSessionRepository(headers=[older, newer])
+    assert latest_session_header(repo, "qwerty") == newer
+
+
+def test_latest_session_header_none_when_no_sessions():
+    assert latest_session_header(FakeSessionRepository(), "qwerty") is None
+
+
+def test_session_wpm_below_target_true_when_slower_than_target(clock, id_gen):
+    _, result = _drive("hello world", "hello ", clock, id_gen)
+    result = replace(result, words_completed=1, duration_ns=60_000_000_000, target_speed_cpm=300)
+    assert session_wpm_below_target(result) is True
+
+
+def test_session_wpm_below_target_false_when_faster_than_target(clock, id_gen):
+    _, result = _drive("hello world", "hello ", clock, id_gen)
+    result = replace(result, words_completed=20, duration_ns=1_000_000_000, target_speed_cpm=300)
+    assert session_wpm_below_target(result) is False
+
+
+def test_session_wpm_below_target_false_for_legacy_session_without_target():
+    result = SessionResult(
+        session_id="s1",
+        total_keystrokes=1,
+        correct_keystrokes=1,
+        **_session_stats_common(),
+    )
+    assert result.target_speed_cpm == 0
+    assert session_wpm_below_target(result) is False
+
+
+def test_session_wpm_below_target_uses_snapshotted_word_bounds():
+    """WPM target conversion must use bounds recorded at finish, not caller overrides."""
+    result = replace(
+        SessionResult(
+            session_id="s1", total_keystrokes=1, correct_keystrokes=1, **_session_stats_common()
+        ),
+        words_completed=50,
+        duration_ns=60_000_000_000,
+        target_speed_cpm=300,
+        generated_min_len=2,
+        generated_max_len=4,
+    )
+    # 50 wpm vs target 100 wpm (300 cpm / 3 chars per word at 2-4 bounds)
+    assert session_wpm_below_target(result) is True
+    # Wider bounds would lower target to ~46 wpm and incorrectly clear remedial.
+    assert (
+        session_wpm_below_target(
+            result,
+            generated_min_len=3,
+            generated_max_len=10,
+        )
+        is False
+    )
+
+
+def test_finish_session_persists_generated_word_bounds(clock, id_gen):
+    settings_repo = FakeSettingsRepository(
+        Settings(generated_word_min_len=3, generated_word_max_len=8)
+    )
+    finish = FinishSession(clock=clock, settings_repo=settings_repo)
+    start = StartSession(clock=clock, id_gen=id_gen)
+    record = RecordKeystroke(clock=clock)
+    session = start("ab", layout="qwerty", mode=Mode.ADAPTIVE)
+    clock.advance(100_000_000)
+    record(session, "a")
+    result = finish(session)
+    assert result.generated_min_len == 3
+    assert result.generated_max_len == 8
+
+
 def test_finish_session_persists_unlocked_keys(clock, id_gen):
     settings_repo = FakeSettingsRepository()
     layout_repo = FakeLayoutRepository(dict(BUNDLED_LAYOUTS))
@@ -464,7 +544,11 @@ def test_finish_session_bumps_alphabet_size_when_unlocked_set_grows(clock, id_ge
     start = StartSession(clock=clock, id_gen=id_gen)
     record = RecordKeystroke(clock=clock)
 
-    warmup = "".join(chr(cp) for _ in range(10) for cp in order[:5])
+    newest = chr(order[4])
+    cohort_drill = "".join(
+        (chr(peer) + newest) * 8 + (newest + chr(peer)) * 8 for peer in order[2:4]
+    )
+    warmup = "".join(chr(cp) for _ in range(15) for cp in order[:5]) + cohort_drill
     warmup_session = start(
         warmup,
         layout="qwerty",
@@ -514,7 +598,7 @@ def test_finish_session_persists_key_confidence(clock, id_gen):
         {},
         target,
     )
-    assert result.schema_version == 3
+    assert result.schema_version == 4
     assert set(result.key_confidence.keys()) == set(expected_unlocked)
     stats = combine_sessions([(result, session.keystrokes)]).keys
     for cp in expected_unlocked:

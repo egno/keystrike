@@ -166,6 +166,38 @@ def test_round_trip_target_speed_cpm(paths):
     assert headers[0].target_speed_cpm == 400
 
 
+def test_round_trip_generated_word_bounds(paths):
+    repo = JsonlSessionRepository(paths)
+    header = SessionResult(
+        schema_version=4,
+        session_id=_VALID_ULID_F,
+        started_at=1_700_000_000.0,
+        duration_ns=1_000_000_000,
+        layout="qwerty",
+        mode=Mode.ADAPTIVE,
+        lesson_alphabet=(ord("a"),),
+        focus_key=ord("a"),
+        total_keystrokes=1,
+        correct_keystrokes=1,
+        generated_min_len=3,
+        generated_max_len=8,
+    )
+    repo.save_header(header)
+
+    headers = list(JsonlSessionRepository(paths).iter_headers("qwerty"))
+    assert headers[0].generated_min_len == 3
+    assert headers[0].generated_max_len == 8
+
+
+def test_legacy_header_without_generated_word_bounds_defaults(paths):
+    repo = JsonlSessionRepository(paths)
+    repo.save_header(_header())
+
+    headers = list(JsonlSessionRepository(paths).iter_headers("qwerty"))
+    assert headers[0].generated_min_len == 2
+    assert headers[0].generated_max_len == 4
+
+
 def test_corrupt_index_line_is_skipped_not_fatal(paths):
     repo = JsonlSessionRepository(paths)
     repo.save_header(_header(sid=_VALID_ULID_A))

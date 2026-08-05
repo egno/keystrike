@@ -42,17 +42,36 @@ Reading left to right:
 
 ## Key vs transition focus
 
-**Key focus** applies while any unlocked key with measured stats is below the
-performance skill threshold (see `blocks_transition_focus` in the codebase).
-Never-typed keys in the unlocked set do not block transition focus. The lesson
-emphasizes the weakest unlocked key by ramped confidence, adjusted for review
-urgency.
+**Key focus** applies while any unlocked key is below the performance skill
+threshold or the configured key-attempt floor (see `blocks_transition_focus`
+in the codebase). Never-typed and sparsely sampled keys therefore take priority.
+The lesson emphasizes the weakest unlocked key by ramped confidence, adjusted
+for review urgency.
 
-**Transition focus** applies when every measured unlocked key meets the skill
-threshold (performance without attempt ramp). Keys still gathering presses show
-`cal` but no longer block bigram focus. The lesson then emphasizes the weakest
-measured cross-key bigram among unlocked keys. Same-key repeats (double letters)
-never count as transitions.
+**Transition focus** applies after every unlocked key meets both requirements.
+When the next letter is gated, the same stable 2–4 newest-letter cohort controls
+unlocking and lesson coverage. Sparse older pairs cannot preempt it; an older
+pair can preempt only after enough samples show raw performance regression.
+Same-key repeats (double letters) never count as transitions.
+
+## Focus stays put until it clears
+
+Once a key or pair becomes the focus, it keeps that focus lesson-over-lesson
+until it individually clears both confidence (skill ≥ 1.0) and its attempt
+floor — the same bar unlocks use. A different key/pair going stale, or a
+transition gate opening up, does not steal focus away mid-calibration. Once
+everything unlocked has cleared, focus is free to move to whichever key/pair
+is due for review (`rev`) again.
+
+## Lesson WPM gate
+
+If a finished lesson's overall words-per-minute came in under its own target,
+the next lesson's focus is pinned to the weakest key or pair from *that
+lesson's own text* until a lesson's WPM meets target again — a low-speed
+lesson pulls focus back to its own weak point rather than drifting to
+whatever else is weakest across the full practice history. This doesn't add a
+new HUD label; the chosen key/pair still shows the ordinary `wk`, `cal`, or
+`rev` reason.
 
 ## Heatmap underline
 

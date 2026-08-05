@@ -24,6 +24,12 @@ from keystrike.presentation.widgets.kb_heatmap import (
 from keystrike.presentation.widgets.typing_area import TypingArea
 
 
+def format_bigram_calibration(progress: tuple[int, int] | None) -> str | None:
+    if progress is None:
+        return None
+    return f"[dim]Bigram calibration: {progress[0]}/{progress[1]} ready[/]"
+
+
 class PracticeScreen(Screen[None]):
     DEFAULT_CSS = """
     PracticeScreen > Vertical {
@@ -89,18 +95,18 @@ class PracticeScreen(Screen[None]):
         yield Footer()
 
     def _focus_note_text(self) -> str:
-        return (
-            format_focus_note(
-                self._prep.focus_key,
-                self._prep.focus_reason,
-                confidence=self._prep.focus_confidence,
-                speed=self._prep.focus_speed,
-                accuracy=self._prep.focus_accuracy,
-                attempts=self._prep.focus_attempts,
-                min_attempts=self._prep.focus_min_attempts,
-            )
-            or ""
+        focus_note = format_focus_note(
+            self._prep.focus_key,
+            self._prep.focus_reason,
+            confidence=self._prep.focus_confidence,
+            speed=self._prep.focus_speed,
+            accuracy=self._prep.focus_accuracy,
+            attempts=self._prep.focus_attempts,
+            min_attempts=self._prep.focus_min_attempts,
         )
+        calibration = self._prep.bigram_calibration
+        progress_note = format_bigram_calibration(calibration)
+        return "\n".join(note for note in (focus_note, progress_note) if note)
 
     def _current_heatmap_display(
         self,
@@ -118,6 +124,7 @@ class PracticeScreen(Screen[None]):
 
     def on_mount(self) -> None:
         self._refresh_focus_note()
+        self._refresh_last_session_stats()
         self.focus()
 
     def on_key(self, event: events.Key) -> None:
@@ -155,10 +162,16 @@ class PracticeScreen(Screen[None]):
         self._begin_session(prep)
 
     def _show_last_session_stats(self, result: SessionResult) -> None:
-        baseline = self._services.get_session_baseline(result)
-        self.query_one("#last-session-stats", Static).update(
-            format_session_stats_line(result, baseline=baseline),
-        )
+        self._refresh_last_session_stats(result)
+
+    def _refresh_last_session_stats(self, result: SessionResult | None = None) -> None:
+        header = result or self._services.get_latest_session_header(self._prep.layout)
+        widget = self.query_one("#last-session-stats", Static)
+        if header is None:
+            widget.update("")
+            return
+        baseline = self._services.get_session_baseline(header)
+        widget.update(format_session_stats_line(header, baseline=baseline))
 
     def _refresh_focus_note(self) -> None:
         note = self.query_one("#focus-note", Static)

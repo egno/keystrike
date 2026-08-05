@@ -5,10 +5,15 @@ pick a focus key, and generate practice text for them.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from random import Random
 
+from keystrike.application.session_queries import (
+    latest_session_header,
+    session_wpm_below_target,
+)
 from keystrike.domain.confidence import (
+    CONFIDENCE_GOOD,
     accuracy_of,
     attempts_of,
     confidence_of,
@@ -29,11 +34,10 @@ from keystrike.domain.focus import (
     blocks_transition_focus,
     coverage_deficit_factor,
     focus_key_from_transition,
-    newest_key_unmeasured_pairs,
     practice_weight,
+    remedial_focus,
     select_focus,
     select_focus_transition,
-    transition_practice_weight,
 )
 from keystrike.domain.generator import (
     AdaptiveGenerator,
@@ -52,18 +56,24 @@ from keystrike.domain.models import (
     Settings,
     TransitionStats,
 )
+from keystrike.domain.newest_key import newest_key_gating_cohort
+from keystrike.domain.null_adapters import NullSessionRepository
 from keystrike.domain.protocols import (
     AggregatesCache,
     Clock,
     LanguageProvider,
     LayoutRepository,
+    SessionRepository,
     SettingsRepository,
     WordListStore,
 )
-from keystrike.domain.unlock import compute_unlocked, default_transition_stall_attempts_cap
+from keystrike.domain.unlock import (
+    compute_unlocked,
+    default_transition_stall_attempts_cap,
+    gating_bigram_is_ready,
+    newest_key_transition_gate_progress,
+)
 from keystrike.domain.wordlist import words_for_alphabet
-
-_CONFIDENCE_GOOD = 1.0
 
 
 @dataclass(slots=True, frozen=True)
@@ -87,6 +97,8 @@ class LessonProgress:
     focus: int
     state: LessonState
     focus_bigram: Bigram | None
+    gating_bigrams: tuple[Bigram, ...]
+    bigram_calibration: tuple[int, int] | None
     skill_heatmap: dict[int, float]
 
 
@@ -131,10 +143,10 @@ def _focus_reason_for_confidence(
 ) -> FocusReason | None:
     """Shared body for key- and transition-focus reasons — the two only
     differ in which FocusKind pair applies and whether a Bigram is attached."""
-    if urgency > 0 and confidence >= _CONFIDENCE_GOOD:
+    if urgency > 0 and confidence >= CONFIDENCE_GOOD:
         return FocusReason(kind=review_kind, pair=pair)
-    if confidence < _CONFIDENCE_GOOD:
-        if skill >= _CONFIDENCE_GOOD:
+    if confidence < CONFIDENCE_GOOD:
+        if skill >= CONFIDENCE_GOOD:
             return FocusReason(kind=calibrating_kind, pair=pair)
         return FocusReason(kind=weak_kind, pair=pair)
     return None
@@ -242,6 +254,7 @@ class Lesson:
     focus_accuracy: float | None = None
     focus_attempts: int | None = None
     focus_min_attempts: int | None = None
+    bigram_calibration: tuple[int, int] | None = None
 
     @property
     def focus_key(self) -> int:
@@ -252,11 +265,20 @@ class Lesson:
         return {k.codepoint: k.confidence for k in self.state.keys}
 
 
-def _lesson_progress(
-    layout_name: str,
-    ctx: _LessonContext,
-) -> LessonProgress:
+@dataclass(slots=True, frozen=True)
+class _GatingState:
+    unlocked: tuple[int, ...]
+    keys_need_focus: bool
+    transition_blocked: bool
+    gating_bigrams: tuple[Bigram, ...]
+    bigram_calibration: tuple[int, int] | None
+
+
+def _gating_state(ctx: _LessonContext) -> _GatingState:
     order = keyboard_order(ctx.layout)
+    stall_cap = default_transition_stall_attempts_cap(
+        ctx.settings.min_transition_confidence_attempts
+    )
     unlocked = compute_unlocked(
         order,
         ctx.settings.alphabet_size,
@@ -265,38 +287,106 @@ def _lesson_progress(
         min_attempts=ctx.settings.min_confidence_attempts,
         transitions=ctx.transitions,
         transition_min_attempts=ctx.settings.min_transition_confidence_attempts,
-        transition_stall_attempts_cap=default_transition_stall_attempts_cap(
-            ctx.settings.min_transition_confidence_attempts
-        ),
+        transition_stall_attempts_cap=stall_cap,
+        gating_bigram_limit=ctx.settings.gating_bigram_limit,
     )
     keys_need_focus = blocks_transition_focus(
         unlocked,
         ctx.stats,
         ctx.target,
-        threshold=_CONFIDENCE_GOOD,
+        threshold=CONFIDENCE_GOOD,
+        min_attempts=ctx.settings.min_confidence_attempts,
     )
-    focus_bigram: Bigram | None = None
-    if not keys_need_focus:
-        focus_bigram = select_focus_transition(
-            unlocked,
+    cohort = newest_key_gating_cohort(
+        unlocked,
+        ctx.stats,
+        limit=ctx.settings.gating_bigram_limit,
+    )
+    ready, total = newest_key_transition_gate_progress(
+        unlocked,
+        ctx.transitions,
+        ctx.target,
+        ctx.stats,
+        min_attempts=ctx.settings.min_transition_confidence_attempts,
+        stall_attempts_cap=stall_cap,
+        cohort_limit=ctx.settings.gating_bigram_limit,
+    )
+    transition_blocked = not keys_need_focus and len(unlocked) < len(order) and ready < total
+    gating_bigrams = (
+        tuple(
+            pair
+            for pair in cohort
+            if not gating_bigram_is_ready(
+                pair,
+                ctx.transitions,
+                ctx.target,
+                min_attempts=ctx.settings.min_transition_confidence_attempts,
+                stall_attempts_cap=stall_cap,
+            )
+        )
+        if transition_blocked
+        else ()
+    )
+    return _GatingState(
+        unlocked=unlocked,
+        keys_need_focus=keys_need_focus,
+        transition_blocked=transition_blocked,
+        gating_bigrams=gating_bigrams,
+        bigram_calibration=(ready, total) if transition_blocked else None,
+    )
+
+
+def _resolve_lesson_focus(
+    ctx: _LessonContext,
+    gating: _GatingState,
+) -> tuple[int, Bigram | None]:
+    remedial = None
+    if ctx.remedial_alphabet is not None:
+        remedial = remedial_focus(
+            ctx.remedial_alphabet,
+            gating.unlocked,
+            ctx.stats,
             ctx.transitions,
             ctx.target,
-            ctx.now,
-            key_stats=ctx.stats,
-            min_attempts=ctx.settings.min_transition_confidence_attempts,
-        )
-
-    if focus_bigram is not None:
-        focus = focus_key_from_transition(*focus_bigram)
-    else:
-        focus = select_focus(
-            unlocked,
-            ctx.stats,
-            ctx.target,
-            ctx.now,
+            now=ctx.now,
+            threshold=CONFIDENCE_GOOD,
             min_attempts=ctx.settings.min_confidence_attempts,
+            min_transition_attempts=ctx.settings.min_transition_confidence_attempts,
         )
+    focus_bigram: Bigram | None = None
+    if remedial is not None:
+        focus, focus_bigram = remedial
+    else:
+        if not gating.keys_need_focus:
+            focus_bigram = select_focus_transition(
+                gating.unlocked,
+                ctx.transitions,
+                ctx.target,
+                ctx.now,
+                key_stats=ctx.stats,
+                gating_candidates=gating.gating_bigrams if gating.transition_blocked else None,
+                min_attempts=ctx.settings.min_transition_confidence_attempts,
+            )
 
+        if focus_bigram is not None:
+            focus = focus_key_from_transition(*focus_bigram)
+        else:
+            focus = select_focus(
+                gating.unlocked,
+                ctx.stats,
+                ctx.target,
+                ctx.now,
+                min_attempts=ctx.settings.min_confidence_attempts,
+            )
+    return focus, focus_bigram
+
+
+def _lesson_progress(
+    layout_name: str,
+    ctx: _LessonContext,
+) -> LessonProgress:
+    gating = _gating_state(ctx)
+    focus, focus_bigram = _resolve_lesson_focus(ctx, gating)
     keys = tuple(
         LessonKey(
             codepoint=cp,
@@ -309,7 +399,7 @@ def _lesson_progress(
             ),
             is_focus=(cp == focus),
         )
-        for cp in unlocked
+        for cp in gating.unlocked
     )
     state = LessonState(
         layout=layout_name,
@@ -318,11 +408,13 @@ def _lesson_progress(
         target_speed_cpm=ctx.settings.target_speed_cpm,
     )
     return LessonProgress(
-        unlocked=unlocked,
+        unlocked=gating.unlocked,
         focus=focus,
         state=state,
         focus_bigram=focus_bigram,
-        skill_heatmap={cp: skill_of(cp, ctx.stats, ctx.target) for cp in unlocked},
+        gating_bigrams=gating.gating_bigrams,
+        bigram_calibration=gating.bigram_calibration,
+        skill_heatmap={cp: skill_of(cp, ctx.stats, ctx.target) for cp in gating.unlocked},
     )
 
 
@@ -357,7 +449,7 @@ def _compute_weights(
     char_weights[chr(focus)] *= ctx.settings.focus_char_boost
     unlocked_set = frozenset(unlocked)
     transition_weights = {
-        key: transition_practice_weight(
+        key: practice_weight(
             transition_confidence_of(
                 key.prev_cp,
                 key.next_cp,
@@ -376,9 +468,13 @@ def _compute_weights(
         and key.next_cp in unlocked_set
         and not is_same_key_transition(key.prev_cp, key.next_cp)
     }
-    newest_pairs = newest_key_unmeasured_pairs(unlocked, ctx.transitions, ctx.stats)
+    newest_pairs = newest_key_gating_cohort(
+        unlocked,
+        ctx.stats,
+        limit=ctx.settings.gating_bigram_limit,
+    )
     if newest_pairs:
-        default_weight = transition_practice_weight(0.0, urgency=0.0) * coverage_deficit_factor(
+        default_weight = practice_weight(0.0, urgency=0.0) * coverage_deficit_factor(
             0, min_attempts=min_transition_attempts
         )
         for pair in newest_pairs:
@@ -386,14 +482,14 @@ def _compute_weights(
     if focus_bigram is not None:
         transition_weights.setdefault(
             focus_bigram,
-            transition_practice_weight(focus_confidence, urgency=0.0)
+            practice_weight(focus_confidence, urgency=0.0)
             * coverage_deficit_factor(0, min_attempts=min_transition_attempts),
         )
         transition_weights[focus_bigram] *= ctx.settings.focus_transition_boost
-        if focus_confidence < _CONFIDENCE_GOOD:
+        if focus_confidence < CONFIDENCE_GOOD:
             transition_weights[focus_bigram] *= ctx.settings.focus_weak_extra_boost
             char_weights[chr(focus)] *= ctx.settings.focus_weak_extra_boost
-    elif focus_confidence < _CONFIDENCE_GOOD:
+    elif focus_confidence < CONFIDENCE_GOOD:
         char_weights[chr(focus)] *= ctx.settings.focus_weak_extra_boost
     return char_weights, transition_weights
 
@@ -406,6 +502,9 @@ class _LessonContext:
     transitions: Mapping[Bigram, TransitionStats]
     now: float
     target: float
+    # The just-finished session's own lesson alphabet, when that session's own
+    # WPM fell short of its own target -- None otherwise (normal selection).
+    remedial_alphabet: tuple[int, ...] | None = None
 
 
 @dataclass(slots=True)
@@ -417,6 +516,7 @@ class BuildLesson:
     wordlist_store: WordListStore
     rng: Random
     clock: Clock
+    session_repo: SessionRepository = field(default_factory=NullSessionRepository)
 
     def __call__(self, layout_name: str) -> Lesson:
         ctx = self._load_context(layout_name)
@@ -439,6 +539,7 @@ class BuildLesson:
             focus_confidence=focus_confidence,
             char_weights=char_weights,
             transition_weights=transition_weights,
+            gating_bigrams=progress.gating_bigrams,
         )
         urgency = _compute_urgency(ctx.stats, progress.unlocked, ctx.now)
         explanation = _compute_focus_explanation(
@@ -455,6 +556,7 @@ class BuildLesson:
             focus_accuracy=explanation.accuracy,
             focus_attempts=explanation.attempts,
             focus_min_attempts=explanation.min_attempts,
+            bigram_calibration=progress.bigram_calibration,
         )
 
     def _load_context(self, layout_name: str) -> _LessonContext:
@@ -470,7 +572,18 @@ class BuildLesson:
             transitions=transitions,
             now=self.clock.wall_epoch(),
             target=target_ms_per_char(settings.target_speed_cpm),
+            remedial_alphabet=self._remedial_alphabet(layout_name),
         )
+
+    def _remedial_alphabet(self, layout_name: str) -> tuple[int, ...] | None:
+        """The last finished session's own lesson alphabet, when that
+        session's own WPM missed its own target -- otherwise None."""
+        last = latest_session_header(self.session_repo, layout_name)
+        if last is None:
+            return None
+        if not session_wpm_below_target(last):
+            return None
+        return last.lesson_alphabet
 
     def _generate_text(
         self,
@@ -482,6 +595,7 @@ class BuildLesson:
         focus_confidence: float,
         char_weights: dict[str, float],
         transition_weights: dict[Bigram, float],
+        gating_bigrams: tuple[Bigram, ...],
     ) -> str:
         table = self.language_provider.transitions(ctx.settings.lang)
         generator = AdaptiveGenerator(table=table, rng=self.rng)
@@ -496,7 +610,7 @@ class BuildLesson:
         word_count = effective_lesson_word_count(ctx.settings.lesson_word_count)
         quota = (
             weak_focus_word_quota(word_count, ctx.settings.focus_word_min_fraction)
-            if focus_confidence < _CONFIDENCE_GOOD
+            if focus_confidence < CONFIDENCE_GOOD
             else 1
         )
         generated_min_len, generated_max_len = effective_generated_word_bounds(
@@ -509,6 +623,9 @@ class BuildLesson:
             word_count=word_count,
             weighting=weighting,
             focus_bigram=focus_bigram,
+            focus_bigrams=tuple(dict.fromkeys((focus_bigram, *gating_bigrams)))
+            if focus_bigram is not None
+            else gating_bigrams,
             min_focus_words=quota,
             max_word_repeats=ctx.settings.max_word_repeats,
             generated_min_len=generated_min_len,

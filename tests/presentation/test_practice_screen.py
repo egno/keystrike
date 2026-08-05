@@ -10,6 +10,7 @@ from keystrike.application.prepare_practice import PreparePracticeSession
 from keystrike.application.session_use_cases import (
     AbortSession,
     FinishSession,
+    GetLatestSessionHeader,
     GetSessionBaseline,
     RecordKeystroke,
     StartSession,
@@ -33,7 +34,7 @@ from keystrike.domain.models import Keystroke, SessionResult, Settings
 from keystrike.domain.session import LEARN_IDLE_PAUSE_NS, active_typing_duration_ns, is_typing_idle
 from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS
 from keystrike.presentation.screens.home import HomeScreen
-from keystrike.presentation.screens.practice import PracticeScreen
+from keystrike.presentation.screens.practice import PracticeScreen, format_bigram_calibration
 from keystrike.presentation.screens.settings import SettingsScreen
 from keystrike.presentation.screens.stats import StatsScreen
 from keystrike.presentation.services import (
@@ -57,6 +58,11 @@ from tests.fakes import (
 )
 
 _TZ = dt.timezone(dt.timedelta(hours=3))
+
+
+def test_bigram_calibration_progress_text_only_when_relevant():
+    assert format_bigram_calibration((2, 4)) == "[dim]Bigram calibration: 2/4 ready[/]"
+    assert format_bigram_calibration(None) is None
 
 
 def _build_app(
@@ -125,6 +131,7 @@ def _build_app(
             ),
             abort=AbortSession(),
             prepare_practice=prepare_practice,
+            get_latest_session_header=GetLatestSessionHeader(repo=session_repo),
             get_session_baseline=GetSessionBaseline(repo=session_repo, settings_repo=settings_repo),
             rebuild_aggregates=rebuild_aggregates,
             get_daily_learn_budget=get_daily_learn_budget,
@@ -332,6 +339,36 @@ async def test_adaptive_practice_shows_active_keys_widget():
         await pilot.press("enter")
         await pilot.pause()
         assert app.screen.query(KbHeatmap)
+
+
+@pytest.mark.asyncio
+async def test_adaptive_shows_last_session_stats_on_startup():
+    clock = FakeClock(wall=1_700_000_000.0)
+    session_repo = FakeSessionRepository()
+    session_repo.save_header(
+        SessionResult(
+            schema_version=3,
+            session_id="s1",
+            started_at=clock.wall_epoch(),
+            duration_ns=60_000_000_000,
+            layout="qwerty",
+            mode=Mode.ADAPTIVE,
+            lesson_alphabet=(ord("a"), ord("s")),
+            focus_key=ord("s"),
+            total_keystrokes=120,
+            correct_keystrokes=110,
+            words_completed=10,
+        ),
+    )
+    app, _clock, _repo, _settings = _build_app(clock=clock, session_repo=session_repo)
+    async with app.run_test() as pilot:
+        await pilot.press("enter")
+        await pilot.pause()
+        practice = app.screen
+        assert isinstance(practice, PracticeScreen)
+        last_stats = str(practice.query_one("#last-session-stats", Static).content)
+        assert "Last: WPM" in last_stats
+        assert "Acc" in last_stats
 
 
 @pytest.mark.asyncio
