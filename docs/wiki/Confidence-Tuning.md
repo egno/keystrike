@@ -36,13 +36,11 @@ multipliers should be **≥ 1.0**. `lesson_word_count` should be **≥ 1**.
 `focus_word_min_fraction` should be in **(0.0, 1.0]**. `max_word_repeats`
 should be **≥ 1**. Generated word bounds should be **≥ 1** with min ≤ max.
 
-Confidence uses **min(speed, accuracy)**, not their product: a key must be both
-fast enough and accurate enough to read as mastered. Speed is `target_ms /
-actual_ms`; accuracy is correct attempts ÷ total attempts.
-
-Confidence uses **min(speed, accuracy)**, not their product: a key must be both
-fast enough and accurate enough to read as mastered. Speed is `target_ms /
-actual_ms`; accuracy is correct attempts ÷ total attempts.
+Skill and confidence both use **min(speed, accuracy)**, not their product: a key
+must be both fast enough and accurate enough to read as mastered. Speed is
+`target_ms / actual_ms`; accuracy is correct attempts ÷ total attempts. Skill
+is that ratio without attempt ramp; confidence scales skill by how many presses
+you have in the window (see min attempt floors above).
 
 Example (defaults shown):
 

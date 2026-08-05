@@ -39,8 +39,9 @@ for sources and how each maps to the code.
 
 ## Features
 
-- **Adaptive engine** — row-weighted key unlock order, speed+accuracy confidence
-  gates, Markov word drills with a guaranteed focus letter.
+- **Adaptive engine** — row-weighted key unlock order, skill gates for unlocks,
+  confidence-weighted focus and heatmap, Markov word drills with a guaranteed
+  focus letter or bigram.
 - **Per-layout stats** — heatmap with per-key confidence and urgency; layout-wide
   and focus-key trend grids (confidence, speed, accuracy); press a heatmap key for
   per-letter drill-down.
@@ -108,12 +109,14 @@ overview.
 | --- | --- | --- |
 | Layout | `qwerty` | Any bundled or custom layout |
 | Target speed | 46 WPM | Or CPM — your unlock threshold |
-| Letters unlocked up front | 16 | Force-unlocked before confidence gating |
+| Letters unlocked up front | 16 | Force-unlocked before skill gating |
 | Daily learn goal | 10 min | `0` = no goal |
 
 Advanced confidence tuning (session window, min key/bigram attempts) is
 **config-file only** — edit `settings.toml` directly; see the
-[Confidence tuning wiki](https://github.com/egno/keystrike/wiki/Confidence-Tuning).
+[Confidence tuning wiki](https://github.com/egno/keystrike/wiki/Confidence-Tuning)
+and [Focus states wiki](https://github.com/egno/keystrike/wiki/Focus-States)
+for HUD labels (`wk`, `cal`, `rev`).
 
 ## Backup sync
 

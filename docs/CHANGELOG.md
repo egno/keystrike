@@ -5,6 +5,25 @@ rationale lives in commit history/diffs — these are pointers, not narratives.
 Milestone-level feature work (what shipped in M1–M4, the keybr algorithm
 design) stays in `PLAN.md` §5/§6.
 
+## 1.3.1
+
+- **Skill vs confidence split** — unlocks and transition gating use per-key
+  **skill** (min(speed, accuracy) without attempt ramp) plus attempt floors;
+  **confidence** (skill scaled by practice volume) drives HUD labels, heatmap
+  coloring, and focus weighting. Calibrating keys no longer block bigram focus.
+- **Bigram progression** — newest-key cohort gates the next letter; deficient
+  cohort bigrams get guaranteed lesson slots and prioritized practice after solo
+  keys clear; transition focus when measured keys are ready but bigrams lag.
+- **Dictionary vs Markov bounds** — imported words filter on dictionary length
+  (3–10); Markov fill and WPM math use `generated_word_min_len` /
+  `generated_word_max_len` (default 2–4).
+- **Word-list focus drill** — resample real dictionary words for focus bigrams
+  instead of splicing characters into imported words.
+- **Heatmap and focus UX** — skill-based heatmap without lesson-sampling bias;
+  calibrating focus display fixes.
+- Wiki: new **Focus states** page; **Confidence tuning** updated for skill/confidence
+  split, sticky focus, transition gate, and lesson WPM gate.
+
 ## 1.3.0
 
 - Weak-focus lessons guarantee a configurable fraction of words match the focus

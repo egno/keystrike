@@ -48,8 +48,12 @@ After **Clear**, the URL field resets to the default pre-fill and status shows `
 When a URL is saved **and** the cache file exists, Keystrike:
 
 1. Loads the cached list from disk.
-2. Keeps words that are 3–10 letters and use **only** letters in your current unlocked set.
-3. Samples lesson words from that pool, overweighting words that contain weak keys.
+2. Keeps words that are **3–10 letters** (dictionary bounds, independent of
+   `generated_word_min_len` / `generated_word_max_len`) and use **only** letters
+   in your current unlocked set.
+3. Samples lesson words from that pool, overweighting words that contain weak keys
+   or bigrams. Markov fallback fill uses the generated word length settings
+   (default 2–4).
 
 If any step yields no usable words, the lesson falls back to **Markov** generation for that session (or per word when sampling fails). Status `Not cached.` means a URL is saved but the cache file is missing — lessons use Markov until you import again.
 
