@@ -8,6 +8,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from random import Random
 
+from keystrike.application.alphabet_sync import sync_alphabet_size
 from keystrike.application.session_queries import (
     latest_session_header,
     session_wpm_below_target,
@@ -404,7 +405,11 @@ def _lesson_progress(
     state = LessonState(
         layout=layout_name,
         keys=keys,
-        alphabet_size=ctx.settings.alphabet_size,
+        # Not `ctx.settings.alphabet_size` -- `compute_unlocked` may have
+        # already grown `gating.unlocked` past that floor (see
+        # `alphabet_sync.sync_alphabet_size`), and the lesson must always
+        # show exactly as many letters as it actually unlocked.
+        alphabet_size=len(gating.unlocked),
         target_speed_cpm=ctx.settings.target_speed_cpm,
     )
     return LessonProgress(
@@ -521,6 +526,10 @@ class BuildLesson:
     def __call__(self, layout_name: str) -> Lesson:
         ctx = self._load_context(layout_name)
         progress = _lesson_progress(layout_name, ctx)
+        # A new letter opening (via `compute_unlocked`'s mastery-driven
+        # growth) must bump Settings.alphabet_size before the lesson below
+        # is generated -- never show more letters than Settings reports.
+        sync_alphabet_size(ctx.settings, progress.unlocked, self.settings_repo)
         focus_confidence = _resolve_focus_confidence(progress.focus, progress.focus_bigram, ctx)
         char_weights, transition_weights = _compute_weights(
             progress.state,

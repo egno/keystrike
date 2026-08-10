@@ -86,6 +86,46 @@ def test_alphabet_size_caps_at_learn_order_length():
     assert len(lesson.state.keys) == len(layout.learn_order)
 
 
+def test_lesson_persists_alphabet_growth_when_unlocked_exceeds_setting():
+    """Regression: BuildLesson must not show more letters than
+    Settings.alphabet_size reports -- when mastery lets `compute_unlocked`
+    grow past the configured floor, that growth has to be persisted back to
+    Settings *before* the lesson is built, so the setting and the lesson's
+    letter count never diverge."""
+    layout = BUNDLED_LAYOUTS["qwerty"]
+    order = keyboard_order(layout)
+    e, a, b = order[0], order[1], order[2]
+    now = 1_700_000_000.0
+    mastered = 100_000_000.0
+    keys = {
+        e: KeyStats(e, 10, mastered, 0, now, attempt_count=10),
+        a: KeyStats(a, 10, mastered, 0, now, attempt_count=10),
+    }
+    transitions = {
+        Bigram(e, a): TransitionStats(e, a, 10, mastered, 0, now, attempt_count=4),
+        Bigram(a, e): TransitionStats(a, e, 10, mastered, 0, now, attempt_count=4),
+    }
+    cache = FakeAggregatesCache(
+        by_layout={"qwerty": LayoutAggregates(keys=keys, transitions=transitions)},
+    )
+    settings_repo = FakeSettingsRepository(Settings(alphabet_size=2))
+    builder = BuildLesson(
+        layout_repo=FakeLayoutRepository(dict(BUNDLED_LAYOUTS)),
+        aggregates_cache=cache,
+        settings_repo=settings_repo,
+        language_provider=FakeLanguageProvider(),
+        wordlist_store=FakeWordListStore(),
+        rng=Random(0),
+        clock=FakeClock(),
+    )
+
+    lesson = builder("qwerty")
+
+    assert {k.codepoint for k in lesson.state.keys} == {e, a, b}
+    assert lesson.state.alphabet_size == 3
+    assert settings_repo.settings.alphabet_size == 3
+
+
 def test_lesson_heatmap_maps_unlocked_codepoints_to_confidence():
     lesson = _build_lesson()("qwerty")
     assert lesson.heatmap == {k.codepoint: k.confidence for k in lesson.state.keys}

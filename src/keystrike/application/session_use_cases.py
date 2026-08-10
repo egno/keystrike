@@ -1,6 +1,7 @@
 from collections.abc import Iterable
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 
+from keystrike.application.alphabet_sync import sync_alphabet_size
 from keystrike.application.session_queries import (
     compute_accuracy,
     compute_wpm,
@@ -168,16 +169,6 @@ def _snapshot_unlock_state(
     }
 
 
-def _sync_alphabet_size(unlocked_keys: tuple[int, ...], settings_repo: SettingsRepository) -> None:
-    """Keep settings.alphabet_size at least as large as the current unlock set."""
-    if not unlocked_keys:
-        return
-    settings = settings_repo.load()
-    unlocked_count = len(unlocked_keys)
-    if unlocked_count > settings.alphabet_size:
-        settings_repo.save(replace(settings, alphabet_size=unlocked_count))
-
-
 @dataclass(slots=True)
 class FinishSession:
     clock: Clock
@@ -202,7 +193,7 @@ class FinishSession:
             settings_repo=self.settings_repo,
             layout_repo=self.layout_repo,
         )
-        _sync_alphabet_size(unlocked_keys, self.settings_repo)
+        sync_alphabet_size(settings, unlocked_keys, self.settings_repo)
 
         generated_min_len, generated_max_len = effective_generated_word_bounds(
             settings.generated_word_min_len,

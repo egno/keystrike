@@ -143,7 +143,14 @@ def compute_unlocked(
     (`newest_key_clears_transition_gate`) — a little bigram practice before
     the next letter opens, bounded by `gating_bigram_limit` so the bar doesn't
     grow with alphabet depth. Pass `None` (the default) to skip this and unlock purely
-    on solo-key mastery, as before."""
+    on solo-key mastery, as before.
+
+    The result can exceed `alphabet_size` once mastery conditions are met --
+    `alphabet_size` is a floor, not a cap. Callers that persist a Settings
+    object should feed the result through
+    `application.alphabet_sync.sync_alphabet_size` so the setting never lags
+    behind what's actually unlocked (see `build_lesson._gating_state` and
+    `session_use_cases.FinishSession` for the two call sites)."""
     forced_count = min(alphabet_size, len(learn_order))
     unlocked = list(learn_order[:forced_count])
     for codepoint in learn_order[forced_count:]:
