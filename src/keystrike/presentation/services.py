@@ -28,7 +28,6 @@ from keystrike.application.wordlist_use_cases import (
 )
 from keystrike.domain.null_adapters import NULL_DAILY_LEARN_BUDGET
 from keystrike.domain.protocols import (
-    Clock,
     DailyLearnBudgetProvider,
     LayoutRepository,
     SettingsRepository,
@@ -45,7 +44,6 @@ class HomeServices:
 
 @dataclass(frozen=True, slots=True)
 class PracticeServices:
-    clock: Clock
     start: StartSession
     record: RecordKeystroke
     finish: FinishSession

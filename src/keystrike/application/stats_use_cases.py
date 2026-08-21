@@ -70,15 +70,14 @@ class GetOrRebuildAggregates:
 
     def __call__(self, layout: str) -> Mapping[int, KeyStats]:
         cached = self.cache.get(layout)
+        if cached is not None and (cached.transitions or cached.transitions_computed):
+            return cached.keys
         has_sessions = any(self.repo.iter_headers(layout))
-        if cached is not None:
-            if cached.transitions or cached.transitions_computed or not has_sessions:
-                return cached.keys
-            self.rebuild(layout)
-            rebuilt = self.cache.get(layout)
-            return rebuilt.keys if rebuilt is not None else {}
         if not has_sessions:
-            return {}
+            return cached.keys if cached is not None else {}
+        return self._rebuild_and_fetch(layout)
+
+    def _rebuild_and_fetch(self, layout: str) -> Mapping[int, KeyStats]:
         self.rebuild(layout)
         rebuilt = self.cache.get(layout)
         return rebuilt.keys if rebuilt is not None else {}
@@ -112,7 +111,7 @@ class GetHeatmap:
                     cp,
                     stats,
                     target,
-                    min_attempts=settings.min_confidence_attempts,
+                    min_attempts=settings.unlock.min_confidence_attempts,
                 )
                 for cp in stats
             },
@@ -223,7 +222,7 @@ def _accumulate_windowed_trends(
     settings = settings_repo.load()
     window = settings.confidence_session_window
     fallback_target = target_ms_per_char(settings.target_speed_cpm)
-    min_attempts = settings.min_confidence_attempts
+    min_attempts = settings.unlock.min_confidence_attempts
 
     all_headers = sorted(
         repo.iter_headers(layout),

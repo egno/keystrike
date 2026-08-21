@@ -15,11 +15,14 @@ from keystrike.domain.generator import weak_focus_word_quota, word_matches_focus
 from keystrike.domain.learn_order import keyboard_order
 from keystrike.domain.models import (
     Bigram,
+    FocusTuning,
     KeyStats,
     LayoutAggregates,
     SessionResult,
     Settings,
     TransitionStats,
+    UnlockTuning,
+    WordGenBounds,
 )
 from keystrike.domain.newest_key import newest_key_gating_cohort
 from keystrike.domain.unlock import compute_unlocked
@@ -84,6 +87,87 @@ def test_alphabet_size_caps_at_learn_order_length():
     settings = Settings(alphabet_size=len(layout.learn_order) + 100)
     lesson = _build_lesson(settings)("qwerty")
     assert len(lesson.state.keys) == len(layout.learn_order)
+
+
+def test_lesson_persists_alphabet_growth_when_unlocked_exceeds_setting():
+    """Regression: BuildLesson must not show more letters than
+    Settings.alphabet_size reports -- when mastery lets `compute_unlocked`
+    grow past the configured floor, that growth has to be persisted back to
+    Settings *before* the lesson is built, so the setting and the lesson's
+    letter count never diverge."""
+    layout = BUNDLED_LAYOUTS["qwerty"]
+    order = keyboard_order(layout)
+    e, a, b = order[0], order[1], order[2]
+    now = 1_700_000_000.0
+    mastered = 100_000_000.0
+    keys = {
+        e: KeyStats(e, 10, mastered, 0, now, attempt_count=10),
+        a: KeyStats(a, 10, mastered, 0, now, attempt_count=10),
+    }
+    transitions = {
+        Bigram(e, a): TransitionStats(e, a, 10, mastered, 0, now, attempt_count=4),
+        Bigram(a, e): TransitionStats(a, e, 10, mastered, 0, now, attempt_count=4),
+    }
+    cache = FakeAggregatesCache(
+        by_layout={"qwerty": LayoutAggregates(keys=keys, transitions=transitions)},
+    )
+    settings_repo = FakeSettingsRepository(Settings(alphabet_size=2))
+    builder = BuildLesson(
+        layout_repo=FakeLayoutRepository(dict(BUNDLED_LAYOUTS)),
+        aggregates_cache=cache,
+        settings_repo=settings_repo,
+        language_provider=FakeLanguageProvider(),
+        wordlist_store=FakeWordListStore(),
+        rng=Random(0),
+        clock=FakeClock(),
+    )
+
+    lesson = builder("qwerty")
+
+    assert {k.codepoint for k in lesson.state.keys} == {e, a, b}
+    assert lesson.state.alphabet_size == 3
+    assert settings_repo.settings.alphabet_size == 3
+
+
+def test_lesson_respects_next_letter_unlock_threshold_setting():
+    """Same mastery fixture as test_lesson_persists_alphabet_growth_when_unlocked_exceeds_setting,
+    but with a threshold raised above the achieved confidence -- the third
+    key must stay locked, proving Settings.next_letter_unlock_threshold is
+    actually wired into BuildLesson's compute_unlocked call."""
+    layout = BUNDLED_LAYOUTS["qwerty"]
+    order = keyboard_order(layout)
+    e, a = order[0], order[1]
+    now = 1_700_000_000.0
+    mastered = 100_000_000.0
+    keys = {
+        e: KeyStats(e, 10, mastered, 0, now, attempt_count=10),
+        a: KeyStats(a, 10, mastered, 0, now, attempt_count=10),
+    }
+    transitions = {
+        Bigram(e, a): TransitionStats(e, a, 10, mastered, 0, now, attempt_count=4),
+        Bigram(a, e): TransitionStats(a, e, 10, mastered, 0, now, attempt_count=4),
+    }
+    cache = FakeAggregatesCache(
+        by_layout={"qwerty": LayoutAggregates(keys=keys, transitions=transitions)},
+    )
+    settings_repo = FakeSettingsRepository(
+        Settings(alphabet_size=2, unlock=UnlockTuning(next_letter_unlock_threshold=3.0))
+    )
+    builder = BuildLesson(
+        layout_repo=FakeLayoutRepository(dict(BUNDLED_LAYOUTS)),
+        aggregates_cache=cache,
+        settings_repo=settings_repo,
+        language_provider=FakeLanguageProvider(),
+        wordlist_store=FakeWordListStore(),
+        rng=Random(0),
+        clock=FakeClock(),
+    )
+
+    lesson = builder("qwerty")
+
+    assert {k.codepoint for k in lesson.state.keys} == {e, a}
+    assert lesson.state.alphabet_size == 2
+    assert settings_repo.settings.alphabet_size == 2
 
 
 def test_lesson_heatmap_maps_unlocked_codepoints_to_confidence():
@@ -426,14 +510,7 @@ def test_compute_weights_gives_newest_key_pairs_a_default_weight():
     ctx = builder._load_context("qwerty")
     progress = _lesson_progress("qwerty", ctx)
     focus_confidence = _resolve_focus_confidence(progress.focus, progress.focus_bigram, ctx)
-    _, transition_weights = _compute_weights(
-        progress.state,
-        progress.focus,
-        progress.focus_bigram,
-        focus_confidence,
-        unlocked=progress.unlocked,
-        ctx=ctx,
-    )
+    _, transition_weights = _compute_weights(progress, focus_confidence, ctx)
     # The bounded cohort uses only the two most-recent practiced peers.
     assert Bigram(d, a) not in transition_weights
     assert Bigram(a, d) not in transition_weights
@@ -738,7 +815,7 @@ def test_lesson_wordlist_biases_weak_transition():
     pair = chr(a) + chr(s)
     assert lesson.focus_reason == FocusReason(kind=FocusKind.TRANSITION_WEAK, pair=Bigram(a, s))
     words = lesson.text.split()
-    quota = weak_focus_word_quota(settings.lesson_word_count, settings.focus_word_min_fraction)
+    quota = weak_focus_word_quota(settings.lesson_word_count, settings.focus.word_min_fraction)
     bigram_words = sum(1 for word in words if pair in word)
     assert bigram_words >= quota
     assert max(words.count(w) for w in set(words)) <= 2
@@ -849,7 +926,7 @@ def test_weak_key_focus_meets_word_quota_in_build_lesson():
         clock=FakeClock(),
     )
     settings = Settings()
-    quota = weak_focus_word_quota(settings.lesson_word_count, settings.focus_word_min_fraction)
+    quota = weak_focus_word_quota(settings.lesson_word_count, settings.focus.word_min_fraction)
     focus_char = chr(focus_cp)
     for seed in range(30):
         builder.rng = Random(seed)
@@ -873,7 +950,7 @@ def test_build_lesson_survives_invalid_focus_word_min_fraction():
     cache = FakeAggregatesCache(
         by_layout={"qwerty": LayoutAggregates(keys=keys, transitions={})},
     )
-    settings = Settings(alphabet_size=1, focus_word_min_fraction=1.5)
+    settings = Settings(alphabet_size=1, focus=FocusTuning(word_min_fraction=1.5))
     builder = BuildLesson(
         layout_repo=FakeLayoutRepository(dict(BUNDLED_LAYOUTS)),
         aggregates_cache=cache,
@@ -893,8 +970,7 @@ def test_build_lesson_survives_invalid_focus_word_min_fraction():
 def test_build_lesson_markov_respects_generated_word_bounds_from_settings():
     """Settings.generated_word_* must reach the generator on the Markov path."""
     settings = Settings(
-        generated_word_min_len=2,
-        generated_word_max_len=4,
+        word_gen=WordGenBounds(min_len=2, max_len=4),
         wordlist_url="",
         alphabet_size=8,
     )
@@ -911,8 +987,7 @@ def test_build_lesson_wordlist_uses_dictionary_bounds_not_generated():
     url = "https://example.com/words.txt"
     cached = ["the", "and", "for", "are", "but", "not", "you", "all", "because"]
     settings = Settings(
-        generated_word_min_len=2,
-        generated_word_max_len=4,
+        word_gen=WordGenBounds(min_len=2, max_len=4),
         wordlist_url=url,
         alphabet_size=26,
     )
@@ -1014,7 +1089,9 @@ def test_lesson_boosts_coverage_starved_key_among_mastered_alphabet():
     cache = FakeAggregatesCache(
         by_layout={"qwerty": LayoutAggregates(keys=keys, transitions={})},
     )
-    settings = Settings(alphabet_size=alphabet_size, min_confidence_attempts=min_attempts)
+    settings = Settings(
+        alphabet_size=alphabet_size, unlock=UnlockTuning(min_confidence_attempts=min_attempts)
+    )
     builder = BuildLesson(
         layout_repo=FakeLayoutRepository(dict(BUNDLED_LAYOUTS)),
         aggregates_cache=cache,
@@ -1167,8 +1244,7 @@ def test_remedial_focus_uses_session_word_bounds_not_current_settings():
             Settings(
                 alphabet_size=4,
                 target_speed_cpm=300,
-                generated_word_min_len=3,
-                generated_word_max_len=10,
+                word_gen=WordGenBounds(min_len=3, max_len=10),
             )
         ),
         language_provider=FakeLanguageProvider(),
@@ -1251,10 +1327,11 @@ def test_large_alphabet_unlock_advances_when_keys_rotated():
     stats: dict[int, KeyStats] = {
         cp: KeyStats(cp, 0, at_target, 0, now, attempt_count=0) for cp in order[:forced]
     }
-    assert len(compute_unlocked(order, forced, stats, target, min_attempts=min_attempts)) == forced
+    tuning = UnlockTuning(min_confidence_attempts=min_attempts)
+    assert len(compute_unlocked(order, forced, stats, target, tuning=tuning)) == forced
     for i, cp in enumerate(order[:forced]):
         stats[cp] = KeyStats(cp, 0, at_target, 0, now, attempt_count=min_attempts)
-        unlocked = compute_unlocked(order, forced, stats, target, min_attempts=min_attempts)
+        unlocked = compute_unlocked(order, forced, stats, target, tuning=tuning)
         if i < forced - 1:
             assert len(unlocked) == forced
         else:

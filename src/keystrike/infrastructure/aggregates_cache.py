@@ -78,13 +78,17 @@ class FileAggregatesCache:
             parsed_transitions = dict(
                 _parse_transition_entry(entry) for entry in transitions.values()
             )
-            return LayoutAggregates(
-                keys={int(cp): _parse_key_entry(cp, entry) for cp, entry in keys.items()},
-                transitions=without_same_key_transitions(parsed_transitions),
-                transitions_computed="transitions" in data,
-            )
+            parsed_keys = {int(cp): _parse_key_entry(cp, entry) for cp, entry in keys.items()}
         except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+            # Corrupt/malformed cache file -- treat as a cache miss. A bug in
+            # the domain call below is a different problem and must not be
+            # swallowed the same way, so it's outside this try.
             return None
+        return LayoutAggregates(
+            keys=parsed_keys,
+            transitions=without_same_key_transitions(parsed_transitions),
+            transitions_computed="transitions" in data,
+        )
 
     def put(self, layout: str, aggregates: LayoutAggregates) -> None:
         transitions = without_same_key_transitions(aggregates.transitions)

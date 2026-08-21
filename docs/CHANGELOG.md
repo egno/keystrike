@@ -5,6 +5,44 @@ rationale lives in commit history/diffs — these are pointers, not narratives.
 Milestone-level feature work (what shipped in M1–M4, the keybr algorithm
 design) stays in `PLAN.md` §5/§6.
 
+## 2.0.0
+
+- **Breaking: `settings.toml` schema** — unlock (`min_confidence_attempts`,
+  `min_transition_confidence_attempts`, `gating_bigram_limit`), focus-boost
+  (`focus_char_boost`, `focus_word_boost`, `focus_bigram_word_boost`,
+  `focus_transition_boost`, `focus_weak_extra_boost`, `focus_word_min_fraction`),
+  and generated-word-length (`generated_word_min_len`, `generated_word_max_len`)
+  fields moved off the top-level table into `[unlock]`, `[focus]`, and
+  `[word_gen]` respectively (see `Settings.unlock` / `.focus` / `.word_gen` in
+  `domain/models.py`). A settings file written by an older version keeps
+  loading — unrecognized top-level keys are ignored and missing nested tables
+  fall back to defaults — but any customized values there need re-entering
+  under the new tables. New knob: `[unlock].next_letter_unlock_threshold`
+  (default `1.0`), previously hardcoded. See `Confidence-Tuning` wiki for the
+  full mapping.
+- **Breaking: HUD no longer ticks live** — accuracy and daily-learn-minutes in
+  the practice HUD are now a fixed snapshot taken when the lesson's fresh word
+  set is built; they no longer update while typing and no longer dim on
+  idle. They next refresh when the following lesson starts. (Previously
+  documented as "live accuracy" — see README's Practice section.)
+- **Alphabet-size sync moved to lesson build** — persisting a mastery-driven
+  `alphabet_size` bump now happens once, right before `BuildLesson` generates
+  the next lesson's text, instead of immediately when the previous session
+  finishes; avoids a status jump between finishing a session and the next
+  fresh word set appearing.
+- Fixed a duplicate-word sampling bug in focus-word selection: `pool.index(word)`
+  could remove the wrong occurrence of a repeated word, silently weakening the
+  per-lesson repeat cap; sampling now tracks the drawn index directly.
+- Fixed `settings.toml` writing to corrupt on values containing raw control
+  characters (e.g. a stray newline) — `escape_toml_string` now escapes the
+  full C0/DEL range, not just `\` and `"`.
+- Fixed a bug where a boolean in an integer settings field (e.g. a hand-edited
+  `alphabet_size: true`) silently coerced to `1`/`0` instead of falling back
+  to the default.
+- Fixed the aggregates cache to treat a genuinely corrupt cache file as a
+  cache miss without also swallowing bugs in the downstream aggregate
+  computation.
+
 ## 1.3.1
 
 - **Skill vs confidence split** — unlocks and transition gating use per-key

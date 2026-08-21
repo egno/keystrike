@@ -3,6 +3,7 @@ plus a monthly-sharded directory and a top-level index file for headers."""
 
 from __future__ import annotations
 
+import dataclasses
 import datetime as dt
 import json
 from collections.abc import Iterable, Iterator
@@ -147,29 +148,18 @@ def _read_keystrokes(file: Path) -> Iterator[Keystroke]:
 
 
 def _header_to_dict(h: SessionResult) -> dict[str, object]:
-    # Built field-by-field rather than via `dataclasses.asdict(h)`: asdict
-    # falls back to `copy.deepcopy` for non-dataclass/list/tuple/dict values,
-    # and deepcopy cannot pickle `key_confidence`'s `mappingproxy` wrapper.
-    # A shallow `dict(...)` here sidesteps that entirely.
-    return {
-        "schema_version": h.schema_version,
-        "session_id": h.session_id,
-        "started_at": h.started_at,
-        "duration_ns": h.duration_ns,
-        "layout": h.layout,
-        "mode": str(h.mode),  # Mode is a StrEnum → str
-        "lesson_alphabet": list(h.lesson_alphabet),
-        "focus_key": h.focus_key,
-        "total_keystrokes": h.total_keystrokes,
-        "correct_keystrokes": h.correct_keystrokes,
-        "words_completed": h.words_completed,
-        "lang": h.lang,
-        "unlocked_keys": list(h.unlocked_keys),
-        "key_confidence": {str(k): v for k, v in h.key_confidence.items()},
-        "target_speed_cpm": h.target_speed_cpm,
-        "generated_min_len": h.generated_min_len,
-        "generated_max_len": h.generated_max_len,
-    }
+    # A shallow field-by-field dict rather than `dataclasses.asdict(h)`:
+    # asdict falls back to `copy.deepcopy` for non-dataclass/list/tuple/dict
+    # values, and deepcopy cannot pickle `key_confidence`'s `mappingproxy`
+    # wrapper. Reflection still derives the field *list* from SessionResult
+    # (so a new plain-scalar field needs no update here); only the four
+    # fields below need a real JSON-safety conversion.
+    base: dict[str, object] = {f.name: getattr(h, f.name) for f in dataclasses.fields(h)}
+    base["mode"] = str(h.mode)  # Mode is a StrEnum → str
+    base["lesson_alphabet"] = list(h.lesson_alphabet)
+    base["unlocked_keys"] = list(h.unlocked_keys)
+    base["key_confidence"] = {str(k): v for k, v in h.key_confidence.items()}
+    return base
 
 
 def _parse_mode(raw: str) -> Mode:

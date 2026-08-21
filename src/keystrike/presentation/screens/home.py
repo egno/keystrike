@@ -8,6 +8,7 @@ from textual.screen import Screen
 from textual.widgets import Footer, Static
 
 from keystrike.domain.daily_learn import DailyLearnBudget, daily_learn_display
+from keystrike.presentation.formatting.daily_learn import format_daily_learn_minutes
 from keystrike.presentation.services import HomeServices
 
 
@@ -15,7 +16,7 @@ def _format_daily_learn_line(budget: DailyLearnBudget) -> str:
     display = daily_learn_display(budget)
     if not display.shown:
         return ""
-    return f"Learn today: [bold]{display.used_minutes:.1f}[/]/{display.limit_minutes:g} min"
+    return f"Learn today: {format_daily_learn_minutes(display)}"
 
 
 def _hero_text(layout: str, learn_budget: DailyLearnBudget, *, app_version: str = "") -> str:

@@ -153,9 +153,11 @@ def _sample_focus_words_without_replacement(
     weights = list(focus_weighted.weights) if focus_weighted is not None else [1.0] * len(pool)
     sampled: list[str] = []
     for _ in range(min(count, len(pool))):
-        word = rng.choices(pool, weights=weights, k=1)[0]
-        idx = pool.index(word)
-        sampled.append(word)
+        # Sample by index, not by value -- `pool.index(word)` would remove
+        # the *first* occurrence of a duplicate word rather than the one
+        # actually drawn, silently breaking the no-repeats guarantee below.
+        idx = rng.choices(range(len(pool)), weights=weights, k=1)[0]
+        sampled.append(pool[idx])
         pool.pop(idx)
         weights.pop(idx)
     return sampled
@@ -590,12 +592,13 @@ class AdaptiveGenerator:
             prev_char, next_char = chr(pair.prev_cp), chr(pair.next_cp)
             bigram_str = pair.chars()
             other_words = lesson_words[:index] + lesson_words[index + 1 :]
+            other_counts = Counter(other_words)
             candidate = self._sample_wordlist_with_bigram(
                 alphabet,
                 weighting,
                 focus_char=focus_char,
                 bigram_str=bigram_str,
-                exclude_counts=Counter(other_words),
+                exclude_counts=other_counts,
                 max_repeats=max_word_repeats,
             )
             if candidate is None:
@@ -607,7 +610,7 @@ class AdaptiveGenerator:
                     else lesson_words[index]
                 )
                 candidate = self._inject_focus_bigram(base, prev_char, next_char)
-                if Counter(other_words)[candidate] >= max_word_repeats:
+                if other_counts[candidate] >= max_word_repeats:
                     for _ in range(MAX_REPEAT_RESAMPLE):
                         candidate = self._inject_focus_bigram(
                             self._generate_word_via_markov(
@@ -616,7 +619,7 @@ class AdaptiveGenerator:
                             prev_char,
                             next_char,
                         )
-                        if Counter(other_words)[candidate] < max_word_repeats:
+                        if other_counts[candidate] < max_word_repeats:
                             break
             lesson_words[index] = candidate
         if len(lesson_words) >= len(focus_bigrams):

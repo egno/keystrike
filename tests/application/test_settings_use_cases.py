@@ -7,7 +7,7 @@ from keystrike.application.settings_use_cases import (
     UpdateSettings,
 )
 from keystrike.domain.enums import TargetSpeedUnit
-from keystrike.domain.models import Settings
+from keystrike.domain.models import Settings, UnlockTuning
 from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS, CompositeLayoutRepository
 from keystrike.infrastructure.paths import Paths
 from tests.fakes import FakeLayoutRepository, FakeSettingsRepository
@@ -42,9 +42,9 @@ def test_update_settings_persists_all_fields():
     assert result.alphabet_size == 20
     assert result.learn_daily_minutes == 15
     assert result.confidence_session_window == Settings().confidence_session_window
-    assert result.min_confidence_attempts == Settings().min_confidence_attempts
-    assert result.min_transition_confidence_attempts == (
-        Settings().min_transition_confidence_attempts
+    assert result.unlock.min_confidence_attempts == Settings().unlock.min_confidence_attempts
+    assert result.unlock.min_transition_confidence_attempts == (
+        Settings().unlock.min_transition_confidence_attempts
     )
     assert result.wordlist_url == ""
     assert repo.settings == result
@@ -54,8 +54,7 @@ def test_update_settings_preserves_confidence_fields_from_repo():
     repo = FakeSettingsRepository(
         Settings(
             confidence_session_window=8,
-            min_confidence_attempts=12,
-            min_transition_confidence_attempts=5,
+            unlock=UnlockTuning(min_confidence_attempts=12, min_transition_confidence_attempts=5),
         ),
     )
     update = UpdateSettings(repo=repo)
@@ -71,8 +70,8 @@ def test_update_settings_preserves_confidence_fields_from_repo():
     )
 
     assert result.confidence_session_window == 8
-    assert result.min_confidence_attempts == 12
-    assert result.min_transition_confidence_attempts == 5
+    assert result.unlock.min_confidence_attempts == 12
+    assert result.unlock.min_transition_confidence_attempts == 5
 
 
 def test_update_settings_rejects_non_positive_speed():

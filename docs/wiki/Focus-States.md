@@ -14,7 +14,7 @@ The practice HUD shows `Focus: <key or pair> · <reason>`.
 | Short | Full meaning |
 | --- | --- |
 | `wk` | **Weak** — confidence is below the mastery goal (default 1.0). The key or pair needs more deliberate practice. |
-| `cal` | **Calibrating** — not enough presses yet for full confidence weight. Confidence ramps linearly until `min_confidence_attempts` (keys) or `min_transition_confidence_attempts` (bigrams) is reached. |
+| `cal` | **Calibrating** — not enough presses yet for full confidence weight. Confidence ramps linearly until `[unlock].min_confidence_attempts` (keys) or `[unlock].min_transition_confidence_attempts` (bigrams) is reached. |
 | `rev` | **Review** — confidence meets the goal, but the key or pair has not been practiced recently. Review urgency pushes it back into focus before it fades. |
 
 For **transition focus**, the HUD shows the two-letter pair (e.g. `eo`) instead

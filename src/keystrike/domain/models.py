@@ -156,6 +156,38 @@ class Layout:
 
 
 @dataclass(frozen=True, slots=True)
+class UnlockTuning:
+    """Skill-gate knobs for key unlocking and the newest-key bigram cohort
+    gate, bundled so `domain.unlock.compute_unlocked` takes one config
+    object instead of a handful of individually-named floats/ints."""
+
+    min_confidence_attempts: int = MIN_CONFIDENCE_ATTEMPTS  # presses before full weight
+    min_transition_confidence_attempts: int = MIN_TRANSITION_CONFIDENCE_ATTEMPTS  # bigrams sparser
+    gating_bigram_limit: int = GATING_BIGRAM_LIMIT  # newest-key cohort, clamped to 2-4
+    next_letter_unlock_threshold: float = 1.0  # confidence threshold for unlocking the next letter
+
+
+@dataclass(frozen=True, slots=True)
+class FocusTuning:
+    """Practice-weight multipliers applied to the lesson's focused key/bigram."""
+
+    char_boost: float = FOCUS_CHAR_BOOST  # char weight multiplier for focus key
+    word_boost: float = FOCUS_WORD_BOOST  # wordlist/Markov boost when focus char present
+    bigram_word_boost: float = FOCUS_BIGRAM_WORD_BOOST  # word boost when focus bigram present
+    transition_boost: float = FOCUS_TRANSITION_BOOST  # transition weight multiplier
+    weak_extra_boost: float = FOCUS_WEAK_EXTRA_BOOST  # extra multiplier when confidence < 1.0
+    word_min_fraction: float = FOCUS_WORD_MIN_FRACTION  # weak-focus word quota fraction
+
+
+@dataclass(frozen=True, slots=True)
+class WordGenBounds:
+    """Generated-word length bounds for Markov fill and WPM math."""
+
+    min_len: int = GENERATED_WORD_MIN_LEN  # Markov word length floor
+    max_len: int = GENERATED_WORD_MAX_LEN  # Markov word length ceiling
+
+
+@dataclass(frozen=True, slots=True)
 class Settings:
     schema_version: int = 1
     layout: str = "qwerty"
@@ -163,21 +195,13 @@ class Settings:
     target_speed_unit: TargetSpeedUnit = TargetSpeedUnit.WPM
     alphabet_size: int = 16  # letters force-unlocked from cold start
     confidence_session_window: int = CONFIDENCE_SESSION_WINDOW  # sessions in rolling stats
-    min_confidence_attempts: int = MIN_CONFIDENCE_ATTEMPTS  # presses before full weight
-    min_transition_confidence_attempts: int = MIN_TRANSITION_CONFIDENCE_ATTEMPTS  # bigrams sparser
-    gating_bigram_limit: int = GATING_BIGRAM_LIMIT  # newest-key cohort, clamped to 2-4
-    focus_char_boost: float = FOCUS_CHAR_BOOST  # char weight multiplier for focus key
-    focus_word_boost: float = FOCUS_WORD_BOOST  # wordlist/Markov boost when focus char present
-    focus_bigram_word_boost: float = FOCUS_BIGRAM_WORD_BOOST  # word boost when focus bigram present
-    focus_transition_boost: float = FOCUS_TRANSITION_BOOST  # transition weight multiplier
-    focus_weak_extra_boost: float = FOCUS_WEAK_EXTRA_BOOST  # extra multiplier when confidence < 1.0
+    unlock: UnlockTuning = field(default_factory=UnlockTuning)
+    focus: FocusTuning = field(default_factory=FocusTuning)
     lang: str = "en"
     learn_daily_minutes: int = 10  # adaptive mode daily goal (minutes); 0 = no goal
     lesson_word_count: int = LESSON_WORD_COUNT  # words per generated practice lesson
-    focus_word_min_fraction: float = FOCUS_WORD_MIN_FRACTION  # weak-focus word quota fraction
     max_word_repeats: int = MAX_WORD_REPEATS  # per-word repeat cap in generated lessons
-    generated_word_min_len: int = GENERATED_WORD_MIN_LEN  # Markov word length floor
-    generated_word_max_len: int = GENERATED_WORD_MAX_LEN  # Markov word length ceiling
+    word_gen: WordGenBounds = field(default_factory=WordGenBounds)
     wordlist_url: str = ""  # non-empty + cached file → real words; else Markov
     updated_at: str | None = None  # ISO-8601 UTC; sync LWW
 

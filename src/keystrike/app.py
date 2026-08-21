@@ -156,7 +156,6 @@ def build() -> KeystrikeApp:
             get_daily_learn_budget=get_daily_learn_budget,
         ),
         practice=PracticeServices(
-            clock=clock,
             start=start,
             record=record,
             finish=finish,

@@ -8,6 +8,7 @@ markup, not because it needs a screen.
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 
 from keystrike.application.session_queries import compute_accuracy, compute_wpm
 from keystrike.application.session_use_cases import SessionStatsBaseline
@@ -22,6 +23,7 @@ from keystrike.presentation.theme import (
 )
 
 _SPARK = "▁▂▃▄▅▆▇█"
+_DEFAULT_TREND_LIMIT = 20  # recent-sessions window, and matching sparkline width
 
 
 def _recent(headers: Sequence[SessionResult], limit: int) -> list[SessionResult]:
@@ -59,7 +61,7 @@ def key_confidence_values(
     headers: Sequence[SessionResult],
     codepoint: int,
     *,
-    limit: int = 20,
+    limit: int = _DEFAULT_TREND_LIMIT,
     current_target_speed_cpm: int = 0,
 ) -> list[float]:
     ordered = _recent(headers, limit)
@@ -77,7 +79,7 @@ def key_confidence_sparkline(
     headers: Sequence[SessionResult],
     codepoint: int,
     *,
-    limit: int = 20,
+    limit: int = _DEFAULT_TREND_LIMIT,
     current_target_speed_cpm: int = 0,
 ) -> str:
     values = key_confidence_values(
@@ -105,7 +107,7 @@ def _focus_char_label(focus_key: int | None) -> str:
 def format_focus_confidence_trend_line(
     headers: Sequence[SessionResult],
     *,
-    limit: int = 20,
+    limit: int = _DEFAULT_TREND_LIMIT,
     current_target_speed_cpm: int = 0,
 ) -> str:
     ordered = _recent(headers, limit)
@@ -124,8 +126,6 @@ def format_focus_confidence_trend_line(
     return format_aggregate_metric_trend_block(
         title=f"Focus '{label}'",
         confidence_values=values,
-        speed_values=[],
-        accuracy_values=[],
         limit=limit,
     )
 
@@ -142,57 +142,49 @@ _GRID_LABEL_WIDTH = 10
 _GRID_VALUE_WIDTH = 8
 
 
-def _assemble_metric_line(
-    label_text: str,
-    session_part: str,
-    spark_text: str,
-    values_part: str,
-    *,
-    color: str,
-    suffix: str,
-) -> str:
+@dataclass(frozen=True, slots=True)
+class MetricLineSpec:
+    """One metric's inputs to `_format_metric_trend_line_grid` -- bundled so
+    the three near-identical per-metric callers (confidence/speed/accuracy)
+    thread one object instead of the same six positional/keyword args.
+
+    No `spark` field: the sparkline is always `value_sparkline(values)`, so
+    it can't be built from a different series than `values` shows."""
+
+    label: str
+    color: str
+    values: Sequence[float]
+    format_value: Callable[[float], str] | None = None
+    suffix: str = ""
+    spark_width: int = _DEFAULT_TREND_LIMIT
+
+
+def _format_metric_trend_line_grid(spec: MetricLineSpec) -> str:
+    """Fixed-width columns for side-by-side blocks; session count omitted
+    (the enclosing block header already shows it)."""
+    if not spec.values:
+        return ""
+    fmt = spec.format_value or _default_metric_value
+    label_text = spec.label.ljust(_GRID_LABEL_WIDTH)
+    spark_text = value_sparkline(spec.values).ljust(spec.spark_width)
+    latest_str = fmt(spec.values[-1])
+    peak_str = fmt(max(spec.values))
+    values_part = f"latest {latest_str:>{_GRID_VALUE_WIDTH}}  peak {peak_str:>{_GRID_VALUE_WIDTH}}"
     line = (
-        f"[bold {color}]{label_text}[/]{session_part}"
-        f"{_colored_sparkline(spark_text, color)}  "
-        f"[dim {color}]{values_part}[/]"
+        f"[bold {spec.color}]{label_text}[/]  "
+        f"{_colored_sparkline(spark_text, spec.color)}  "
+        f"[dim {spec.color}]{values_part}[/]"
     )
-    if suffix:
-        line += f"  {suffix}"
+    if spec.suffix:
+        line += f"  {spec.suffix}"
     return line
 
 
-def _format_metric_trend_line_grid(
-    label: str,
-    color: str,
-    values: Sequence[float],
-    spark: str,
-    *,
-    format_value: Callable[[float], str] | None = None,
-    suffix: str = "",
-    spark_width: int = 20,
+def _format_confidence_trend_line_grid(
+    values: Sequence[float], *, spark_width: int = _DEFAULT_TREND_LIMIT
 ) -> str:
-    """Fixed-width columns for side-by-side blocks; session count omitted
-    (the enclosing block header already shows it)."""
-    if not values:
-        return ""
-    fmt = format_value or _default_metric_value
-    label_text = label.ljust(_GRID_LABEL_WIDTH)
-    spark_text = spark.ljust(spark_width)
-    latest_str = fmt(values[-1])
-    peak_str = fmt(max(values))
-    values_part = f"latest {latest_str:>{_GRID_VALUE_WIDTH}}  peak {peak_str:>{_GRID_VALUE_WIDTH}}"
-    return _assemble_metric_line(
-        label_text, "  ", spark_text, values_part, color=color, suffix=suffix
-    )
-
-
-def _format_confidence_trend_line_grid(values: Sequence[float], *, spark_width: int = 20) -> str:
     return _format_metric_trend_line_grid(
-        "confidence",
-        STYLE_TREND_CONFIDENCE,
-        values,
-        value_sparkline(values),
-        spark_width=spark_width,
+        MetricLineSpec("confidence", STYLE_TREND_CONFIDENCE, values, spark_width=spark_width)
     )
 
 
@@ -200,10 +192,10 @@ def _format_key_confidence_trend_line_grid(
     headers: Sequence[SessionResult],
     codepoint: int,
     *,
-    limit: int = 20,
+    limit: int = _DEFAULT_TREND_LIMIT,
     current_target_speed_cpm: int = 0,
     cumulative: float | None = None,
-    spark_width: int = 20,
+    spark_width: int = _DEFAULT_TREND_LIMIT,
 ) -> str:
     # The enclosing block's title already names the key, so the line itself
     # drops the key name to avoid repeating it.
@@ -216,44 +208,40 @@ def _format_key_confidence_trend_line_grid(
         limit=limit,
         current_target_speed_cpm=current_target_speed_cpm,
     )
-    spark = key_confidence_sparkline(
-        headers,
-        codepoint,
-        limit=limit,
-        current_target_speed_cpm=current_target_speed_cpm,
-    )
     suffix = ""
     if cumulative is not None:
         suffix = f"[dim {STYLE_TREND_CONFIDENCE}]cumulative {cumulative:.2f}[/]"
     return _format_metric_trend_line_grid(
-        "confidence",
-        STYLE_TREND_CONFIDENCE,
-        values,
-        spark,
-        suffix=suffix,
-        spark_width=spark_width,
+        MetricLineSpec(
+            "confidence",
+            STYLE_TREND_CONFIDENCE,
+            values,
+            suffix=suffix,
+            spark_width=spark_width,
+        )
     )
 
 
-def _format_key_speed_trend_line_grid(values: Sequence[float], *, spark_width: int = 20) -> str:
+def _format_key_speed_trend_line_grid(
+    values: Sequence[float], *, spark_width: int = _DEFAULT_TREND_LIMIT
+) -> str:
     return _format_metric_trend_line_grid(
-        "speed",
-        STYLE_TREND_SPEED,
-        values,
-        value_sparkline(values),
-        spark_width=spark_width,
+        MetricLineSpec("speed", STYLE_TREND_SPEED, values, spark_width=spark_width)
     )
 
 
-def _format_key_accuracy_trend_line_grid(values: Sequence[float], *, spark_width: int = 20) -> str:
+def _format_key_accuracy_trend_line_grid(
+    values: Sequence[float], *, spark_width: int = _DEFAULT_TREND_LIMIT
+) -> str:
     pct_values = [v * 100 for v in values]
     return _format_metric_trend_line_grid(
-        "accuracy",
-        STYLE_TREND_ACCURACY,
-        pct_values,
-        value_sparkline(pct_values),
-        format_value=lambda v: f"{v:.1f}%",
-        spark_width=spark_width,
+        MetricLineSpec(
+            "accuracy",
+            STYLE_TREND_ACCURACY,
+            pct_values,
+            format_value=lambda v: f"{v:.1f}%",
+            spark_width=spark_width,
+        )
     )
 
 
@@ -266,12 +254,10 @@ def _assemble_trend_block(
     *,
     spark_width: int,
 ) -> str:
-    header = f"[bold]{title}[/]"
     if not session_count:
         return ""
-    header += f" ({session_count} sessions)"
     lines = [
-        header,
+        f"[bold]{title}[/] ({session_count} sessions)",
         conf_line,
         _format_key_speed_trend_line_grid(speed_values, spark_width=spark_width),
         _format_key_accuracy_trend_line_grid(accuracy_values, spark_width=spark_width),
@@ -286,7 +272,7 @@ def format_key_metric_trend_block(
     codepoint: int,
     speed_values: Sequence[float],
     accuracy_values: Sequence[float],
-    limit: int = 20,
+    limit: int = _DEFAULT_TREND_LIMIT,
     current_target_speed_cpm: int = 0,
     cumulative: float | None = None,
 ) -> str:
@@ -316,11 +302,17 @@ def format_aggregate_metric_trend_block(
     title: str,
     *,
     confidence_values: Sequence[float],
-    speed_values: Sequence[float],
-    accuracy_values: Sequence[float],
-    limit: int = 20,
+    speed_values: Sequence[float] | None = None,
+    accuracy_values: Sequence[float] | None = None,
+    limit: int = _DEFAULT_TREND_LIMIT,
 ) -> str:
-    """Trend block for layout-wide (or other pre-computed) confidence values."""
+    """Trend block for layout-wide (or other pre-computed) confidence values.
+
+    `speed_values`/`accuracy_values` are omittable -- callers with only a
+    confidence series (e.g. `format_focus_confidence_trend_line`) don't need
+    to fake up empty sequences just to signal "not applicable"."""
+    speed_values = speed_values or ()
+    accuracy_values = accuracy_values or ()
     spark_width = limit
     session_count = max(len(confidence_values), len(speed_values), len(accuracy_values), 0)
     conf_line = _format_confidence_trend_line_grid(

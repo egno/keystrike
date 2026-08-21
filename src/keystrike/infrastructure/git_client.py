@@ -7,6 +7,7 @@ shelling out to real git.
 
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 from typing import Protocol
@@ -14,6 +15,15 @@ from typing import Protocol
 # Network-bound git ops (clone/pull/push) can otherwise hang indefinitely
 # waiting on credentials, freezing the whole TUI.
 _GIT_TIMEOUT_S = 30
+
+
+def _git_env() -> dict[str, str]:
+    # GIT_TERMINAL_PROMPT=0 is the actual fix for the credential-prompt hang
+    # the timeout above only guards against after the fact -- git fails fast
+    # instead of blocking on a prompt no one can answer. LC_ALL=C keeps
+    # stderr in English so callers matching on message substrings (see
+    # sync_git.py) aren't at the mercy of the user's locale.
+    return {**os.environ, "GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C"}
 
 
 class GitSyncError(RuntimeError):
@@ -56,6 +66,7 @@ class GitClient:
                 capture_output=True,
                 text=True,
                 timeout=self._timeout_s,
+                env=_git_env(),
             )
         except subprocess.TimeoutExpired as exc:
             raise GitSyncError(

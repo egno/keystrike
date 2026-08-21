@@ -1,5 +1,5 @@
 from collections.abc import Iterable
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 
 from keystrike.application.session_queries import (
     compute_accuracy,
@@ -154,28 +154,18 @@ def _snapshot_unlock_state(
         settings.alphabet_size,
         combined.keys,
         target,
-        min_attempts=settings.min_confidence_attempts,
+        tuning=settings.unlock,
         transitions=combined.transitions,
-        transition_min_attempts=settings.min_transition_confidence_attempts,
         transition_stall_attempts_cap=default_transition_stall_attempts_cap(
-            settings.min_transition_confidence_attempts
+            settings.unlock.min_transition_confidence_attempts
         ),
-        gating_bigram_limit=settings.gating_bigram_limit,
     )
     return unlocked, {
-        cp: confidence_of(cp, combined.keys, target, min_attempts=settings.min_confidence_attempts)
+        cp: confidence_of(
+            cp, combined.keys, target, min_attempts=settings.unlock.min_confidence_attempts
+        )
         for cp in unlocked
     }
-
-
-def _sync_alphabet_size(unlocked_keys: tuple[int, ...], settings_repo: SettingsRepository) -> None:
-    """Keep settings.alphabet_size at least as large as the current unlock set."""
-    if not unlocked_keys:
-        return
-    settings = settings_repo.load()
-    unlocked_count = len(unlocked_keys)
-    if unlocked_count > settings.alphabet_size:
-        settings_repo.save(replace(settings, alphabet_size=unlocked_count))
 
 
 @dataclass(slots=True)
@@ -202,11 +192,14 @@ class FinishSession:
             settings_repo=self.settings_repo,
             layout_repo=self.layout_repo,
         )
-        _sync_alphabet_size(unlocked_keys, self.settings_repo)
+        # alphabet_size growth is persisted by BuildLesson right before the
+        # next lesson is generated (see alphabet_sync.sync_alphabet_size),
+        # not here -- syncing it immediately on every session finish caused
+        # a distracting mid-flow status jump before the next word list.
 
         generated_min_len, generated_max_len = effective_generated_word_bounds(
-            settings.generated_word_min_len,
-            settings.generated_word_max_len,
+            settings.word_gen.min_len,
+            settings.word_gen.max_len,
         )
         result = SessionResult(
             schema_version=4,
