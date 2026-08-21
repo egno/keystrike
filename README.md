@@ -93,9 +93,11 @@ On other screens, `Esc` / `q` goes back. Settings saves with `Ctrl+S`.
 ### Practice
 
 Adaptive mode disables backspace — mistakes stay in the record so confidence scores
-stay honest. The HUD shows live accuracy, remaining daily learn time, and the current
-focus key. When a session ends, the next lesson starts automatically unless you go
-back. Hitting your daily goal is shown in the HUD only — practice continues.
+stay honest. The HUD shows accuracy, remaining daily learn time, and the current
+focus key as a fixed snapshot for the lesson's fresh word set — it does not tick while
+you type, only refreshing when the next lesson starts. When a session ends, the next
+lesson starts automatically unless you go back. Hitting your daily goal is shown in
+the HUD only — practice continues.
 
 ### Stats
 

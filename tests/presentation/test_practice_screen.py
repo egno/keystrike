@@ -31,7 +31,7 @@ from keystrike.application.wordlist_use_cases import (
 )
 from keystrike.domain.enums import Mode, SessionState
 from keystrike.domain.models import Keystroke, SessionResult, Settings
-from keystrike.domain.session import LEARN_IDLE_PAUSE_NS, active_typing_duration_ns, is_typing_idle
+from keystrike.domain.session import LEARN_IDLE_PAUSE_NS
 from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS
 from keystrike.presentation.screens.home import HomeScreen
 from keystrike.presentation.screens.practice import PracticeScreen, format_bigram_calibration
@@ -44,7 +44,6 @@ from keystrike.presentation.services import (
     StatsServices,
 )
 from keystrike.presentation.textual_app import KeystrikeApp
-from keystrike.presentation.widgets.hud import HUD
 from keystrike.presentation.widgets.kb_heatmap import KbHeatmap
 from tests.fakes import (
     FakeAggregatesCache,
@@ -120,7 +119,6 @@ def _build_app(
             get_daily_learn_budget=get_daily_learn_budget,
         ),
         practice=PracticeServices(
-            clock=clock,
             start=StartSession(clock=clock, id_gen=id_gen),
             record=RecordKeystroke(clock=clock),
             finish=FinishSession(
@@ -439,7 +437,7 @@ async def test_escape_returns_to_home_and_cancels_session():
 
 
 @pytest.mark.asyncio
-async def test_learn_timer_pauses_while_idle_on_practice_screen():
+async def test_hud_stays_fixed_while_typing():
     app, clock, _repo, _settings_repo = _build_app(
         settings=Settings(learn_daily_minutes=10),
     )
@@ -450,53 +448,14 @@ async def test_learn_timer_pauses_while_idle_on_practice_screen():
         assert isinstance(practice, PracticeScreen)
         target = practice._session.target_text
 
+        hud_text_before = str(practice.query_one("#hud-text", Static).content)
+
         clock.advance(100_000_000)
         await pilot.press("space" if target[0] == " " else target[0])
         await pilot.pause()
-        clock.advance(2_000_000_000)
-        await pilot.press("space" if target[1] == " " else target[1])
-        await pilot.pause()
-
         clock.advance(LEARN_IDLE_PAUSE_NS + 3_000_000_000)
-        practice.query_one(HUD).refresh_display()
+        await pilot.press("x")
         await pilot.pause()
 
-        elapsed = active_typing_duration_ns(practice._session, clock.now_ns())
-        assert elapsed == 7_000_000_000  # 2s between keys + 5s idle cap, not 10s wall
-
-        hud_text = str(practice.query_one("#hud-text", Static).content)
-        assert "Learn:" in hud_text
-        assert "0.1[/]/10" in hud_text
-
-
-@pytest.mark.asyncio
-async def test_hud_learn_dims_while_idle_on_practice_screen():
-    app, clock, _repo, _settings = _build_app(
-        settings=Settings(learn_daily_minutes=10),
-    )
-    async with app.run_test() as pilot:
-        await pilot.press("enter")
-        await pilot.pause()
-        practice = app.screen
-        assert isinstance(practice, PracticeScreen)
-        target = practice._session.target_text
-
-        clock.advance(100_000_000)
-        await pilot.press("space" if target[0] == " " else target[0])
-        await pilot.pause()
-        assert not is_typing_idle(practice._session, clock.now_ns())
-
-        clock.advance(LEARN_IDLE_PAUSE_NS + 1_000_000_000)
-        practice.query_one(HUD).refresh_display()
-        await pilot.pause()
-        assert is_typing_idle(practice._session, clock.now_ns())
-        hud_text = str(practice.query_one("#hud-text", Static).content)
-        assert "[dim]   Learn:" in hud_text
-
-        clock.advance(100_000_000)
-        await pilot.press("space" if target[1] == " " else target[1])
-        await pilot.pause()
-        assert not is_typing_idle(practice._session, clock.now_ns())
-        hud_text = str(practice.query_one("#hud-text", Static).content)
-        assert "[dim]   Learn:" not in hud_text
-        assert "Learn:" in hud_text
+        hud_text_after = str(practice.query_one("#hud-text", Static).content)
+        assert hud_text_after == hud_text_before

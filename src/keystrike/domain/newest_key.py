@@ -16,6 +16,16 @@ from .models import GATING_BIGRAM_LIMIT, Bigram, KeyStats, TransitionStats
 
 _GATING_BIGRAM_MIN = 2
 _GATING_BIGRAM_MAX = 4
+_MAX_GATING_PEERS = 2  # newest key pairs with at most this many recent practiced peers
+
+
+def _practiced_unlocked(
+    unlocked: Sequence[int], key_stats: Mapping[int, KeyStats] | None
+) -> list[int]:
+    """Unlocked keys with at least one recorded stat, in unlock order."""
+    if key_stats is None:
+        return []
+    return [cp for cp in unlocked if cp in key_stats]
 
 
 def effective_gating_bigram_limit(limit: int) -> int:
@@ -50,7 +60,7 @@ def newest_practiced_key_pairs(
     (focus selection, lesson weighting) and
     `domain.unlock.newest_key_clears_transition_gate` (unlock), so the two
     can't drift on what counts as newest or which pairs are in play."""
-    practiced = [cp for cp in unlocked if key_stats is not None and cp in key_stats]
+    practiced = _practiced_unlocked(unlocked, key_stats)
     if not practiced:
         return [], []
     newest = practiced[-1]
@@ -80,10 +90,10 @@ def newest_key_gating_cohort(
     practiced, so incidental transition measurements cannot expand or replace
     it while the letter is being calibrated.
     """
-    practiced = [cp for cp in unlocked if key_stats is not None and cp in key_stats]
+    practiced = _practiced_unlocked(unlocked, key_stats)
     if len(practiced) < _GATING_BIGRAM_MIN:
         return ()
     newest = practiced[-1]
-    peers = practiced[-3:-1]
+    peers = practiced[-(_MAX_GATING_PEERS + 1) : -1]
     cohort = tuple(pair for peer in peers for pair in (Bigram(peer, newest), Bigram(newest, peer)))
     return cohort[-effective_gating_bigram_limit(limit) :]

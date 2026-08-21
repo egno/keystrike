@@ -49,7 +49,7 @@ When a URL is saved **and** the cache file exists, Keystrike:
 
 1. Loads the cached list from disk.
 2. Keeps words that are **3–10 letters** (dictionary bounds, independent of
-   `generated_word_min_len` / `generated_word_max_len`) and use **only** letters
+   `[word_gen].min_len` / `[word_gen].max_len`) and use **only** letters
    in your current unlocked set.
 3. Samples lesson words from that pool, overweighting words that contain weak keys
    or bigrams. Markov fallback fill uses the generated word length settings

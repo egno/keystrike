@@ -1,5 +1,5 @@
 from keystrike.domain.confidence import confidence_of, skill_of
-from keystrike.domain.models import Bigram, KeyStats, TransitionStats
+from keystrike.domain.models import Bigram, KeyStats, TransitionStats, UnlockTuning
 from keystrike.domain.newest_key import newest_key_gating_cohort
 from keystrike.domain.unlock import (
     compute_unlocked,
@@ -98,7 +98,11 @@ def test_compute_unlocked_stalls_on_high_error_rate_despite_fast_speed():
     # speed 2.0, but only 50% accuracy -> min(2.0, 0.5) = 0.5 < threshold
     stats = {1: _stats(1, mean_time_ns=100_000_000.0, error_count=10)}
     unlocked = compute_unlocked(
-        learn_order, alphabet_size=1, stats=stats, target=200.0, threshold=1.5
+        learn_order,
+        alphabet_size=1,
+        stats=stats,
+        target=200.0,
+        tuning=UnlockTuning(next_letter_unlock_threshold=1.5),
     )
     assert unlocked == (1,)
 
@@ -226,8 +230,8 @@ def test_configured_cohort_limit_changes_unlock_gate():
         3,
         stats,
         200.0,
+        tuning=UnlockTuning(gating_bigram_limit=2),
         transitions=transitions,
-        gating_bigram_limit=2,
     ) == (a, b, c, d)
     assert (
         compute_unlocked(
@@ -235,8 +239,8 @@ def test_configured_cohort_limit_changes_unlock_gate():
             3,
             stats,
             200.0,
+            tuning=UnlockTuning(gating_bigram_limit=4),
             transitions=transitions,
-            gating_bigram_limit=4,
         )
         == unlocked
     )

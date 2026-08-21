@@ -5,33 +5,21 @@ from textual.widgets import Static
 from keystrike.domain.daily_learn import DailyLearnBudget, daily_learn_display
 from keystrike.domain.focus import FocusReason
 from keystrike.domain.null_adapters import NULL_DAILY_LEARN_BUDGET
-from keystrike.domain.protocols import Clock, DailyLearnBudgetProvider
-from keystrike.domain.session import (
-    Session,
-    active_typing_duration_ns,
-    is_typing_idle,
-    session_accuracy,
-)
-from keystrike.presentation.theme import STYLE_IDLE
+from keystrike.domain.protocols import DailyLearnBudgetProvider
+from keystrike.domain.session import Session, session_accuracy
+from keystrike.presentation.formatting.daily_learn import format_daily_learn_minutes
 from keystrike.presentation.widgets.kb_heatmap import (
     focus_reason_label_short,
     focus_transition_pair,
 )
 
 
-def learn_timer_dimmed(session: Session, now_ns: int) -> bool:
-    if session.typing_started_at_ns is None or session.last_keystroke_at_ns is None:
-        return True
-    return is_typing_idle(session, now_ns)
-
-
-def _format_daily_learn_segment(budget: DailyLearnBudget, *, dim: bool) -> str:
+def _format_daily_learn_segment(budget: DailyLearnBudget) -> str:
     display = daily_learn_display(budget)
     if not display.shown:
         return ""
-    segment = f"   Learn: [bold]{display.used_minutes:.1f}[/]/{display.limit_minutes:g} min"
-    colored = f"[green]{segment}[/]" if display.limit_reached else segment
-    return f"[{STYLE_IDLE}]{colored}[/]" if dim else colored
+    segment = f"   Learn: {format_daily_learn_minutes(display)}"
+    return f"[green]{segment}[/]" if display.limit_reached else segment
 
 
 def _format_focus_segment(focus_key: int | None, focus_reason: FocusReason | None) -> str:
@@ -48,17 +36,20 @@ def _format_hud(
     daily_budget: DailyLearnBudget,
     *,
     focus_reason: FocusReason | None = None,
-    dim_learn: bool = True,
 ) -> str:
     accuracy = session_accuracy(session)
     return (
         f"Acc: [bold]{accuracy * 100:5.1f}%[/]"
-        f"{_format_daily_learn_segment(daily_budget, dim=dim_learn)}"
+        f"{_format_daily_learn_segment(daily_budget)}"
         f"{_format_focus_segment(session.focus_key, focus_reason)}"
     )
 
 
 class HUD(Widget):
+    """Shows the current lesson's accuracy, daily learn time, and focus key
+    as a fixed snapshot taken when the lesson starts -- it does not tick
+    while typing; call `set_session` to refresh it for the next lesson."""
+
     DEFAULT_CSS = """
     HUD {
         padding: 0 2;
@@ -70,14 +61,12 @@ class HUD(Widget):
     def __init__(
         self,
         session: Session,
-        clock: Clock,
         *,
         get_daily_learn_budget: DailyLearnBudgetProvider = NULL_DAILY_LEARN_BUDGET,
         focus_reason: FocusReason | None = None,
     ) -> None:
         super().__init__()
         self._session = session
-        self._clock = clock
         self._get_daily_learn_budget = get_daily_learn_budget
         self._focus_reason = focus_reason
 
@@ -91,20 +80,13 @@ class HUD(Widget):
             id="hud-text",
         )
 
-    def on_mount(self) -> None:
-        self.set_interval(0.1, self.refresh_display)
-
     def refresh_display(self) -> None:
-        now_ns = self._clock.now_ns()
-        elapsed = active_typing_duration_ns(self._session, now_ns)
-        daily_budget = self._get_daily_learn_budget(extra_ns=elapsed)
         static = self.query_one("#hud-text", Static)
         static.update(
             _format_hud(
                 self._session,
-                daily_budget,
+                self._get_daily_learn_budget(),
                 focus_reason=self._focus_reason,
-                dim_learn=learn_timer_dimmed(self._session, now_ns),
             ),
         )
 

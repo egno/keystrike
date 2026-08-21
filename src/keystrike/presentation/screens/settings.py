@@ -15,6 +15,14 @@ from keystrike.presentation.bindings import BACK_BINDINGS, SAVE
 from keystrike.presentation.services import SettingsServices
 
 
+class FormError(ValueError):
+    """A form field couldn't be parsed -- distinct from
+    `SettingsValidationError`, which is the application layer rejecting an
+    otherwise well-formed value. `action_save` catches both the same way,
+    but keeping them separate means a form error can't be mistaken for
+    (or silently absorbed into) a settings-domain rejection."""
+
+
 class SettingsScreen(Screen[None]):
     DEFAULT_CSS = """
     SettingsScreen > Vertical {
@@ -42,8 +50,8 @@ class SettingsScreen(Screen[None]):
         settings = self._services.settings_repo.load()
         layouts = self._layout_select_options()
         gen_min, gen_max = effective_generated_word_bounds(
-            settings.generated_word_min_len,
-            settings.generated_word_max_len,
+            settings.word_gen.min_len,
+            settings.word_gen.max_len,
         )
         with Vertical():
             yield Static("[bold]Settings[/]  [dim](Ctrl+S save, Esc/q back)[/]")
@@ -114,12 +122,13 @@ class SettingsScreen(Screen[None]):
     def action_clear_wordlist(self) -> None:
         self._do_clear()
 
-    def _collect_form_values(self) -> SettingsUpdate | None:
+    def _collect_form_values(self) -> SettingsUpdate:
+        """Parse the form into a `SettingsUpdate`, or raise `FormError` --
+        `action_save` owns the one place that turns that into a shown
+        error, so parsing itself has no side effect."""
         target_speed_value = self._required_int(
             "#settings-speed", "Target speed must be an integer."
         )
-        if target_speed_value is None:
-            return None
 
         speed_unit_select = cast(
             "Select[TargetSpeedUnit]",
@@ -127,11 +136,11 @@ class SettingsScreen(Screen[None]):
         )
         target_speed_unit = speed_unit_select.value
         if isinstance(target_speed_unit, NoSelection):
-            return None
+            raise FormError("Target speed unit is required.")
         settings = self._services.settings_repo.load()
         gen_min, gen_max = effective_generated_word_bounds(
-            settings.generated_word_min_len,
-            settings.generated_word_max_len,
+            settings.word_gen.min_len,
+            settings.word_gen.max_len,
         )
         target_speed_cpm = (
             cpm_from_wpm(
@@ -146,20 +155,16 @@ class SettingsScreen(Screen[None]):
         alphabet_size = self._required_int(
             "#settings-alphabet-size", "Number of letters must be an integer."
         )
-        if alphabet_size is None:
-            return None
 
         learn_daily_minutes = self._required_int(
             "#settings-learn-daily-minutes", "Daily learn minutes must be an integer."
         )
-        if learn_daily_minutes is None:
-            return None
 
         layout_select = cast("Select[str]", self.query_one("#settings-layout", Select))
         layout = layout_select.value
         if isinstance(layout, NoSelection):
             # Unreachable with allow_blank=False + an initial value, but keeps typing sound.
-            return None
+            raise FormError("Layout is required.")
 
         return SettingsUpdate(
             layout=layout,
@@ -170,13 +175,10 @@ class SettingsScreen(Screen[None]):
         )
 
     def action_save(self) -> None:
-        values = self._collect_form_values()
-        if values is None:
-            return
-
         try:
+            values = self._collect_form_values()
             self._services.update_settings(values)
-        except SettingsValidationError as exc:
+        except (FormError, SettingsValidationError) as exc:
             self._show_error(str(exc))
             return
 
@@ -236,10 +238,10 @@ class SettingsScreen(Screen[None]):
     def _show_error(self, message: str) -> None:
         self.query_one("#settings-error", Static).update(f"[bold red]{message}[/]")
 
-    def _required_int(self, widget_id: str, error: str) -> int | None:
+    def _required_int(self, widget_id: str, error: str) -> int:
         value = self._parse_int_field(self.query_one(widget_id, Input).value)
         if value is None:
-            self._show_error(error)
+            raise FormError(error)
         return value
 
     @staticmethod

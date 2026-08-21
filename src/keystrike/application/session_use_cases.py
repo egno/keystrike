@@ -1,7 +1,6 @@
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 
-from keystrike.application.alphabet_sync import sync_alphabet_size
 from keystrike.application.session_queries import (
     compute_accuracy,
     compute_wpm,
@@ -155,16 +154,16 @@ def _snapshot_unlock_state(
         settings.alphabet_size,
         combined.keys,
         target,
-        min_attempts=settings.min_confidence_attempts,
+        tuning=settings.unlock,
         transitions=combined.transitions,
-        transition_min_attempts=settings.min_transition_confidence_attempts,
         transition_stall_attempts_cap=default_transition_stall_attempts_cap(
-            settings.min_transition_confidence_attempts
+            settings.unlock.min_transition_confidence_attempts
         ),
-        gating_bigram_limit=settings.gating_bigram_limit,
     )
     return unlocked, {
-        cp: confidence_of(cp, combined.keys, target, min_attempts=settings.min_confidence_attempts)
+        cp: confidence_of(
+            cp, combined.keys, target, min_attempts=settings.unlock.min_confidence_attempts
+        )
         for cp in unlocked
     }
 
@@ -193,11 +192,14 @@ class FinishSession:
             settings_repo=self.settings_repo,
             layout_repo=self.layout_repo,
         )
-        sync_alphabet_size(settings, unlocked_keys, self.settings_repo)
+        # alphabet_size growth is persisted by BuildLesson right before the
+        # next lesson is generated (see alphabet_sync.sync_alphabet_size),
+        # not here -- syncing it immediately on every session finish caused
+        # a distracting mid-flow status jump before the next word list.
 
         generated_min_len, generated_max_len = effective_generated_word_bounds(
-            settings.generated_word_min_len,
-            settings.generated_word_max_len,
+            settings.word_gen.min_len,
+            settings.word_gen.max_len,
         )
         result = SessionResult(
             schema_version=4,

@@ -23,14 +23,16 @@ from keystrike.application.session_use_cases import (
 )
 from keystrike.application.stats_use_cases import RebuildAggregates
 from keystrike.domain.aggregate import combine_sessions
-from keystrike.domain.confidence import (
-    CONFIDENCE_SESSION_WINDOW,
-    confidence_of,
-    target_ms_per_char,
-)
+from keystrike.domain.confidence import confidence_of, target_ms_per_char
 from keystrike.domain.enums import Mode, SessionState
 from keystrike.domain.learn_order import keyboard_order
-from keystrike.domain.models import SessionResult, Settings
+from keystrike.domain.models import (
+    CONFIDENCE_SESSION_WINDOW,
+    SessionResult,
+    Settings,
+    UnlockTuning,
+    WordGenBounds,
+)
 from keystrike.domain.unlock import compute_unlocked
 from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS
 from keystrike.presentation.formatting.trends import format_session_stats_line
@@ -483,9 +485,7 @@ def test_session_wpm_below_target_uses_snapshotted_word_bounds():
 
 
 def test_finish_session_persists_generated_word_bounds(clock, id_gen):
-    settings_repo = FakeSettingsRepository(
-        Settings(generated_word_min_len=3, generated_word_max_len=8)
-    )
+    settings_repo = FakeSettingsRepository(Settings(word_gen=WordGenBounds(min_len=3, max_len=8)))
     finish = FinishSession(clock=clock, settings_repo=settings_repo)
     start = StartSession(clock=clock, id_gen=id_gen)
     record = RecordKeystroke(clock=clock)
@@ -529,7 +529,12 @@ def test_finish_session_persists_unlocked_keys(clock, id_gen):
     assert repo.headers[0].unlocked_keys == expected
 
 
-def test_finish_session_bumps_alphabet_size_when_unlocked_set_grows(clock, id_gen):
+def test_finish_session_does_not_bump_alphabet_size_immediately(clock, id_gen):
+    """FinishSession reports the grown unlocked set on the result, but must
+    not persist it back to Settings.alphabet_size right away -- that eager
+    write caused a distracting mid-session status jump. Persisting the
+    growth is BuildLesson's job, done once, right before the next lesson is
+    generated (see alphabet_sync.sync_alphabet_size)."""
     layout = BUNDLED_LAYOUTS["qwerty"]
     order = keyboard_order(layout)
     settings_repo = FakeSettingsRepository(Settings(alphabet_size=5))
@@ -567,7 +572,54 @@ def test_finish_session_bumps_alphabet_size_when_unlocked_set_grows(clock, id_ge
     result = finish(session)
 
     assert len(result.unlocked_keys) > 5
-    assert settings_repo.settings.alphabet_size == len(result.unlocked_keys)
+    assert settings_repo.settings.alphabet_size == 5
+
+
+def test_finish_session_respects_next_letter_unlock_threshold_setting(clock, id_gen):
+    """Same warmup drill as test_finish_session_bumps_alphabet_size_when_unlocked_set_grows,
+    but with the threshold raised out of reach -- alphabet_size must not
+    grow, proving Settings.next_letter_unlock_threshold is actually wired
+    into FinishSession's compute_unlocked call."""
+    layout = BUNDLED_LAYOUTS["qwerty"]
+    order = keyboard_order(layout)
+    settings_repo = FakeSettingsRepository(
+        Settings(alphabet_size=5, unlock=UnlockTuning(next_letter_unlock_threshold=10.0))
+    )
+    layout_repo = FakeLayoutRepository(dict(BUNDLED_LAYOUTS))
+    repo = FakeSessionRepository()
+    finish = FinishSession(
+        clock=clock,
+        repo=repo,
+        settings_repo=settings_repo,
+        layout_repo=layout_repo,
+    )
+    start = StartSession(clock=clock, id_gen=id_gen)
+    record = RecordKeystroke(clock=clock)
+
+    newest = chr(order[4])
+    cohort_drill = "".join(
+        (chr(peer) + newest) * 8 + (newest + chr(peer)) * 8 for peer in order[2:4]
+    )
+    warmup = "".join(chr(cp) for _ in range(15) for cp in order[:5]) + cohort_drill
+    warmup_session = start(
+        warmup,
+        layout="qwerty",
+        mode=Mode.ADAPTIVE,
+        focus_key=order[0],
+    )
+    for ch in warmup:
+        clock.advance(50_000_000)
+        record(warmup_session, ch)
+    finish(warmup_session)
+
+    session = start("as", layout="qwerty", mode=Mode.ADAPTIVE, focus_key=order[0])
+    for ch in "as":
+        clock.advance(100_000_000)
+        record(session, ch)
+    result = finish(session)
+
+    assert len(result.unlocked_keys) == 5
+    assert settings_repo.settings.alphabet_size == 5
 
 
 def test_finish_session_persists_key_confidence(clock, id_gen):

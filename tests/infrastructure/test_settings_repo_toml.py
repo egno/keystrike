@@ -1,13 +1,19 @@
 from random import Random
+from typing import get_args
 
 import pytest
 
 from keystrike.application.build_lesson import BuildLesson
 from keystrike.domain.enums import TargetSpeedUnit
-from keystrike.domain.models import Settings
+from keystrike.domain.models import FocusTuning, Settings, UnlockTuning, WordGenBounds
 from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS
 from keystrike.infrastructure.paths import Paths
-from keystrike.infrastructure.settings_repo_toml import TomlSettingsRepository, _coerce_field
+from keystrike.infrastructure.settings_repo_toml import (
+    _NESTED_TYPES,
+    TomlSettingsRepository,
+    _coerce_field,
+    _NestedTuning,
+)
 from tests.fakes import (
     FakeAggregatesCache,
     FakeClock,
@@ -35,21 +41,18 @@ def test_load_defaults_when_no_file(paths):
 
 def test_load_generated_word_bounds_from_hand_edited_toml(paths):
     paths.settings_file.write_text(
-        "schema_version = 1\ngenerated_word_min_len = 2\ngenerated_word_max_len = 5\n",
+        "schema_version = 1\n\n[word_gen]\nmin_len = 2\nmax_len = 5\n",
         encoding="utf-8",
     )
     loaded = TomlSettingsRepository(paths).load()
-    assert loaded.generated_word_min_len == 2
-    assert loaded.generated_word_max_len == 5
+    assert loaded.word_gen.min_len == 2
+    assert loaded.word_gen.max_len == 5
 
 
 def test_toml_generated_word_bounds_affect_markov_lesson_words(paths):
     """Full path: settings.toml → repo.load() → BuildLesson → word lengths."""
     paths.settings_file.write_text(
-        "schema_version = 1\n"
-        "generated_word_min_len = 2\n"
-        "generated_word_max_len = 4\n"
-        'wordlist_url = ""\n',
+        'schema_version = 1\nwordlist_url = ""\n\n[word_gen]\nmin_len = 2\nmax_len = 4\n',
         encoding="utf-8",
     )
     builder = BuildLesson(
@@ -75,38 +78,34 @@ def test_round_trip(paths):
         target_speed_unit=TargetSpeedUnit.WPM,
         alphabet_size=20,
         confidence_session_window=8,
-        min_confidence_attempts=12,
-        min_transition_confidence_attempts=5,
-        gating_bigram_limit=3,
-        focus_char_boost=2.5,
-        focus_word_boost=5.0,
-        focus_bigram_word_boost=6.0,
-        focus_transition_boost=3.5,
-        focus_weak_extra_boost=2.0,
+        unlock=UnlockTuning(
+            min_confidence_attempts=12,
+            min_transition_confidence_attempts=5,
+            gating_bigram_limit=3,
+            next_letter_unlock_threshold=0.9,
+        ),
+        focus=FocusTuning(
+            char_boost=2.5,
+            word_boost=5.0,
+            bigram_word_boost=6.0,
+            transition_boost=3.5,
+            weak_extra_boost=2.0,
+            word_min_fraction=0.75,
+        ),
         lesson_word_count=15,
-        focus_word_min_fraction=0.75,
         max_word_repeats=3,
-        generated_word_min_len=2,
-        generated_word_max_len=5,
+        word_gen=WordGenBounds(min_len=2, max_len=5),
     )
     repo.save(original)
     loaded = repo.load()
     assert loaded.layout == original.layout
     assert loaded.target_speed_cpm == original.target_speed_cpm
     assert loaded.confidence_session_window == 8
-    assert loaded.min_confidence_attempts == 12
-    assert loaded.min_transition_confidence_attempts == 5
-    assert loaded.gating_bigram_limit == 3
-    assert loaded.focus_char_boost == 2.5
-    assert loaded.focus_word_boost == 5.0
-    assert loaded.focus_bigram_word_boost == 6.0
-    assert loaded.focus_transition_boost == 3.5
-    assert loaded.focus_weak_extra_boost == 2.0
+    assert loaded.unlock == original.unlock
+    assert loaded.focus == original.focus
     assert loaded.lesson_word_count == 15
-    assert loaded.focus_word_min_fraction == 0.75
     assert loaded.max_word_repeats == 3
-    assert loaded.generated_word_min_len == 2
-    assert loaded.generated_word_max_len == 5
+    assert loaded.word_gen == original.word_gen
     assert loaded.updated_at is not None
 
 
@@ -160,15 +159,28 @@ def test_malformed_enum_value_falls_back_to_default(paths):
 
 def test_existing_toml_defaults_gating_bigram_limit(paths):
     paths.settings_file.write_text('schema_version = 1\nlayout = "qwerty"\n', encoding="utf-8")
-    assert TomlSettingsRepository(paths).load().gating_bigram_limit == 4
+    assert TomlSettingsRepository(paths).load().unlock.gating_bigram_limit == 4
 
 
 def test_loads_gating_bigram_limit(paths):
     paths.settings_file.write_text(
-        "schema_version = 1\ngating_bigram_limit = 2\n",
+        "schema_version = 1\n\n[unlock]\ngating_bigram_limit = 2\n",
         encoding="utf-8",
     )
-    assert TomlSettingsRepository(paths).load().gating_bigram_limit == 2
+    assert TomlSettingsRepository(paths).load().unlock.gating_bigram_limit == 2
+
+
+def test_existing_toml_defaults_next_letter_unlock_threshold(paths):
+    paths.settings_file.write_text('schema_version = 1\nlayout = "qwerty"\n', encoding="utf-8")
+    assert TomlSettingsRepository(paths).load().unlock.next_letter_unlock_threshold == 1.0
+
+
+def test_loads_next_letter_unlock_threshold(paths):
+    paths.settings_file.write_text(
+        "schema_version = 1\n\n[unlock]\nnext_letter_unlock_threshold = 0.85\n",
+        encoding="utf-8",
+    )
+    assert TomlSettingsRepository(paths).load().unlock.next_letter_unlock_threshold == 0.85
 
 
 def test_coerce_field_rejects_non_bool_for_bool_default():
@@ -182,3 +194,33 @@ def test_coerce_field_rejects_non_bool_for_bool_default():
 def test_coerce_field_accepts_real_bool():
     assert _coerce_field(True, False) is False
     assert _coerce_field(False, True) is True
+
+
+def test_coerce_field_rejects_bool_for_int_default():
+    # bool is an int subclass -- int(True) == 1 would otherwise silently
+    # coerce a stray `alphabet_size = true` instead of falling back to
+    # the default via load()'s except (ValueError, TypeError).
+    with pytest.raises(TypeError):
+        _coerce_field(16, True)
+
+
+def test_settings_file_with_control_chars_round_trips(paths):
+    """Regression: an unescaped control char in a written string value used
+    to corrupt the TOML file, which load() then silently replaced with
+    Settings() -- reverting every setting, not just the offending field."""
+    repo = TomlSettingsRepository(paths)
+    original = Settings(
+        wordlist_url='https://example.com/a"b\nc',
+        unlock=UnlockTuning(next_letter_unlock_threshold=0.75),
+    )
+    repo.save(original)
+    loaded = repo.load()
+    assert loaded.wordlist_url == original.wordlist_url
+    assert loaded.unlock.next_letter_unlock_threshold == 0.75
+
+
+def test_nested_types_matches_nested_tuning_union():
+    """`_NESTED_TYPES` is a literal tuple (not derived from `_NestedTuning`
+    via `typing.get_args`) so pyright can narrow `isinstance` checks on it --
+    this guards the two from drifting apart instead."""
+    assert set(_NESTED_TYPES) == set(get_args(_NestedTuning))

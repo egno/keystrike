@@ -13,17 +13,12 @@ from collections.abc import Mapping
 from typing import Protocol
 
 from .models import (
-    CONFIDENCE_SESSION_WINDOW,
     MIN_CONFIDENCE_ATTEMPTS,
     MIN_TRANSITION_CONFIDENCE_ATTEMPTS,
     Bigram,
     KeyStats,
     TransitionStats,
 )
-
-# Re-exported for call sites/tests that reference the session-window size via
-# this module rather than `domain.models` directly.
-__all__ = ["CONFIDENCE_SESSION_WINDOW"]
 
 _SECONDS_PER_DAY = 86_400.0
 _REVIEW_URGENCY_FULL_DAYS = 3.0

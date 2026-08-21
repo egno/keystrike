@@ -199,7 +199,7 @@ def test_render_heatmap_highlights_both_transition_keys():
             QWERTY,
             {ord("e"): 0.89, ord("o"): 0.89},
             focus=ord("o"),
-            focus_transition=(ord("e"), ord("o")),
+            focus_transition=Bigram(ord("e"), ord("o")),
         )
     )
     for ch in "eo":

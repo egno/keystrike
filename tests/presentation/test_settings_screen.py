@@ -11,7 +11,7 @@ from keystrike.application.wordlist_use_cases import (
 )
 from keystrike.domain.enums import TargetSpeedUnit
 from keystrike.domain.generator import cpm_from_wpm, wpm_from_cpm
-from keystrike.domain.models import Settings
+from keystrike.domain.models import Settings, WordGenBounds
 from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS
 from keystrike.presentation.screens.settings import SettingsScreen
 from keystrike.presentation.services import SettingsServices
@@ -236,8 +236,7 @@ async def test_wpm_display_uses_custom_generated_bounds():
         Settings(
             target_speed_cpm=390,
             target_speed_unit=TargetSpeedUnit.WPM,
-            generated_word_min_len=3,
-            generated_word_max_len=10,
+            word_gen=WordGenBounds(min_len=3, max_len=10),
         ),
     )
     layout_repo = FakeLayoutRepository(dict(BUNDLED_LAYOUTS))
@@ -266,7 +265,7 @@ async def test_wpm_display_uses_custom_generated_bounds():
 async def test_save_converts_wpm_using_custom_generated_bounds():
     app = App()
     settings_repo = FakeSettingsRepository(
-        Settings(generated_word_min_len=3, generated_word_max_len=10),
+        Settings(word_gen=WordGenBounds(min_len=3, max_len=10)),
     )
     layout_repo = FakeLayoutRepository(dict(BUNDLED_LAYOUTS))
     store = FakeWordListStore()

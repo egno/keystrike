@@ -11,29 +11,36 @@ Edit `{config_dir}/settings.toml` directly (see [Git sync](Git-sync) for the
 path on your OS). These fields are **not** on the Settings screen — saving
 layout, speed, or other UI settings will not change them.
 
+**Since 2.0**, the unlock, focus-boost, and generated-word-length knobs moved
+off the top-level `Settings` table into three nested tables — `[unlock]`,
+`[focus]`, and `[word_gen]` — so a settings file written by an older version
+needs those values re-entered under the new tables (unrecognized top-level
+keys are ignored, and missing nested tables silently fall back to defaults).
+
 ## Settings
 
 | Setting | `settings.toml` key | Default | What it does |
 | --- | --- | --- | --- |
 | Confidence session window | `confidence_session_window` | `10` | How many recent sessions are replayed into rolling per-key stats used for skill, unlocks, focus, and the heatmap. |
-| Min key attempts | `min_confidence_attempts` | `10` | Minimum presses on a key before its confidence reaches full weight. Below this, confidence ramps linearly (fewer attempts → lower score). |
-| Min bigram attempts | `min_transition_confidence_attempts` | `4` | Same ramp for letter-pair (transition) confidence. Default is lower because bigrams are practiced less often than single keys. |
-| Gating bigram limit | `gating_bigram_limit` | `4` | Directed newest-letter bigrams that must calibrate before the next letter opens. Values are clamped to `2`–`4`. |
-| Focus char boost | `focus_char_boost` | `3.0` | Multiplier on the focus key's char weight when building lesson sampling weights. |
-| Focus word boost | `focus_word_boost` | `3.0` | Extra multiplier on dictionary/Markov words that contain the focus character. |
-| Focus bigram word boost | `focus_bigram_word_boost` | `4.0` | Extra multiplier on words containing the focus letter pair (when transition focus is active). |
-| Focus transition boost | `focus_transition_boost` | `4.0` | Multiplier on the focus bigram's transition weight. |
-| Focus weak extra boost | `focus_weak_extra_boost` | `1.5` | Additional multiplier when focus confidence is below 1.0 (weak key or weak transition). |
+| Min key attempts | `[unlock].min_confidence_attempts` | `10` | Minimum presses on a key before its confidence reaches full weight. Below this, confidence ramps linearly (fewer attempts → lower score). |
+| Min bigram attempts | `[unlock].min_transition_confidence_attempts` | `4` | Same ramp for letter-pair (transition) confidence. Default is lower because bigrams are practiced less often than single keys. |
+| Gating bigram limit | `[unlock].gating_bigram_limit` | `4` | Directed newest-letter bigrams that must calibrate before the next letter opens. Values are clamped to `2`–`4`. |
+| Next-letter unlock threshold | `[unlock].next_letter_unlock_threshold` | `1.0` | Skill threshold every currently-unlocked key must clear before the next letter opens. |
+| Focus char boost | `[focus].char_boost` | `3.0` | Multiplier on the focus key's char weight when building lesson sampling weights. |
+| Focus word boost | `[focus].word_boost` | `3.0` | Extra multiplier on dictionary/Markov words that contain the focus character. |
+| Focus bigram word boost | `[focus].bigram_word_boost` | `4.0` | Extra multiplier on words containing the focus letter pair (when transition focus is active). |
+| Focus transition boost | `[focus].transition_boost` | `4.0` | Multiplier on the focus bigram's transition weight. |
+| Focus weak extra boost | `[focus].weak_extra_boost` | `1.5` | Additional multiplier when focus confidence is below 1.0 (weak key or weak transition). |
 | Lesson word count | `lesson_word_count` | `12` | Words generated per practice lesson. |
-| Focus word min fraction | `focus_word_min_fraction` | `0.6` | When focus is weak, at least this fraction of lesson words must match the focus key or bigram (ceiling). |
+| Focus word min fraction | `[focus].word_min_fraction` | `0.6` | When focus is weak, at least this fraction of lesson words must match the focus key or bigram (ceiling). |
 | Max word repeats | `max_word_repeats` | `2` | Maximum times the same word may appear in one generated lesson. |
-| Generated word min length | `generated_word_min_len` | `2` | Minimum length for Markov-generated words (dictionary import still filters 3–10). |
-| Generated word max length | `generated_word_max_len` | `4` | Maximum length for Markov-generated words. |
+| Generated word min length | `[word_gen].min_len` | `2` | Minimum length for Markov-generated words (dictionary import still filters 3–10). |
+| Generated word max length | `[word_gen].max_len` | `4` | Maximum length for Markov-generated words. |
 
 Valid ranges: window and both attempt floors are **1–100**.
-`gating_bigram_limit` is **2–4** (hand-edited values are clamped). Boost
+`[unlock].gating_bigram_limit` is **2–4** (hand-edited values are clamped). Boost
 multipliers should be **≥ 1.0**. `lesson_word_count` should be **≥ 1**.
-`focus_word_min_fraction` should be in **(0.0, 1.0]**. `max_word_repeats`
+`word_min_fraction` should be in **(0.0, 1.0]**. `max_word_repeats`
 should be **≥ 1**. Generated word bounds should be **≥ 1** with min ≤ max.
 
 Skill and confidence both use **min(speed, accuracy)**, not their product: a key
@@ -46,19 +53,26 @@ Example (defaults shown):
 
 ```toml
 confidence_session_window = 10
+lesson_word_count = 12
+max_word_repeats = 2
+
+[unlock]
 min_confidence_attempts = 10
 min_transition_confidence_attempts = 4
 gating_bigram_limit = 4
-focus_char_boost = 3.0
-focus_word_boost = 3.0
-focus_bigram_word_boost = 4.0
-focus_transition_boost = 4.0
-focus_weak_extra_boost = 1.5
-lesson_word_count = 12
-focus_word_min_fraction = 0.6
-max_word_repeats = 2
-generated_word_min_len = 2
-generated_word_max_len = 4
+next_letter_unlock_threshold = 1.0
+
+[focus]
+char_boost = 3.0
+word_boost = 3.0
+bigram_word_boost = 4.0
+transition_boost = 4.0
+weak_extra_boost = 1.5
+word_min_fraction = 0.6
+
+[word_gen]
+min_len = 2
+max_len = 4
 ```
 
 ## What each setting affects
@@ -87,17 +101,18 @@ The first **N** keys in layout `learn_order` are always unlocked, where **N** is
 **Letters unlocked up front** in Settings (`alphabet_size`; see
 [README — Settings](https://github.com/egno/keystrike#settings)). Each further
 key in `learn_order` unlocks only when **every** currently unlocked key meets the
-skill threshold (default 1.0: min(speed, accuracy) without attempt ramp) **and**
-has at least `min_confidence_attempts` presses in the session window. Ramped
+skill threshold (`[unlock].next_letter_unlock_threshold`, default 1.0:
+min(speed, accuracy) without attempt ramp) **and**
+has at least `[unlock].min_confidence_attempts` presses in the session window. Ramped
 confidence still drives HUD labels (`cal` vs `wk`) and focus weighting.
 
 Beyond solo-key mastery, a deterministic cohort of directed bigrams involving
 the most-recently-practiced key gates the next key. It pairs that key in both
 directions with up to its two most-recent practiced peers, bounded by
-`gating_bigram_limit`. The cohort is derived from key order, not observed
+`[unlock].gating_bigram_limit`. The cohort is derived from key order, not observed
 transition data, so incidental measurements cannot expand or replace it.
 Every member must reach confidence 1.0 with
-`min_transition_confidence_attempts` attempts.
+`[unlock].min_transition_confidence_attempts` attempts.
 A `transition_stall_attempts_cap` (`domain.unlock.default_transition_stall_attempts_cap`,
 3× the transition calibration floor by default) releases a specific pair
 that's been drilled past the cap without clearing threshold, so one stubborn
@@ -161,7 +176,7 @@ guaranteed lesson slots instead of waiting to appear by chance.
   data; lower it if weak pairs never get targeted.
 - **Coverage deficit** — Lesson sampling multiplies char (and transition)
   weights by a session-scale boost when in-window attempts are below
-  `min_confidence_attempts` (peaking at zero attempts). This is separate
+  `[unlock].min_confidence_attempts` (peaking at zero attempts). This is separate
   from performance weakness (`practice_weight`) and day-scale review urgency;
   it helps large unlocked sets get enough window samples without widening the
   session window. There is no settings knob — the boost is fixed in code
@@ -171,7 +186,7 @@ guaranteed lesson slots instead of waiting to appear by chance.
 
 With the default session window (`10`) and lesson length (`12`), each practice
 session only touches a fraction of a 40–50 key unlocked set. Keys can drop out
-of the rolling window or stay below `min_confidence_attempts`, which stalls
+of the rolling window or stay below `[unlock].min_confidence_attempts`, which stalls
 the next unlock and leaves heatmap gaps even when you are typing well.
 **Coverage-deficit weighting** (above) addresses much of this automatically;
 defaults may suffice once you have been practicing for a while.
@@ -199,7 +214,7 @@ Starting points for 40–50 unlocked keys:
   above).
 - **Longer lessons** — More keys sampled per session, but each drill takes
   longer.
-- **`focus_word_min_fraction`** — Lower slightly (e.g. `0.5`) if strict focus
+- **`[focus].word_min_fraction`** — Lower slightly (e.g. `0.5`) if strict focus
   quotas make generated text repetitive at large N; raising it keeps weak-focus
   keys more prominent at the cost of variety.
 

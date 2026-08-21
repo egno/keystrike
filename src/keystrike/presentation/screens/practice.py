@@ -8,7 +8,7 @@ from textual.screen import Screen
 from textual.widgets import Footer, Static
 
 from keystrike.application.prepare_practice import SessionPrep
-from keystrike.domain.models import SessionResult
+from keystrike.domain.models import Bigram, SessionResult
 from keystrike.domain.session import leading_key_char, skip_leading_whitespace
 from keystrike.presentation.bindings import BACK_BINDINGS
 from keystrike.presentation.formatting.trends import format_session_stats_line
@@ -70,7 +70,6 @@ class PracticeScreen(Screen[None]):
         self._typing_area = TypingArea(self._session)
         self._hud = HUD(
             self._session,
-            self._services.clock,
             get_daily_learn_budget=self._services.get_daily_learn_budget,
             focus_reason=initial.focus_reason,
         )
@@ -112,7 +111,7 @@ class PracticeScreen(Screen[None]):
         self,
         *,
         focus: int | None = None,
-        focus_transition: tuple[int, int] | None = None,
+        focus_transition: Bigram | None = None,
     ) -> HeatmapDisplay | None:
         """Build heatmap display using current session's layout and heatmap."""
         return build_heatmap_display(
@@ -147,7 +146,6 @@ class PracticeScreen(Screen[None]):
 
         event.stop()
         self._typing_area.refresh_display()
-        self._hud.refresh_display()
 
         if self._session.finished:
             self._finish_session()
@@ -155,14 +153,11 @@ class PracticeScreen(Screen[None]):
     def _finish_session(self) -> None:
         result = self._services.finish(self._session)
         self._services.rebuild_aggregates(result.layout)
-        self._show_last_session_stats(result)
+        self._refresh_last_session_stats(result)
         prep = self._services.prepare_practice()
         if prep is None:
             return
         self._begin_session(prep)
-
-    def _show_last_session_stats(self, result: SessionResult) -> None:
-        self._refresh_last_session_stats(result)
 
     def _refresh_last_session_stats(self, result: SessionResult | None = None) -> None:
         header = result or self._services.get_latest_session_header(self._prep.layout)

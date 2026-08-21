@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import assert_never
 
 from rich.text import Text
 from textual.app import ComposeResult
@@ -38,6 +39,8 @@ def focus_reason_label_short(focus_reason: FocusReason) -> str:
             return "cal"
         case FocusKind.KEY_REVIEW | FocusKind.TRANSITION_REVIEW:
             return "rev"
+        case _:
+            assert_never(focus_reason.kind)
 
 
 def focus_reason_label(focus_reason: FocusReason) -> str:
@@ -88,7 +91,7 @@ class HeatmapDisplay:
     heatmap: dict[int, float]
     focus: int | None = None
     urgency: dict[int, float] | None = None
-    focus_transition: tuple[int, int] | None = None
+    focus_transition: Bigram | None = None
 
 
 def build_heatmap_display(
@@ -97,7 +100,7 @@ def build_heatmap_display(
     *,
     focus: int | None = None,
     urgency: dict[int, float] | None = None,
-    focus_transition: tuple[int, int] | None = None,
+    focus_transition: Bigram | None = None,
 ) -> HeatmapDisplay | None:
     """`HeatmapDisplay(...)`, or None if the layout/heatmap data isn't ready yet."""
     if layout is None or heatmap is None:
