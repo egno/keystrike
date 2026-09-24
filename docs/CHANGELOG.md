@@ -5,7 +5,7 @@ rationale lives in commit history/diffs — these are pointers, not narratives.
 Milestone-level feature work (what shipped in M1–M4, the keybr algorithm
 design) stays in `PLAN.md` §5/§6.
 
-## Unreleased
+## 2.1.0
 
 - **Session store: per-session stats instead of keystroke logs** — a finished
   session no longer writes `sessions/<YYYY-MM>/<ulid>.jsonl`. Its keystrokes

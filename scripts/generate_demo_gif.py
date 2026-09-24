@@ -39,9 +39,11 @@ def _svg_to_image(path: Path) -> Image.Image:
 
 def main() -> None:
     if sys.platform == "darwin" and "DYLD_LIBRARY_PATH" not in os.environ:
-        brew_lib = Path("/opt/homebrew/lib")
-        if brew_lib.is_dir():
-            os.environ["DYLD_LIBRARY_PATH"] = str(brew_lib)
+        # `brew install cairo` does not always link libcairo into /opt/homebrew/lib.
+        for brew_lib in (Path("/opt/homebrew/opt/cairo/lib"), Path("/opt/homebrew/lib")):
+            if (brew_lib / "libcairo.2.dylib").is_file():
+                os.environ["DYLD_LIBRARY_PATH"] = str(brew_lib)
+                break
 
     frames: list[Image.Image] = []
     for name in _FRAMES:
