@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import datetime as dt
 from collections.abc import Iterable, Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from itertools import count
 
+from keystrike.domain.aggregate import tally_session
 from keystrike.domain.markov import TransitionTable
 from keystrike.domain.models import (
     Keystroke,
@@ -50,31 +51,21 @@ class FakeIdGenerator:
         return f"fake-{next(self._counter):06d}"
 
 
-def _empty_keystrokes() -> dict[str, list[Keystroke]]:
-    return {}
-
-
 def _empty_headers() -> list[SessionResult]:
     return []
 
 
 @dataclass(slots=True)
 class FakeSessionRepository:
-    keystrokes: dict[str, list[Keystroke]] = field(default_factory=_empty_keystrokes)
     headers: list[SessionResult] = field(default_factory=_empty_headers)
-
-    def append_keystroke(self, session_id: str, started_at: float, k: Keystroke) -> None:
-        _ = started_at  # not used by the fake, but keeps protocol shape
-        self.keystrokes.setdefault(session_id, []).append(k)
-
-    def append_keystrokes(
-        self, session_id: str, started_at: float, keystrokes: Iterable[Keystroke]
-    ) -> None:
-        _ = started_at  # not used by the fake, but keeps protocol shape
-        self.keystrokes.setdefault(session_id, []).extend(keystrokes)
 
     def save_header(self, header: SessionResult) -> None:
         self.headers.append(header)
+
+    def save_with_keystrokes(self, header: SessionResult, keystrokes: Iterable[Keystroke]) -> None:
+        """Test convenience: store `header` with the stats `FinishSession`
+        would have tallied from `keystrokes`."""
+        self.headers.append(replace(header, stats=tally_session(keystrokes)))
 
     def iter_headers(self, layout: str) -> Iterator[SessionResult]:
         return iter(h for h in self.headers if h.layout == layout)
@@ -82,8 +73,8 @@ class FakeSessionRepository:
     def iter_all_headers(self) -> Iterator[SessionResult]:
         return iter(self.headers)
 
-    def load_keystrokes(self, session_id: str) -> Iterator[Keystroke]:
-        return iter(self.keystrokes.get(session_id, []))
+    def replace_all_headers(self, headers: Iterable[SessionResult]) -> None:
+        self.headers = list(headers)
 
 
 def _empty_aggregates() -> dict[str, LayoutAggregates]:

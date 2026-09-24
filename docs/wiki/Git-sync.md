@@ -80,19 +80,19 @@ pull complete: 3 session(s) imported
 | --- | --- |
 | `settings.toml` | `cache/` (derived stats — rebuilt locally) |
 | `layouts/*.toml` (custom layouts) | Bundled layouts shipped with Keystrike |
-| `sessions/index.jsonl` | Logs outside the sessions tree |
-| `sessions/**/*.jsonl` (session keystroke logs) | |
+| `sessions/index.jsonl` (one row per session: header + per-key stats) | Logs outside the sessions tree |
+| `sessions/**/*.jsonl` (legacy keystroke logs, if a clone still has them) | |
 
 After a successful **pull**, Keystrike replays all sessions in the merged index and rebuilds the stats cache for every layout it finds. You do not need to sync cache files.
 
 ## Merge behavior
 
-Keystrike applies its own merge logic before every push and pull. Git is used only for transport; JSONL session files are **not** left to git's native merge.
+Keystrike applies its own merge logic before every push and pull. Git is used only for transport; the JSONL session index is **not** left to git's native merge.
 
 ### Sessions — union by `session_id`
 
-- Sessions are identified by `session_id` in `sessions/index.jsonl`.
-- **Missing sessions are imported** — if the remote has a session ID your machine lacks, the session file and index entry are copied in.
+- Sessions are identified by `session_id` in `sessions/index.jsonl`. Each row is self-contained: it carries the session header and its per-key/per-bigram stats.
+- **Missing sessions are imported** — if the remote has a session ID your machine lacks, its index row is appended locally. A row written by a pre-2.1 version (no embedded stats) is upgraded on import from the remote's keystroke log when that file still exists.
 - **Existing IDs are never overwritten** — if both sides have the same `session_id`, the local copy wins and the remote copy is left unchanged on import.
 
 This means you can practice on two machines offline and merge later without losing sessions, as long as each session has a unique ID (Keystrike generates UUIDs).
@@ -137,7 +137,7 @@ Paths use [platformdirs](https://github.com/tox-dev/platformdirs) (same roots as
 | `{config_dir}/sync/repo/` | Local git clone used for push/pull |
 | `{config_dir}/settings.toml` | Synced settings |
 | `{config_dir}/layouts/` | Synced custom layouts |
-| `{data_dir}/sessions/` | Synced session logs |
+| `{data_dir}/sessions/` | Synced session index |
 
 Typical `{config_dir}` / `{data_dir}`:
 
@@ -204,7 +204,7 @@ Then retry `keystrike sync push`.
 
 ### Pull succeeded but stats look stale
 
-Pull rebuilds aggregates from the session index. If something still looks wrong, check `keystrike sync status` session counts and confirm session files exist under `{data_dir}/sessions/`.
+Pull rebuilds aggregates from the session index. If something still looks wrong, check `keystrike sync status` session counts and confirm the rows exist in `{data_dir}/sessions/index.jsonl`.
 
 ## See also
 

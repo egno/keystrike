@@ -48,21 +48,6 @@ def test_plan_missing_sessions_skips_ids_already_local():
 
     assert [p.session_id for p in plans] == [_VALID_ULID_B]
     assert plans[0].index_line == f'{{"session_id": "{_VALID_ULID_B}"}}'
-    assert plans[0].filename == f"{_VALID_ULID_B}.jsonl"
-
-
-def test_plan_missing_sessions_derives_month_from_started_at():
-    started_at = 1_700_000_000.0  # 2023-11-14 ~
-    remote_entries = [_entry(_VALID_ULID_B, started_at=started_at)]
-    remote_lines = ["line"]
-
-    plans = plan_missing_sessions(
-        local_session_ids=set(),
-        remote_entries=remote_entries,
-        remote_lines=remote_lines,
-    )
-
-    assert plans[0].month == "2023-11"
 
 
 def test_plan_missing_sessions_ignores_duplicate_remote_entries():

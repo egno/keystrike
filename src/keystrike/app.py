@@ -21,6 +21,7 @@ from keystrike.application.stats_use_cases import (
     GetHistory,
     GetKeyMetricTrends,
     GetOrRebuildAggregates,
+    PruneSessionStats,
     RebuildAggregates,
 )
 from keystrike.application.sync_use_cases import GetSyncStatus, InitSync, PullSync, PushSync
@@ -35,7 +36,8 @@ from keystrike.infrastructure.clock import MonotonicClock
 from keystrike.infrastructure.id_gen import UlidGenerator
 from keystrike.infrastructure.languages import BundledLanguageProvider
 from keystrike.infrastructure.layout_repo import CompositeLayoutRepository
-from keystrike.infrastructure.paths import default_paths, ensure_dirs
+from keystrike.infrastructure.paths import Paths, default_paths, ensure_dirs
+from keystrike.infrastructure.session_migration import migrate_keystroke_files
 from keystrike.infrastructure.session_repo_jsonl import JsonlSessionRepository
 from keystrike.infrastructure.settings_repo_toml import TomlSettingsRepository
 from keystrike.infrastructure.sync_git import GitSyncGateway
@@ -55,6 +57,20 @@ class SyncServices:
     pull: PullSync
     push: PushSync
     status: GetSyncStatus
+
+
+def startup(paths: Paths | None = None) -> None:
+    """One-time-per-launch store maintenance, run by the CLI before `build()`
+    or `build_sync()`: create the data dirs, fold schema ≤4 keystroke logs
+    into the session index, and drop tallies outside the retention window.
+    Kept out of the builders so they only assemble the object graph."""
+    paths = paths or default_paths()
+    ensure_dirs(paths)
+    migrate_keystroke_files(paths)
+    PruneSessionStats(
+        repo=JsonlSessionRepository(paths),
+        settings_repo=TomlSettingsRepository(paths),
+    )()
 
 
 def build_sync() -> SyncServices:

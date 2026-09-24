@@ -149,7 +149,7 @@ directory.
 | User settings | `~/.config/keystrike/settings.toml` | `~/Library/Application Support/keystrike/settings.toml` |
 | Custom layouts | `~/.config/keystrike/layouts/` | `~/Library/Application Support/keystrike/layouts/` |
 | Sync config (after `sync init`) | `~/.config/keystrike/sync.toml` | `~/Library/Application Support/keystrike/sync.toml` |
-| Session JSONL logs | `~/.local/share/keystrike/sessions/` | `~/Library/Application Support/keystrike/sessions/` |
+| Session history (`index.jsonl`) | `~/.local/share/keystrike/sessions/` | `~/Library/Application Support/keystrike/sessions/` |
 | Stats cache | `~/.local/share/keystrike/cache/` | `~/Library/Application Support/keystrike/cache/` |
 
 Windows uses `%LOCALAPPDATA%\keystrike\` for the same layout (single directory).

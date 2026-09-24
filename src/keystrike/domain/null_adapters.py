@@ -11,18 +11,10 @@ from __future__ import annotations
 from collections.abc import Iterable, Iterator
 
 from .daily_learn import DailyLearnBudget, compute_daily_learn_budget
-from .models import KeyStats, Keystroke, Layout, SessionResult, Settings
+from .models import KeyStats, Layout, SessionResult, Settings
 
 
 class NullSessionRepository:
-    def append_keystroke(self, session_id: str, started_at: float, k: Keystroke) -> None:
-        pass
-
-    def append_keystrokes(
-        self, session_id: str, started_at: float, keystrokes: Iterable[Keystroke]
-    ) -> None:
-        pass
-
     def save_header(self, header: SessionResult) -> None:
         pass
 
@@ -32,8 +24,8 @@ class NullSessionRepository:
     def iter_all_headers(self) -> Iterator[SessionResult]:
         return iter(())
 
-    def load_keystrokes(self, session_id: str) -> Iterator[Keystroke]:
-        return iter(())
+    def replace_all_headers(self, headers: Iterable[SessionResult]) -> None:
+        pass
 
 
 class NullStatsRebuilder:

@@ -72,7 +72,7 @@ def test_prepare_ensures_transitions_before_lesson():
     settings_repo = FakeSettingsRepository(Settings(alphabet_size=2))
     layout_repo = FakeLayoutRepository(dict(BUNDLED_LAYOUTS))
     cache = FakeAggregatesCache()
-    session_repo.save_header(
+    session_repo.save_with_keystrokes(
         SessionResult(
             schema_version=3,
             session_id="s1",
@@ -85,13 +85,13 @@ def test_prepare_ensures_transitions_before_lesson():
             total_keystrokes=4,
             correct_keystrokes=3,
         ),
+        [
+            Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
+            Keystroke(codepoint=ord("s"), typed=ord("s"), t_ns=100_000_000, correct=True),
+            Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=500_000_000, correct=True),
+            Keystroke(codepoint=ord("s"), typed=ord("x"), t_ns=600_000_000, correct=False),
+        ],
     )
-    session_repo.keystrokes["s1"] = [
-        Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
-        Keystroke(codepoint=ord("s"), typed=ord("s"), t_ns=100_000_000, correct=True),
-        Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=500_000_000, correct=True),
-        Keystroke(codepoint=ord("s"), typed=ord("x"), t_ns=600_000_000, correct=False),
-    ]
     rebuild = RebuildAggregates(repo=session_repo, cache=cache, settings_repo=settings_repo)
     ensure = GetOrRebuildAggregates(repo=session_repo, cache=cache, rebuild=rebuild)
     prepare = PreparePracticeSession(

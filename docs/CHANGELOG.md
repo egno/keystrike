@@ -5,6 +5,27 @@ rationale lives in commit history/diffs — these are pointers, not narratives.
 Milestone-level feature work (what shipped in M1–M4, the keybr algorithm
 design) stays in `PLAN.md` §5/§6.
 
+## Unreleased
+
+- **Session store: per-session stats instead of keystroke logs** — a finished
+  session no longer writes `sessions/<YYYY-MM>/<ulid>.jsonl`. Its keystrokes
+  are reduced at finish time to per-key and per-bigram tallies
+  (`SessionResult.stats`, `[samples, time_ns, errors, attempts]`) stored on the
+  `index.jsonl` row (schema 5). `combine_sessions` merges those tallies, so
+  heatmap, unlock, focus and trend numbers are unchanged. On first start the
+  app folds every existing keystroke log into its index row and deletes the
+  month directories (`infrastructure/session_migration.py`). Git sync appends
+  index rows only; a legacy remote row is upgraded from the clone's keystroke
+  log on import.
+- **Stats retention** — at startup, sessions older than the newest
+  `2 * confidence_session_window - 1` per layout (the furthest the trend
+  replay can reach) drop their tallies but keep their history row
+  (`domain/retention.py`, `PruneSessionStats`). This is irreversible:
+  raising `confidence_session_window` later only widens the window for
+  sessions recorded after the change, and trend lines for the older ones
+  read as empty. Migration and pruning run from `app.startup()`, called by
+  the CLI before the TUI or a sync command starts — not inside the builders.
+
 ## 2.0.0
 
 - **Breaking: `settings.toml` schema** — unlock (`min_confidence_attempts`,

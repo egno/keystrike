@@ -1,5 +1,5 @@
 from keystrike.domain.enums import Mode
-from keystrike.domain.models import Keystroke, SessionResult
+from keystrike.domain.models import SessionResult
 from keystrike.domain.null_adapters import (
     NULL_AGGREGATES_ENSURER,
     NULL_DAILY_LEARN_BUDGET,
@@ -10,8 +10,6 @@ from keystrike.domain.null_adapters import (
 
 def test_null_session_repository_is_inert():
     repo = NullSessionRepository()
-    k = Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True)
-    repo.append_keystroke("s1", 0.0, k)  # must not raise
 
     header = SessionResult(
         schema_version=1,
@@ -26,9 +24,10 @@ def test_null_session_repository_is_inert():
         correct_keystrokes=0,
     )
     repo.save_header(header)  # must not raise
+    repo.replace_all_headers([header])  # must not raise
 
     assert list(repo.iter_headers("qwerty")) == []
-    assert list(repo.load_keystrokes("s1")) == []
+    assert list(repo.iter_all_headers()) == []
 
 
 def test_null_stats_rebuilder_returns_none():

@@ -23,6 +23,7 @@ from keystrike.domain.protocols import (
     SessionRepository,
     SettingsRepository,
 )
+from keystrike.domain.retention import prune_session_stats
 
 _NS_PER_MS = 1e6
 
@@ -49,10 +50,25 @@ class RebuildAggregates:
             self.repo.iter_headers(layout),
             key=lambda h: h.started_at,
         )[-window:]
-        combined = combine_sessions(
-            [(header, self.repo.load_keystrokes(header.session_id)) for header in headers],
-        )
+        combined = combine_sessions([(header, header.stats) for header in headers])
         self.cache.put(layout, combined)
+
+
+@dataclass(slots=True)
+class PruneSessionStats:
+    """Command: drop per-session tallies from sessions older than the stats
+    retention window (see `domain.retention`). History rows stay. Returns
+    how many rows were changed; the index is rewritten only when non-zero."""
+
+    repo: SessionRepository
+    settings_repo: SettingsRepository
+
+    def __call__(self) -> int:
+        window = self.settings_repo.load().confidence_session_window
+        pruned, changed = prune_session_stats(self.repo.iter_all_headers(), window=window)
+        if changed:
+            self.repo.replace_all_headers(pruned)
+        return changed
 
 
 @dataclass(slots=True)
@@ -196,8 +212,7 @@ def _windowed_session_replays(
     for rel_i, header in enumerate(ordered):
         abs_i = start_offset + rel_i
         window_headers = all_headers[max(0, abs_i - window + 1) : abs_i + 1]
-        sessions = [(h, repo.load_keystrokes(h.session_id)) for h in window_headers]
-        combined = combine_sessions(sessions).keys
+        combined = combine_sessions([(h, h.stats) for h in window_headers]).keys
         if header.target_speed_cpm > 0:
             session_target = target_ms_per_char(header.target_speed_cpm)
         else:

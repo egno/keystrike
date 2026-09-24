@@ -69,11 +69,10 @@ def index_layouts(entries: Sequence[SessionIndexEntry]) -> set[str]:
 
 @dataclass(frozen=True, slots=True)
 class SessionImportPlan:
-    """One remote session that should be imported locally."""
+    """One remote session that should be imported locally. The index row is
+    self-contained (header + stats), so importing means appending the line."""
 
     session_id: str
-    month: str
-    filename: str
     index_line: str
 
 
@@ -86,9 +85,7 @@ def plan_missing_sessions(
     """Decide which remote sessions are missing locally and need importing.
 
     `remote_entries`/`remote_lines` are the parsed and matching raw (stripped)
-    text of each line in the remote index, in file order. This does not check
-    whether the session's `.jsonl` file actually exists on disk — the
-    infrastructure executor skips any plan entry whose source file is missing.
+    text of each line in the remote index, in file order.
     """
     seen = set(local_session_ids)
     plans: list[SessionImportPlan] = []
@@ -96,16 +93,7 @@ def plan_missing_sessions(
         session_id = entry.session_id
         if session_id in seen:
             continue
-        started_at = entry.started_at
-        month = dt.datetime.fromtimestamp(started_at, tz=dt.UTC).strftime("%Y-%m")
-        plans.append(
-            SessionImportPlan(
-                session_id=session_id,
-                month=month,
-                filename=f"{session_id}.jsonl",
-                index_line=line,
-            ),
-        )
+        plans.append(SessionImportPlan(session_id=session_id, index_line=line))
         seen.add(session_id)
     return plans
 
