@@ -1,12 +1,13 @@
 from keystrike.domain.aggregate import (
     _combine_key_maps_weighted,
     _combine_transition_maps_weighted,
-    aggregate_session,
-    aggregate_transitions,
     combine_sessions,
     per_key_deltas,
     per_transition_deltas,
+    session_key_stats,
     session_recency_weights,
+    session_transition_stats,
+    tally_session,
 )
 from keystrike.domain.confidence import (
     SESSION_RECENCY_DECAY,
@@ -16,6 +17,14 @@ from keystrike.domain.confidence import (
 )
 from keystrike.domain.enums import Mode
 from keystrike.domain.models import Bigram, Keystroke, SessionResult, TransitionStats
+
+
+def _key_stats(session: SessionResult, keys: list[Keystroke]):
+    return session_key_stats(session, tally_session(keys))
+
+
+def _transition_stats(session: SessionResult, keys: list[Keystroke]):
+    return session_transition_stats(session, tally_session(keys))
 
 
 def _session(
@@ -44,7 +53,7 @@ def test_aggregate_counts_attempts_per_key():
         Keystroke(codepoint=ord("a"), typed=ord("x"), t_ns=50_000_000, correct=False),
         Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=100_000_000, correct=True),
     ]
-    stats = aggregate_session(_session(), keys)
+    stats = _key_stats(_session(), keys)
     assert stats[ord("a")].attempt_count == 3
     assert stats[ord("a")].samples == 1
 
@@ -56,7 +65,7 @@ def test_aggregate_single_session_mean_time():
         Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=100_000_000, correct=True),
         Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=200_000_000, correct=True),
     ]
-    stats = aggregate_session(_session(), keys)
+    stats = _key_stats(_session(), keys)
     ks = stats[ord("a")]
     assert ks.samples == 2  # 3 correct → 2 intervals
     assert abs(ks.mean_time_ns - 100_000_000) < 1
@@ -70,7 +79,7 @@ def test_aggregate_counts_errors_per_target():
         Keystroke(codepoint=ord("b"), typed=ord("x"), t_ns=50_000_000, correct=False),
         Keystroke(codepoint=ord("b"), typed=ord("b"), t_ns=100_000_000, correct=True),
     ]
-    stats = aggregate_session(_session(), keys)
+    stats = _key_stats(_session(), keys)
     assert stats[ord("b")].error_count == 2
     assert stats[ord("b")].samples == 0  # no interval measured (single correct)
 
@@ -78,7 +87,7 @@ def test_aggregate_counts_errors_per_target():
 def test_aggregate_last_seen_matches_session_end():
     keys = [Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True)]
     s = _session(started_at=1000.0, duration_ns=5_000_000_000)
-    stats = aggregate_session(s, keys)
+    stats = _key_stats(s, keys)
     assert stats[ord("a")].last_seen == 1005.0
 
 
@@ -136,7 +145,7 @@ def test_combine_sessions_favors_recent_session():
         Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
         Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=300_000_000, correct=True),
     ]
-    out = combine_sessions([(s1, keys1), (s2, keys2)])
+    out = combine_sessions([(s1, tally_session(keys1)), (s2, tally_session(keys2))])
     w_old, w_new = session_recency_weights(2)
     expected = (100_000_000 * w_old + 300_000_000 * w_new) / (w_old + w_new)
     assert abs(out.keys[ord("a")].mean_time_ns - expected) < 1
@@ -153,7 +162,7 @@ def test_combine_sessions_weights_recent_attempts_more():
     keys2 = [
         Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
     ]
-    out = combine_sessions([(s1, keys1), (s2, keys2)])
+    out = combine_sessions([(s1, tally_session(keys1)), (s2, tally_session(keys2))])
     w_old, w_new = session_recency_weights(2)
     expected_attempts = round(2 * w_old + 1 * w_new)
     assert out.keys[ord("a")].attempt_count == expected_attempts
@@ -174,11 +183,11 @@ def test_combine_sessions_recent_errors_weigh_more_on_confidence():
         Keystroke(codepoint=ord("a"), typed=ord("x"), t_ns=50_000_000, correct=False),
         Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=150_000_000, correct=True),
     ]
-    stats = combine_sessions([(s1, keys1), (s2, keys2)]).keys
+    stats = combine_sessions([(s1, tally_session(keys1)), (s2, tally_session(keys2))]).keys
     equal_weight = _combine_key_maps_weighted(
         [
-            {ord("a"): aggregate_session(s1, keys1)[ord("a")]},
-            {ord("a"): aggregate_session(s2, keys2)[ord("a")]},
+            {ord("a"): _key_stats(s1, keys1)[ord("a")]},
+            {ord("a"): _key_stats(s2, keys2)[ord("a")]},
         ],
         [1.0, 1.0],
     )
@@ -196,9 +205,24 @@ def test_combine_sessions_includes_transitions_from_iterators():
             Keystroke(codepoint=ord("b"), typed=ord("b"), t_ns=100_000_000, correct=True),
         ]
     )
-    out = combine_sessions([(_session(), keys)])
+    out = combine_sessions([(_session(), tally_session(keys))])
     assert out.keys[ord("b")].samples == 1
     assert out.transitions[Bigram(ord("a"), ord("b"))].samples == 1
+
+
+def test_tally_session_stores_exact_integer_sums():
+    keys = [
+        Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
+        Keystroke(codepoint=ord("b"), typed=ord("x"), t_ns=50_000_000, correct=False),
+        Keystroke(codepoint=ord("b"), typed=ord("b"), t_ns=100_000_000, correct=True),
+        Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=250_000_000, correct=True),
+    ]
+    stats = tally_session(keys)
+    assert stats.keys[ord("a")] == (1, 150_000_000, 0, 2)  # samples, time_ns, errors, attempts
+    assert stats.keys[ord("b")] == (1, 100_000_000, 1, 2)
+    assert stats.transitions[Bigram(ord("a"), ord("b"))] == (1, 100_000_000, 1, 2)
+    assert stats.transitions[Bigram(ord("b"), ord("a"))] == (1, 150_000_000, 0, 1)
+    assert Bigram(ord("a"), ord("a")) not in stats.transitions
 
 
 def test_per_transition_deltas_tracks_prev_to_next_pair():
@@ -212,13 +236,13 @@ def test_per_transition_deltas_tracks_prev_to_next_pair():
     assert deltas[Bigram(ord("b"), ord("c"))] == [150_000_000]
 
 
-def test_aggregate_transitions_skips_same_key_pairs():
+def test_tally_transitions_skips_same_key_pairs():
     keys = [
         Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
         Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=100_000_000, correct=True),
         Keystroke(codepoint=ord("b"), typed=ord("b"), t_ns=200_000_000, correct=True),
     ]
-    transitions = aggregate_transitions(_session(), keys)
+    transitions = _transition_stats(_session(), keys)
     assert Bigram(ord("a"), ord("a")) not in transitions
     assert Bigram(ord("a"), ord("b")) in transitions
 
@@ -234,25 +258,25 @@ def test_per_transition_deltas_skips_same_key_pairs():
     assert deltas[Bigram(ord("a"), ord("b"))] == [150_000_000]
 
 
-def test_aggregate_transitions_attributes_errors_to_pair():
+def test_tally_transitions_attributes_errors_to_pair():
     keys = [
         Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
         Keystroke(codepoint=ord("b"), typed=ord("x"), t_ns=50_000_000, correct=False),
         Keystroke(codepoint=ord("b"), typed=ord("b"), t_ns=100_000_000, correct=True),
     ]
-    transitions = aggregate_transitions(_session(), keys)
+    transitions = _transition_stats(_session(), keys)
     ab = transitions[Bigram(ord("a"), ord("b"))]
     assert ab.error_count == 1
     assert ab.samples == 1
     assert abs(ab.mean_time_ns - 100_000_000) < 1
 
 
-def test_aggregate_transitions_skips_error_on_first_keystroke():
+def test_tally_transitions_skips_error_on_first_keystroke():
     keys = [
         Keystroke(codepoint=ord("a"), typed=ord("x"), t_ns=0, correct=False),
         Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=50_000_000, correct=True),
     ]
-    transitions = aggregate_transitions(_session(), keys)
+    transitions = _transition_stats(_session(), keys)
     assert Bigram(ord("a"), ord("a")) not in transitions
     assert transitions == {}
 
@@ -279,7 +303,9 @@ def test_combine_sessions_keeps_transition_samples_when_weight_rounds_down():
     keys3 = [
         Keystroke(codepoint=ord("e"), typed=ord("e"), t_ns=0, correct=True),
     ]
-    out = combine_sessions([(s1, keys1), (s2, keys2), (s3, keys3)])
+    out = combine_sessions(
+        [(s1, tally_session(keys1)), (s2, tally_session(keys2)), (s3, tally_session(keys3))]
+    )
     eo = out.transitions[Bigram(ord("e"), ord("o"))]
     assert eo.samples > 0
     assert eo.mean_time_ns > 0

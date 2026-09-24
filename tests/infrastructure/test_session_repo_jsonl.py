@@ -1,9 +1,12 @@
+import json
+from dataclasses import replace
+
 import pytest
 
 from keystrike.domain.enums import Mode
-from keystrike.domain.models import Keystroke, SessionResult
+from keystrike.domain.models import Bigram, KeyTally, SessionResult, SessionStats
 from keystrike.infrastructure.paths import Paths
-from keystrike.infrastructure.session_repo_jsonl import JsonlSessionRepository, _session_file
+from keystrike.infrastructure.session_repo_jsonl import JsonlSessionRepository
 
 # Valid 26-character ULIDs for testing (Crockford base32 alphabet)
 _VALID_ULID_A = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
@@ -41,31 +44,26 @@ def _header(sid: str = _VALID_ULID_A, layout: str = "qwerty", started_at: float 
     )
 
 
+def _stats() -> SessionStats:
+    return SessionStats(
+        keys={ord("a"): KeyTally(0, 0, 0, 1), ord("b"): KeyTally(1, 100, 0, 1)},
+        transitions={Bigram(ord("a"), ord("b")): KeyTally(1, 100, 0, 1)},
+    )
+
+
 def test_round_trip_single_session(paths):
     repo = JsonlSessionRepository(paths)
-    header = _header()
+    header = replace(_header(), stats=_stats())
     repo.save_header(header)
-    repo.append_keystroke(
-        header.session_id,
-        header.started_at,
-        Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
-    )
-    repo.append_keystroke(
-        header.session_id,
-        header.started_at,
-        Keystroke(codepoint=ord("b"), typed=ord("b"), t_ns=100, correct=True),
-    )
 
     # Fresh repo instance — read must survive across process restart.
     repo2 = JsonlSessionRepository(paths)
     headers = list(repo2.iter_headers("qwerty"))
     assert len(headers) == 1
     assert headers[0].session_id == _VALID_ULID_A
-
-    keystrokes = list(repo2.load_keystrokes(_VALID_ULID_A))
-    assert len(keystrokes) == 2
-    assert keystrokes[0].codepoint == ord("a")
-    assert keystrokes[1].t_ns == 100
+    assert headers[0] == header
+    assert headers[0].stats.keys[ord("b")] == KeyTally(1, 100, 0, 1)
+    assert headers[0].stats.transitions[Bigram(ord("a"), ord("b"))] == KeyTally(1, 100, 0, 1)
 
 
 def test_iter_headers_filters_by_layout(paths):
@@ -210,69 +208,80 @@ def test_corrupt_index_line_is_skipped_not_fatal(paths):
     assert headers == [_VALID_ULID_A, _VALID_ULID_B]
 
 
-def test_keystrokes_persisted_with_header_at_finish(paths):
+def test_stats_row_is_compact_positional_tallies(paths):
     repo = JsonlSessionRepository(paths)
-    header = _header(sid=_VALID_ULID_B)
-    k = Keystroke(codepoint=ord("x"), typed=ord("x"), t_ns=0, correct=True)
-    repo.append_keystroke(header.session_id, header.started_at, k)
-    repo.save_header(header)
+    repo.save_header(replace(_header(sid=_VALID_ULID_B), stats=_stats()))
 
-    repo2 = JsonlSessionRepository(paths)
-    list(repo2.iter_headers("qwerty"))
-    ks = list(repo2.load_keystrokes(_VALID_ULID_B))
-    assert len(ks) == 1
+    row = json.loads(paths.sessions_index.read_text(encoding="utf-8").splitlines()[0])
+    assert row["stats"] == {
+        "keys": {"97": [0, 0, 0, 1], "98": [1, 100, 0, 1]},
+        "pairs": {"97,98": [1, 100, 0, 1]},
+    }
 
 
-def test_append_keystrokes_bulk_writes_all_in_one_open(paths):
+def test_empty_stats_are_omitted_from_row_and_read_back_empty(paths):
     repo = JsonlSessionRepository(paths)
-    header = _header(sid=_VALID_ULID_C)
-    keystrokes = [
-        Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
-        Keystroke(codepoint=ord("b"), typed=ord("b"), t_ns=100, correct=True),
-        Keystroke(codepoint=ord("c"), typed=ord("c"), t_ns=200, correct=False),
-    ]
-    repo.append_keystrokes(header.session_id, header.started_at, keystrokes)
-    repo.save_header(header)
+    repo.save_header(_header(sid=_VALID_ULID_C))
 
-    repo2 = JsonlSessionRepository(paths)
-    list(repo2.iter_headers("qwerty"))
-    ks = list(repo2.load_keystrokes(_VALID_ULID_C))
-    assert [k.codepoint for k in ks] == [ord("a"), ord("b"), ord("c")]
-    assert ks[2].correct is False
+    row = json.loads(paths.sessions_index.read_text(encoding="utf-8").splitlines()[0])
+    assert "stats" not in row
+    headers = list(JsonlSessionRepository(paths).iter_headers("qwerty"))
+    assert headers[0].stats.is_empty
 
 
-def test_corrupt_keystroke_line_is_skipped_not_fatal(paths):
+def test_legacy_row_without_stats_reads_as_empty_stats(paths):
+    with paths.sessions_index.open("a", encoding="utf-8") as fh:
+        fh.write(
+            f'{{"schema_version": 4, "session_id": "{_VALID_ULID_D}", "layout": "qwerty", '
+            '"started_at": 1700000000.0, "duration_ns": 1000000000, "mode": "adaptive", '
+            '"lesson_alphabet": [], "focus_key": null, "total_keystrokes": 0, '
+            '"correct_keystrokes": 0}\n'
+        )
+    headers = list(JsonlSessionRepository(paths).iter_headers("qwerty"))
+    assert headers[0].session_id == _VALID_ULID_D
+    assert headers[0].stats.is_empty
+
+
+@pytest.mark.parametrize(
+    "stats_json",
+    [
+        '{"keys": {"97": [1, 2]}}',  # tally with the wrong arity
+        '{"keys": 5}',  # keys is not an object
+        '{"pairs": [1, 2]}',  # pairs is not an object
+        '{"pairs": {"97": [1, 1, 0, 1]}}',  # bigram key without a comma
+        '"nope"',  # stats is not an object
+    ],
+)
+def test_malformed_stats_skip_the_row_not_the_index(paths, stats_json):
     repo = JsonlSessionRepository(paths)
-    header = _header(sid=_VALID_ULID_F)
-    repo.append_keystroke(
-        header.session_id,
-        header.started_at,
-        Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
-    )
-    with _session_file(paths, header).open("a", encoding="utf-8") as fh:
-        fh.write("{not valid json\n")
-        fh.write('{"codepoint": 1}\n')  # valid JSON, missing required fields
-    repo.append_keystroke(
-        header.session_id,
-        header.started_at,
-        Keystroke(codepoint=ord("b"), typed=ord("b"), t_ns=100, correct=True),
-    )
-    repo.save_header(header)
+    repo.save_header(_header(sid=_VALID_ULID_A))
+    with paths.sessions_index.open("a", encoding="utf-8") as fh:
+        fh.write(
+            f'{{"schema_version": 5, "session_id": "{_VALID_ULID_E}", "layout": "qwerty", '
+            '"started_at": 1700000000.0, "duration_ns": 1000000000, "mode": "adaptive", '
+            '"lesson_alphabet": [], "focus_key": null, "total_keystrokes": 0, '
+            f'"correct_keystrokes": 0, "stats": {stats_json}}}\n'
+        )
+    repo.save_header(_header(sid=_VALID_ULID_B))
 
-    repo2 = JsonlSessionRepository(paths)
-    ks = list(repo2.load_keystrokes(_VALID_ULID_F))
-    assert [k.codepoint for k in ks] == [ord("a"), ord("b")]
+    headers = [h.session_id for h in JsonlSessionRepository(paths).iter_headers("qwerty")]
+    assert headers == [_VALID_ULID_A, _VALID_ULID_B]
 
 
-def test_load_keystrokes_scan_fallback_when_sessions_dir_missing(tmp_path):
-    empty_paths = Paths(
-        config_dir=tmp_path / "config2",
-        data_dir=tmp_path / "data2",
-        log_dir=tmp_path / "logs2",
-    )
-    repo = JsonlSessionRepository(empty_paths)
-    # Use a valid ULID that doesn't exist in the repo
-    assert list(repo.load_keystrokes(_VALID_ULID_A)) == []
+def test_replace_all_headers_rewrites_index_in_place(paths):
+    repo = JsonlSessionRepository(paths)
+    a = replace(_header(sid=_VALID_ULID_A, started_at=1.0), stats=_stats())
+    b = replace(_header(sid=_VALID_ULID_B, started_at=2.0), stats=_stats())
+    repo.save_header(a)
+    repo.save_header(b)
+
+    repo.replace_all_headers([replace(a, stats=SessionStats()), b])
+
+    headers = list(JsonlSessionRepository(paths).iter_all_headers())
+    assert [h.session_id for h in headers] == [_VALID_ULID_A, _VALID_ULID_B]
+    assert headers[0].stats.is_empty
+    assert headers[1] == b
+    assert len(paths.sessions_index.read_text(encoding="utf-8").splitlines()) == 2
 
 
 def test_path_traversal_session_id_rejected_in_header_parse(paths):
@@ -292,30 +301,14 @@ def test_path_traversal_session_id_rejected_in_header_parse(paths):
     assert len(headers) == 0
 
 
-def test_path_traversal_session_id_rejected_in_append_keystrokes(paths):
-    """Regression: path-traversal session_id should be rejected in append_keystrokes."""
-    repo = JsonlSessionRepository(paths)
-    with pytest.raises(ValueError, match=r"session_id.*26 characters"):
-        repo.append_keystrokes(
-            session_id="../../evil",
-            started_at=1_700_000_000.0,
-            keystrokes=[],
-        )
-
-
-def test_path_traversal_session_id_rejected_in_load_keystrokes(paths):
-    """Regression: path-traversal session_id should be rejected in load_keystrokes."""
-    repo = JsonlSessionRepository(paths)
-    with pytest.raises(ValueError, match=r"session_id.*26 characters"):
-        list(repo.load_keystrokes("../../evil"))
-
-
-def test_invalid_chars_session_id_rejected_in_append_keystrokes(paths):
+def test_invalid_chars_session_id_rejected_in_header_parse(paths):
     """Regression: session_id with invalid characters should be rejected."""
     repo = JsonlSessionRepository(paths)
-    with pytest.raises(ValueError, match="invalid characters"):
-        repo.append_keystrokes(
-            session_id="01ARZ3NDEKTSV4RRFFQ69G5F!V",  # '!' is not Crockford base32
-            started_at=1_700_000_000.0,
-            keystrokes=[],
+    with paths.sessions_index.open("a", encoding="utf-8") as fh:
+        fh.write(
+            '{"schema_version": 1, "session_id": "01ARZ3NDEKTSV4RRFFQ69G5F!V", '
+            '"layout": "qwerty", "started_at": 1700000000.0, "duration_ns": 1000000000, '
+            '"mode": "adaptive", "lesson_alphabet": [], "focus_key": null, '
+            '"total_keystrokes": 0, "correct_keystrokes": 0}\n'
         )
+    assert list(repo.iter_all_headers()) == []

@@ -212,6 +212,8 @@ Ruff, pyright, and pytest must be green before commit (Ruff on desktop only).
   Home without crashes.
 - [x] Session appears under `<data>/sessions/YYYY-MM/{ulid}.jsonl` and its
   header appears in `<data>/sessions/index.jsonl` after finishing a session.
+  (Since 2.1.0 the keystroke file is gone: the index row carries the
+  session's per-key tallies — see `SessionResult.stats`.)
 - [x] Switching layout on Home changes which per-layout heatmap/history shows
   on Stats (confirmed empty-history isolation on the unused layout).
 - [x] Dropping a hand-written layout TOML into `<config>/keystrike/layouts/`
@@ -265,9 +267,11 @@ returns how many more attempts until it crosses the target, `0` if already
 there, or `None` if flat/worsening/no data.
 
 `domain/aggregate.py` gained `per_key_deltas()` — the chronological
-inter-keystroke timing sequence per codepoint that `aggregate_session` already
-computed internally but only reduced to a mean; regression needs the raw
-sequence, so this was factored out and reused rather than duplicated.
+inter-keystroke timing sequence per codepoint that the per-session tally (now
+`tally_session`) already computed internally but only reduced to a mean;
+regression needs the raw sequence, so this was factored out and reused rather
+than duplicated. (Since 2.1.0 raw keystrokes are not persisted, so this
+regression can only run on the in-memory session being typed.)
 `application/stats_use_cases.py` gained `GetLearningRate(layout, codepoint)`,
 which reads the last 10 sessions' raw deltas for that key and feeds them to
 `estimate_sessions_to_goal`. Wired into `presentation/widgets/hud.py`: the HUD
@@ -340,8 +344,8 @@ Commands: `keystrike sync init <repo-url>`, `pull`, `push`, `status`.
 
 - `settings.toml`
 - `layouts/*.toml`
-- `sessions/index.jsonl`
-- `sessions/**/*.jsonl`
+- `sessions/index.jsonl` (one self-contained row per session since 2.1.0)
+- `sessions/**/*.jsonl` (legacy keystroke logs, read once on import)
 
 **Not synced:** `cache/` — after a successful pull, `RebuildAggregates` replays
 all layouts found in the merged session index.

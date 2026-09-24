@@ -37,6 +37,58 @@ def _empty_key_confidence() -> dict[int, float]:
     return {}
 
 
+class Bigram(NamedTuple):
+    """A directed pair of codepoints: the key pressed before, then the key
+    pressed after. The value-type key for `TransitionStats` maps, replacing
+    the old ad-hoc `chr(prev) + chr(next)` string keys."""
+
+    prev_cp: int
+    next_cp: int
+
+    def chars(self) -> str:
+        """Display form, e.g. `Bigram(ord("a"), ord("b")).chars() == "ab"`."""
+        return chr(self.prev_cp) + chr(self.next_cp)
+
+
+class KeyTally(NamedTuple):
+    """Per-session reduction of one key (or one bigram): everything the
+    confidence math needs from the raw keystroke stream, as exact integers.
+
+    `time_ns` is the *sum* of inter-keystroke deltas over `samples` correct
+    presses (not the mean) so per-session tallies merge without rounding."""
+
+    samples: int
+    time_ns: int
+    errors: int
+    attempts: int
+
+
+def _empty_key_tallies() -> dict[int, KeyTally]:
+    return {}
+
+
+def _empty_transition_tallies() -> dict[Bigram, KeyTally]:
+    return {}
+
+
+@dataclass(frozen=True, slots=True)
+class SessionStats:
+    """What a finished session contributes to a layout's aggregates. This is
+    what gets persisted instead of the raw keystroke log — `combine_sessions`
+    only ever needed these per-key/per-bigram tallies, never the sequence."""
+
+    keys: Mapping[int, KeyTally] = field(default_factory=_empty_key_tallies)
+    transitions: Mapping[Bigram, KeyTally] = field(default_factory=_empty_transition_tallies)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "keys", MappingProxyType(dict(self.keys)))
+        object.__setattr__(self, "transitions", MappingProxyType(dict(self.transitions)))
+
+    @property
+    def is_empty(self) -> bool:
+        return not self.keys and not self.transitions
+
+
 @dataclass(frozen=True, slots=True)
 class SessionResult:
     schema_version: int
@@ -56,6 +108,9 @@ class SessionResult:
     target_speed_cpm: int = 0  # goal active at finish; 0 = legacy sessions
     generated_min_len: int = GENERATED_WORD_MIN_LEN  # word bounds at finish; legacy default
     generated_max_len: int = GENERATED_WORD_MAX_LEN
+    # Per-key/bigram tallies (schema 5+). Empty for sessions older than the
+    # stats retention window (see domain.retention) — their history row stays.
+    stats: SessionStats = field(default_factory=SessionStats)
 
     def __post_init__(self) -> None:
         # Freezing the dataclass only blocks attribute rebinding — wrap the
@@ -74,19 +129,6 @@ class KeyStats:
     error_count: int
     last_seen: float
     attempt_count: int = 0
-
-
-class Bigram(NamedTuple):
-    """A directed pair of codepoints: the key pressed before, then the key
-    pressed after. The value-type key for `TransitionStats` maps, replacing
-    the old ad-hoc `chr(prev) + chr(next)` string keys."""
-
-    prev_cp: int
-    next_cp: int
-
-    def chars(self) -> str:
-        """Display form, e.g. `Bigram(ord("a"), ord("b")).chars() == "ab"`."""
-        return chr(self.prev_cp) + chr(self.next_cp)
 
 
 @dataclass(frozen=True, slots=True)

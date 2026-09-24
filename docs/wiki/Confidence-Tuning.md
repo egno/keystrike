@@ -85,6 +85,14 @@ average of all window sessions. A longer window smooths noise but reacts slowly;
 a shorter window tracks recent form but can under-sample rare keys and block
 unlocks until those keys appear often enough in recent drills.
 
+The window also sets how much history is kept on disk. Since 2.1.0 a session
+stores per-key tallies instead of its keystrokes, and on each start Keystrike
+drops those tallies from sessions older than the newest `2 × window − 1` per
+layout (19 with the default window) — the furthest back the Stats trend lines
+read. The sessions themselves stay in History with their speed and accuracy.
+This pruning is irreversible: if you raise `confidence_session_window` later,
+the wider window fills only with sessions recorded after the change.
+
 **Min key attempts** — Prevents a lucky fast streak from reading as mastery.
 Until you've pressed a key at least this many times (within the windowed
 stats), its confidence is scaled down. Higher values mean slower unlocks and

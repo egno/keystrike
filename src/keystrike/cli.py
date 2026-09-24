@@ -5,7 +5,7 @@ from typing import NoReturn
 import typer
 
 from keystrike import __version__
-from keystrike.app import build, build_sync
+from keystrike.app import build, build_sync, startup
 
 app = typer.Typer(
     add_completion=False,
@@ -27,12 +27,17 @@ def _default(  # pyright: ignore[reportUnusedFunction]
         typer.echo(f"keystrike {__version__}")
         raise typer.Exit
     if ctx.invoked_subcommand is None:
-        build().run()
+        _run_tui()
 
 
 @app.command()
 def run() -> None:
     """Launch the typing tutor TUI."""
+    _run_tui()
+
+
+def _run_tui() -> None:
+    startup()
     build().run()
 
 
@@ -44,6 +49,7 @@ def _sync_err(exc: BaseException) -> NoReturn:
 def _run_sync[T](fn: Callable[[], T]) -> T:
     """Wrap a sync operation with consistent error handling."""
     try:
+        startup()
         return fn()
     except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
         _sync_err(exc)

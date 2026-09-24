@@ -138,8 +138,11 @@ def test_record_keystroke_backspace_convenience_method(clock, id_gen):
 
 def test_repo_receives_keystrokes(clock, id_gen, session_repo):
     session, _ = _drive("hi", "hi", clock, id_gen, repo=session_repo)
-    assert len(session_repo.keystrokes[session.id]) == 2
     assert len(session_repo.headers) == 1
+    saved = session_repo.headers[0]
+    assert saved.session_id == session.id
+    assert saved.stats.keys[ord("h")].attempts == 1
+    assert saved.stats.keys[ord("i")].attempts == 1
 
 
 def test_in_progress_keystrokes_not_persisted(clock, id_gen, session_repo):
@@ -148,7 +151,6 @@ def test_in_progress_keystrokes_not_persisted(clock, id_gen, session_repo):
     session = start("ab", layout="qwerty", mode=Mode.ADAPTIVE)
     clock.advance(100_000_000)
     record(session, "a")
-    assert session_repo.keystrokes == {}
     assert session_repo.headers == []
 
 
@@ -159,7 +161,6 @@ def test_aborted_session_not_persisted(clock, id_gen, session_repo):
     clock.advance(100_000_000)
     record(session, "a")
     AbortSession()(session)
-    assert session_repo.keystrokes == {}
     assert session_repo.headers == []
 
 
@@ -650,9 +651,9 @@ def test_finish_session_persists_key_confidence(clock, id_gen):
         {},
         target,
     )
-    assert result.schema_version == 4
+    assert result.schema_version == 5
     assert set(result.key_confidence.keys()) == set(expected_unlocked)
-    stats = combine_sessions([(result, session.keystrokes)]).keys
+    stats = combine_sessions([(result, result.stats)]).keys
     for cp in expected_unlocked:
         assert result.key_confidence[cp] == confidence_of(cp, stats, target)
     assert repo.headers[0].key_confidence == result.key_confidence
@@ -686,8 +687,7 @@ def test_finish_session_key_confidence_uses_confidence_session_window(clock, id_
     target = target_ms_per_char(settings.target_speed_cpm)
     prior = sorted(repo.headers, key=lambda h: h.started_at)[-(CONFIDENCE_SESSION_WINDOW - 1) :]
     stats = combine_sessions(
-        [(header, repo.keystrokes[header.session_id]) for header in prior]
-        + [(result, session.keystrokes)],
+        [(header, header.stats) for header in prior] + [(result, result.stats)],
     ).keys
     assert result.key_confidence[ord("a")] == confidence_of(ord("a"), stats, target)
 

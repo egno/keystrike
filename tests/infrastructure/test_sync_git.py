@@ -85,69 +85,93 @@ def test_iter_layouts_from_index(tree: dict[str, Path]) -> None:
     assert iter_layouts_from_index(tree["local_index"]) == {"qwerty", "dvorak"}
 
 
+def _local_rows(tree: dict[str, Path]) -> dict[str, dict[str, object]]:
+    rows = [json.loads(line) for line in tree["local_index"].read_text().splitlines() if line]
+    return {str(r["session_id"]): r for r in rows}
+
+
 def test_session_union_imports_missing_remote_only(tree: dict[str, Path]) -> None:
     _write_index(tree["local_index"], _header(_VALID_ULID_A))
     _write_index(tree["remote_index"], _header(_VALID_ULID_A), _header(_VALID_ULID_B))
-    month = "2023-11"
-    (tree["remote_sessions"] / month).mkdir()
-    (tree["remote_sessions"] / month / f"{_VALID_ULID_B}.jsonl").write_text(
-        '{"codepoint": 97, "typed": 97, "t_ns": 0, "correct": true}\n',
-        encoding="utf-8",
-    )
 
     imported = import_missing_sessions(
-        local_sessions_dir=tree["local_sessions"],
-        remote_sessions_dir=tree["remote_sessions"],
         local_index=tree["local_index"],
         remote_index=tree["remote_index"],
+        remote_sessions_dir=tree["remote_sessions"],
     )
 
     assert imported == [_VALID_ULID_B]
     assert read_index_session_ids(tree["local_index"]) == {_VALID_ULID_A, _VALID_ULID_B}
-    assert (tree["local_sessions"] / month / f"{_VALID_ULID_B}.jsonl").exists()
+
+
+def test_session_union_folds_legacy_keystroke_file_into_imported_row(
+    tree: dict[str, Path],
+) -> None:
+    """A schema ≤4 remote row still backed by a keystroke log arrives as a
+    schema-5 row with the tallies embedded; nothing is copied into local sessions/."""
+    _write_index(tree["remote_index"], _header(_VALID_ULID_B))
+    month = "2023-11"
+    (tree["remote_sessions"] / month).mkdir()
+    (tree["remote_sessions"] / month / f"{_VALID_ULID_B}.jsonl").write_text(
+        '{"codepoint": 97, "typed": 97, "t_ns": 0, "correct": true}\n'
+        '{"codepoint": 98, "typed": 98, "t_ns": 100000000, "correct": true}\n',
+        encoding="utf-8",
+    )
+
+    imported = import_missing_sessions(
+        local_index=tree["local_index"],
+        remote_index=tree["remote_index"],
+        remote_sessions_dir=tree["remote_sessions"],
+    )
+
+    assert imported == [_VALID_ULID_B]
+    row = _local_rows(tree)[_VALID_ULID_B]
+    assert row["schema_version"] == 5
+    stats = row["stats"]
+    assert isinstance(stats, dict)
+    assert stats["keys"]["98"] == [1, 100_000_000, 0, 1]
+    assert stats["pairs"]["97,98"] == [1, 100_000_000, 0, 1]
+    assert not (tree["local_sessions"] / month).exists()
 
 
 def test_session_union_skips_duplicate_local_ids(tree: dict[str, Path]) -> None:
     _write_index(tree["local_index"], _header(_VALID_ULID_A))
     _write_index(tree["remote_index"], _header(_VALID_ULID_A), _header(_VALID_ULID_B))
-    month = "2023-11"
-    (tree["remote_sessions"] / month).mkdir()
-    (tree["remote_sessions"] / month / f"{_VALID_ULID_B}.jsonl").write_text(
-        "{}\n", encoding="utf-8"
-    )
 
     import_missing_sessions(
-        local_sessions_dir=tree["local_sessions"],
-        remote_sessions_dir=tree["remote_sessions"],
         local_index=tree["local_index"],
         remote_index=tree["remote_index"],
+        remote_sessions_dir=tree["remote_sessions"],
     )
 
     lines = tree["local_index"].read_text().splitlines()
     assert lines.count(json.dumps(_header(_VALID_ULID_A))) == 1
-    assert json.dumps(_header(_VALID_ULID_B)) in lines
+    assert _VALID_ULID_B in _local_rows(tree)
 
 
-def test_session_union_skips_entries_whose_file_is_missing(tree: dict[str, Path]) -> None:
+def test_session_union_imports_legacy_row_without_file_as_empty_stats(
+    tree: dict[str, Path],
+) -> None:
     _write_index(tree["remote_index"], _header(_VALID_ULID_B))
-    # No B.jsonl on disk anywhere.
+    # No B.jsonl on disk anywhere: the history row still comes across.
 
     imported = import_missing_sessions(
-        local_sessions_dir=tree["local_sessions"],
-        remote_sessions_dir=tree["remote_sessions"],
         local_index=tree["local_index"],
         remote_index=tree["remote_index"],
+        remote_sessions_dir=tree["remote_sessions"],
     )
 
-    assert imported == []
+    assert imported == [_VALID_ULID_B]
+    row = _local_rows(tree)[_VALID_ULID_B]
+    assert row["schema_version"] == 5
+    assert "stats" not in row
 
 
 def test_session_union_no_remote_index_is_noop(tree: dict[str, Path]) -> None:
     imported = import_missing_sessions(
-        local_sessions_dir=tree["local_sessions"],
-        remote_sessions_dir=tree["remote_sessions"],
         local_index=tree["local_index"],
         remote_index=tree["remote_index"],
+        remote_sessions_dir=tree["remote_sessions"],
     )
     assert imported == []
 
@@ -172,20 +196,11 @@ def test_session_union_skips_path_traversal_session_ids(tree: dict[str, Path]) -
     # Write remote index with mix of valid and invalid entries
     _write_index(tree["remote_index"], valid_entry, *evil_entries)
 
-    # Create the session file for the valid entry
-    month = "2023-11"
-    (tree["remote_sessions"] / month).mkdir()
-    (tree["remote_sessions"] / month / f"{_VALID_ULID_A}.jsonl").write_text(
-        '{"codepoint": 97, "typed": 97, "t_ns": 0, "correct": true}\n',
-        encoding="utf-8",
-    )
-
     # Import should succeed, but only with the valid entry
     imported = import_missing_sessions(
-        local_sessions_dir=tree["local_sessions"],
-        remote_sessions_dir=tree["remote_sessions"],
         local_index=tree["local_index"],
         remote_index=tree["remote_index"],
+        remote_sessions_dir=tree["remote_sessions"],
     )
 
     # Only the valid ULID is imported; malicious entries are silently skipped

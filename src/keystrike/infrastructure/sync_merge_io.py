@@ -21,6 +21,8 @@ from keystrike.domain.sync_merge import (
     settings_epoch_from_toml,
 )
 
+from .session_migration import upgrade_index_line
+
 
 def _read_index(path: Path) -> tuple[list[SessionIndexEntry], list[str]]:
     """Load a sessions index file into parsed entries + matching raw lines.
@@ -57,12 +59,16 @@ def iter_layouts_from_index(index_path: Path) -> set[str]:
 
 def import_missing_sessions(
     *,
-    local_sessions_dir: Path,
-    remote_sessions_dir: Path,
     local_index: Path,
     remote_index: Path,
+    remote_sessions_dir: Path,
 ) -> list[str]:
-    """Copy session files and append index entries present remotely but not locally."""
+    """Append index rows present remotely but not locally.
+
+    A schema ≤4 remote row is upgraded on the way in: its tallies are folded
+    from the remote's keystroke file under `remote_sessions_dir` when it still
+    exists (see `session_migration`).
+    """
     local_entries, _ = _read_index(local_index)
     remote_entries, remote_lines = _read_index(remote_index)
     plans = plan_missing_sessions(
@@ -72,19 +78,13 @@ def import_missing_sessions(
     )
     if not plans:
         return []
-    local_sessions_dir.mkdir(parents=True, exist_ok=True)
+    local_index.parent.mkdir(parents=True, exist_ok=True)
     imported: list[str] = []
-    for plan in plans:
-        remote_file = remote_sessions_dir / plan.month / plan.filename
-        if not remote_file.is_file():
-            continue
-        dest_dir = local_sessions_dir / plan.month
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(remote_file, dest_dir / plan.filename)
-        with local_index.open("a", encoding="utf-8") as out:
-            out.write(plan.index_line)
+    with local_index.open("a", encoding="utf-8") as out:
+        for plan in plans:
+            out.write(upgrade_index_line(plan.index_line, remote_sessions_dir))
             out.write("\n")
-        imported.append(plan.session_id)
+            imported.append(plan.session_id)
     return imported
 
 

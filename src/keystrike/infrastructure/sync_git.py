@@ -181,10 +181,9 @@ class GitSyncGateway:
             remote_path=self.clone_settings,
         )
         imported = import_missing_sessions(
-            local_sessions_dir=self._paths.sessions_dir,
-            remote_sessions_dir=self.clone_sessions,
             local_index=self._paths.sessions_index,
             remote_index=self.clone_sessions_index,
+            remote_sessions_dir=self.clone_sessions,
         )
         copy_layouts_missing(
             local_layouts=self._paths.layouts_dir,
@@ -198,10 +197,9 @@ class GitSyncGateway:
             remote_path=self.clone_settings,
         )
         import_missing_sessions(
-            local_sessions_dir=self.clone_sessions,
-            remote_sessions_dir=self._paths.sessions_dir,
             local_index=self.clone_sessions_index,
             remote_index=self._paths.sessions_index,
+            remote_sessions_dir=self._paths.sessions_dir,
         )
         copy_layouts_to_remote(
             local_layouts=self._paths.layouts_dir,

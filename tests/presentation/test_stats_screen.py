@@ -101,16 +101,18 @@ async def test_stats_overview_focus_shows_confidence_only():
             correct_keystrokes=50,
             key_confidence={ord("e"): 0.82},
         )
-        repo.save_header(header)
-        repo.keystrokes["s1"] = [
-            Keystroke(codepoint=ord("e"), typed=ord("e"), t_ns=0, correct=True),
-            Keystroke(
-                codepoint=ord("e"),
-                typed=ord("e"),
-                t_ns=400_000_000,
-                correct=True,
-            ),
-        ]
+        repo.save_with_keystrokes(
+            header,
+            [
+                Keystroke(codepoint=ord("e"), typed=ord("e"), t_ns=0, correct=True),
+                Keystroke(
+                    codepoint=ord("e"),
+                    typed=ord("e"),
+                    t_ns=400_000_000,
+                    correct=True,
+                ),
+            ],
+        )
 
         await app.push_screen(_build_screen(repo))
         await pilot.pause()
@@ -155,10 +157,12 @@ async def test_stats_screen_with_sessions_renders_trends_and_heatmap():
             total_keystrokes=1,
             correct_keystrokes=1,
         )
-        repo.save_header(header)
-        repo.keystrokes["s1"] = [
-            Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
-        ]
+        repo.save_with_keystrokes(
+            header,
+            [
+                Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
+            ],
+        )
 
         await app.push_screen(_build_screen(repo))
         await pilot.pause()
@@ -431,22 +435,22 @@ async def test_stats_key_detail_shows_speed_and_accuracy_trends():
     app = App()
     async with app.run_test() as pilot:
         repo = FakeSessionRepository()
-        repo.save_header(
+        repo.save_with_keystrokes(
             _session_with_key_confidence(
                 session_id="s1",
                 started_at=1.0,
                 key_confidence={ord("e"): 0.55},
-            )
-        )
-        repo.keystrokes["s1"] = [
-            Keystroke(codepoint=ord("e"), typed=ord("e"), t_ns=0, correct=True),
-            Keystroke(
-                codepoint=ord("e"),
-                typed=ord("e"),
-                t_ns=400_000_000,
-                correct=True,
             ),
-        ]
+            [
+                Keystroke(codepoint=ord("e"), typed=ord("e"), t_ns=0, correct=True),
+                Keystroke(
+                    codepoint=ord("e"),
+                    typed=ord("e"),
+                    t_ns=400_000_000,
+                    correct=True,
+                ),
+            ],
+        )
         await app.push_screen(_build_screen(repo))
         await pilot.pause()
 
@@ -479,16 +483,18 @@ async def test_stats_screen_renders_speed_and_accuracy_trends():
             correct_keystrokes=50,
             key_confidence={ord("a"): 0.82},
         )
-        repo.save_header(header)
-        repo.keystrokes["s1"] = [
-            Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
-            Keystroke(
-                codepoint=ord("a"),
-                typed=ord("a"),
-                t_ns=400_000_000,
-                correct=True,
-            ),
-        ]
+        repo.save_with_keystrokes(
+            header,
+            [
+                Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
+                Keystroke(
+                    codepoint=ord("a"),
+                    typed=ord("a"),
+                    t_ns=400_000_000,
+                    correct=True,
+                ),
+            ],
+        )
 
         await app.push_screen(_build_screen(repo))
         await pilot.pause()

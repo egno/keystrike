@@ -52,8 +52,8 @@ for sources and how each maps to the code.
   [Custom layouts wiki](https://github.com/egno/keystrike/wiki/Custom-Layouts).
 - **Git backup sync** — optional CLI to push/pull settings and sessions to a private
   remote (union-merge sessions, last-write-wins settings).
-- **Offline by default** — JSONL session logs and a local stats cache under
-  platformdirs paths; sync is opt-in.
+- **Offline by default** — a compact JSONL session history (per-key stats, no
+  keystroke logs) and a local stats cache under platformdirs paths; sync is opt-in.
 
 ## Install
 
@@ -149,7 +149,7 @@ directory.
 | User settings | `~/.config/keystrike/settings.toml` | `~/Library/Application Support/keystrike/settings.toml` |
 | Custom layouts | `~/.config/keystrike/layouts/` | `~/Library/Application Support/keystrike/layouts/` |
 | Sync config (after `sync init`) | `~/.config/keystrike/sync.toml` | `~/Library/Application Support/keystrike/sync.toml` |
-| Session JSONL logs | `~/.local/share/keystrike/sessions/` | `~/Library/Application Support/keystrike/sessions/` |
+| Session history (`index.jsonl`) | `~/.local/share/keystrike/sessions/` | `~/Library/Application Support/keystrike/sessions/` |
 | Stats cache | `~/.local/share/keystrike/cache/` | `~/Library/Application Support/keystrike/cache/` |
 
 Windows uses `%LOCALAPPDATA%\keystrike\` for the same layout (single directory).

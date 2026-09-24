@@ -172,8 +172,7 @@ async def test_app_launches_types_and_persists_session():
         clock.advance(100_000_000)
         await pilot.press("space" if target[0] == " " else target[0])
         await pilot.pause()
-        assert len(session_repo.headers) == 0  # session not finished yet
-        assert session_repo.keystrokes == {}
+        assert session_repo.headers == []  # session not finished yet
         assert isinstance(app.screen, PracticeScreen)
         assert app.screen._session.position >= 1
 
@@ -271,7 +270,7 @@ async def test_adaptive_allowed_when_daily_learn_goal_reached():
 async def test_adaptive_practice_shows_weak_key_focus_note():
     clock = FakeClock(wall=1_700_000_000.0)
     session_repo = FakeSessionRepository()
-    session_repo.save_header(
+    session_repo.save_with_keystrokes(
         SessionResult(
             schema_version=3,
             session_id="s1",
@@ -284,13 +283,13 @@ async def test_adaptive_practice_shows_weak_key_focus_note():
             total_keystrokes=4,
             correct_keystrokes=3,
         ),
+        [
+            Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
+            Keystroke(codepoint=ord("s"), typed=ord("s"), t_ns=100_000_000, correct=True),
+            Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=500_000_000, correct=True),
+            Keystroke(codepoint=ord("s"), typed=ord("x"), t_ns=600_000_000, correct=False),
+        ],
     )
-    session_repo.keystrokes["s1"] = [
-        Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
-        Keystroke(codepoint=ord("s"), typed=ord("s"), t_ns=100_000_000, correct=True),
-        Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=500_000_000, correct=True),
-        Keystroke(codepoint=ord("s"), typed=ord("x"), t_ns=600_000_000, correct=False),
-    ]
     app, _clock, _repo, _settings = _build_app(
         clock=clock,
         settings=Settings(alphabet_size=2),
@@ -432,7 +431,6 @@ async def test_escape_returns_to_home_and_cancels_session():
 
         assert practice._session.state is SessionState.CANCELLED
         assert session_repo.headers == []
-        assert session_repo.keystrokes == {}
         assert isinstance(app.screen, HomeScreen)
 
 

@@ -1,4 +1,3 @@
-from collections.abc import Iterable
 from dataclasses import dataclass, field
 
 from keystrike.application.session_queries import (
@@ -6,7 +5,12 @@ from keystrike.application.session_queries import (
     compute_wpm,
     latest_session_header,
 )
-from keystrike.domain.aggregate import SessionTiming, combine_sessions, session_recency_weights
+from keystrike.domain.aggregate import (
+    SessionTiming,
+    combine_sessions,
+    session_recency_weights,
+    tally_session,
+)
 from keystrike.domain.confidence import (
     confidence_of,
     target_ms_per_char,
@@ -14,7 +18,7 @@ from keystrike.domain.confidence import (
 from keystrike.domain.enums import Mode, SessionState
 from keystrike.domain.generator import effective_generated_word_bounds
 from keystrike.domain.learn_order import keyboard_order
-from keystrike.domain.models import Keystroke, SessionResult
+from keystrike.domain.models import Keystroke, SessionResult, SessionStats
 from keystrike.domain.null_adapters import (
     NULL_LAYOUT_REPOSITORY,
     NULL_SETTINGS_REPOSITORY,
@@ -131,6 +135,7 @@ class _DraftTiming:
 def _snapshot_unlock_state(
     session: Session,
     duration_ns: int,
+    stats: SessionStats,
     *,
     repo: SessionRepository,
     settings_repo: SettingsRepository,
@@ -143,10 +148,10 @@ def _snapshot_unlock_state(
         repo.iter_headers(session.layout),
         key=lambda h: h.started_at,
     )[-(settings.confidence_session_window - 1) :]
-    sessions: list[tuple[SessionTiming, Iterable[Keystroke]]] = [
-        (header, repo.load_keystrokes(header.session_id)) for header in prior_headers
+    sessions: list[tuple[SessionTiming, SessionStats]] = [
+        (header, header.stats) for header in prior_headers
     ]
-    sessions.append((draft, session.keystrokes))
+    sessions.append((draft, stats))
     combined = combine_sessions(sessions)
     target = target_ms_per_char(settings.target_speed_cpm)
     unlocked = compute_unlocked(
@@ -185,9 +190,11 @@ class FinishSession:
 
         settings = self.settings_repo.load()
         target_speed_cpm = settings.target_speed_cpm
+        stats = tally_session(session.keystrokes)
         unlocked_keys, key_confidence = _snapshot_unlock_state(
             session,
             duration_ns,
+            stats,
             repo=self.repo,
             settings_repo=self.settings_repo,
             layout_repo=self.layout_repo,
@@ -202,7 +209,7 @@ class FinishSession:
             settings.word_gen.max_len,
         )
         result = SessionResult(
-            schema_version=4,
+            schema_version=5,
             session_id=session.id,
             started_at=session.started_at_wall,
             duration_ns=duration_ns,
@@ -219,8 +226,8 @@ class FinishSession:
             target_speed_cpm=target_speed_cpm,
             generated_min_len=generated_min_len,
             generated_max_len=generated_max_len,
+            stats=stats,
         )
-        self.repo.append_keystrokes(session.id, session.started_at_wall, session.keystrokes)
         self.repo.save_header(result)
         return result
 

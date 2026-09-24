@@ -6,7 +6,6 @@ from .daily_learn import DailyLearnBudget
 from .markov import TransitionTable
 from .models import (
     KeyStats,
-    Keystroke,
     Layout,
     LayoutAggregates,
     SessionResult,
@@ -26,14 +25,15 @@ class IdGenerator(Protocol):
 
 
 class SessionRepository(Protocol):
-    def append_keystroke(self, session_id: str, started_at: float, k: Keystroke) -> None: ...
-    def append_keystrokes(
-        self, session_id: str, started_at: float, keystrokes: Iterable[Keystroke]
-    ) -> None: ...
+    """Session history: one header row per finished session, carrying its
+    `SessionStats`. Raw keystrokes are never persisted."""
+
     def save_header(self, header: SessionResult) -> None: ...
     def iter_headers(self, layout: str) -> Iterator[SessionResult]: ...
     def iter_all_headers(self) -> Iterator[SessionResult]: ...
-    def load_keystrokes(self, session_id: str) -> Iterator[Keystroke]: ...
+    def replace_all_headers(self, headers: Iterable[SessionResult]) -> None:
+        """Rewrite the whole history with `headers` (used by stats retention)."""
+        ...
 
 
 class SettingsRepository(Protocol):
