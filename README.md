@@ -211,7 +211,9 @@ NO_COLOR=1 TERM=xterm-256color LC_ALL=C.UTF-8 \
   uv run pytest tests/presentation/test_snapshots.py -m snapshot --snapshot-update
 ```
 
-Regenerate the demo GIF after updating snapshots:
+Regenerate the demo GIF after UI changes. The script drives the real app with
+a simulated typist (seeded history, mid-lesson practice, stats, settings), so
+it does not depend on the snapshot baselines:
 
 ```bash
 uv pip install pillow cairosvg   # one-off; system cairo on macOS/Linux
