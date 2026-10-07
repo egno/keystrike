@@ -16,9 +16,10 @@ from keystrike.domain.confidence import (
     target_ms_per_char,
 )
 from keystrike.domain.enums import Mode, SessionState
+from keystrike.domain.focus import weakest_session_pair
 from keystrike.domain.generator import effective_generated_word_bounds
 from keystrike.domain.learn_order import keyboard_order
-from keystrike.domain.models import Keystroke, SessionResult, SessionStats
+from keystrike.domain.models import Bigram, Keystroke, SessionResult, SessionStats
 from keystrike.domain.null_adapters import (
     NULL_LAYOUT_REPOSITORY,
     NULL_SETTINGS_REPOSITORY,
@@ -132,7 +133,7 @@ class _DraftTiming:
     duration_ns: int
 
 
-def _snapshot_unlock_state(
+def _snapshot_finish_state(
     session: Session,
     duration_ns: int,
     stats: SessionStats,
@@ -140,7 +141,7 @@ def _snapshot_unlock_state(
     repo: SessionRepository,
     settings_repo: SettingsRepository,
     layout_repo: LayoutRepository,
-) -> tuple[tuple[int, ...], dict[int, float]]:
+) -> tuple[tuple[int, ...], dict[int, float], Bigram | None]:
     settings = settings_repo.load()
     layout = layout_repo.get(session.layout)
     draft = _DraftTiming(started_at=session.started_at_wall, duration_ns=duration_ns)
@@ -165,12 +166,20 @@ def _snapshot_unlock_state(
             settings.unlock.min_transition_confidence_attempts
         ),
     )
-    return unlocked, {
+    key_confidence = {
         cp: confidence_of(
             cp, combined.keys, target, min_attempts=settings.unlock.min_confidence_attempts
         )
         for cp in unlocked
     }
+    weakest_pair = weakest_session_pair(
+        stats.transitions,
+        unlocked,
+        combined.transitions,
+        target,
+        min_attempts=settings.unlock.min_transition_confidence_attempts,
+    )
+    return unlocked, key_confidence, weakest_pair
 
 
 @dataclass(slots=True)
@@ -191,7 +200,7 @@ class FinishSession:
         settings = self.settings_repo.load()
         target_speed_cpm = settings.target_speed_cpm
         stats = tally_session(session.keystrokes)
-        unlocked_keys, key_confidence = _snapshot_unlock_state(
+        unlocked_keys, key_confidence, weakest_pair = _snapshot_finish_state(
             session,
             duration_ns,
             stats,
@@ -227,6 +236,7 @@ class FinishSession:
             generated_min_len=generated_min_len,
             generated_max_len=generated_max_len,
             stats=stats,
+            weakest_pair=weakest_pair,
         )
         self.repo.save_header(result)
         return result

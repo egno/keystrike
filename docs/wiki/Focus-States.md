@@ -69,7 +69,9 @@ If a finished lesson's overall words-per-minute came in under its own target,
 the next lesson's focus is pinned to the weakest key or pair from *that
 lesson's own text* until a lesson's WPM meets target again — a low-speed
 lesson pulls focus back to its own weak point rather than drifting to
-whatever else is weakest across the full practice history. This doesn't add a
+whatever else is weakest across the full practice history. The pair comes from the session's saved
+weakest pair (the slowest pair it typed with enough attempts) when there is
+one, so a barely-sampled calibrating pair doesn't take the slot. This doesn't add a
 new HUD label; the chosen key/pair still shows the ordinary `wk`, `cal`, or
 `rev` reason.
 

@@ -15,6 +15,7 @@ from keystrike.domain.focus import (
     remedial_focus,
     select_focus,
     select_focus_transition,
+    weakest_session_pair,
 )
 from keystrike.domain.models import Bigram, KeyStats, TransitionStats
 
@@ -497,3 +498,70 @@ def test_genuine_old_transition_regression_preempts_gating_cohort():
         )
         == old
     )
+
+
+def test_weakest_session_pair_picks_slowest_pair_with_enough_attempts():
+    unlocked = (ord("a"), ord("b"), ord("c"))
+    slow = Bigram(ord("a"), ord("b"))
+    slower = Bigram(ord("b"), ord("c"))
+    calibrating = Bigram(ord("c"), ord("a"))  # slowest, but too few attempts
+    transitions = {
+        slow: _transition(*slow, 400_000_000.0),
+        slower: _transition(*slower, 800_000_000.0),
+        calibrating: _transition(*calibrating, 2_000_000_000.0, attempt_count=2),
+    }
+    assert weakest_session_pair(transitions, unlocked, transitions, 200.0) == slower
+
+
+def test_weakest_session_pair_none_when_all_pairs_meet_target():
+    unlocked = (ord("a"), ord("b"))
+    fast = Bigram(ord("a"), ord("b"))
+    transitions = {fast: _transition(*fast, 100_000_000.0)}
+    assert weakest_session_pair(transitions, unlocked, transitions, 200.0) is None
+
+
+def test_weakest_session_pair_only_considers_pairs_typed_in_the_session():
+    unlocked = (ord("a"), ord("b"), ord("c"))
+    typed = Bigram(ord("a"), ord("b"))
+    untouched = Bigram(ord("b"), ord("c"))
+    transitions = {
+        typed: _transition(*typed, 400_000_000.0),
+        untouched: _transition(*untouched, 800_000_000.0),
+    }
+    assert weakest_session_pair([typed], unlocked, transitions, 200.0) == typed
+
+
+def test_weakest_session_pair_skips_same_key_and_locked_pairs():
+    unlocked = (ord("a"), ord("b"))
+    same_key = Bigram(ord("a"), ord("a"))
+    locked = Bigram(ord("a"), ord("z"))
+    transitions = {
+        same_key: _transition(*same_key, 800_000_000.0),
+        locked: _transition(*locked, 800_000_000.0),
+    }
+    assert weakest_session_pair(transitions, unlocked, transitions, 200.0) is None
+
+
+def test_select_focus_transition_prefers_saved_slow_pair_over_calibrating_pair():
+    now = 1_700_000_000.0
+    unlocked = (ord("a"), ord("b"), ord("c"))
+    saved = Bigram(ord("a"), ord("b"))
+    calibrating = Bigram(ord("b"), ord("c"))
+    transitions = {
+        saved: _transition(*saved, 400_000_000.0, last_seen=now),
+        calibrating: _transition(*calibrating, 200_000_000.0, last_seen=now, attempt_count=1),
+    }
+    assert select_focus_transition(unlocked, transitions, 200.0, now) == calibrating
+    assert select_focus_transition(unlocked, transitions, 200.0, now, preferred=saved) == saved
+
+
+def test_select_focus_transition_ignores_saved_pair_that_is_no_longer_slow():
+    now = 1_700_000_000.0
+    unlocked = (ord("a"), ord("b"), ord("c"))
+    saved = Bigram(ord("a"), ord("b"))
+    other = Bigram(ord("b"), ord("c"))
+    transitions = {
+        saved: _transition(*saved, 100_000_000.0, last_seen=now),  # now fast
+        other: _transition(*other, 400_000_000.0, last_seen=now),
+    }
+    assert select_focus_transition(unlocked, transitions, 200.0, now, preferred=saved) == other

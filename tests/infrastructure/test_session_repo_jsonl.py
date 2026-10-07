@@ -66,6 +66,20 @@ def test_round_trip_single_session(paths):
     assert headers[0].stats.transitions[Bigram(ord("a"), ord("b"))] == KeyTally(1, 100, 0, 1)
 
 
+def test_round_trip_weakest_pair(paths):
+    repo = JsonlSessionRepository(paths)
+    header = replace(_header(), weakest_pair=Bigram(ord("s"), ord("a")))
+    repo.save_header(header)
+    assert list(JsonlSessionRepository(paths).iter_headers("qwerty")) == [header]
+
+
+def test_row_without_weakest_pair_reads_back_as_none(paths):
+    repo = JsonlSessionRepository(paths)
+    repo.save_header(_header())
+    assert "weakest_pair" not in paths.sessions_index.read_text(encoding="utf-8")
+    assert next(iter(repo.iter_headers("qwerty"))).weakest_pair is None
+
+
 def test_iter_headers_filters_by_layout(paths):
     repo = JsonlSessionRepository(paths)
     repo.save_header(_header(sid=_VALID_ULID_A, layout="qwerty"))

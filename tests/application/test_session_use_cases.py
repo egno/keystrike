@@ -766,3 +766,45 @@ def test_finish_session_alphabet_bump_respects_transition_gate(clock, id_gen):
     unlocked_cps = {k.codepoint for k in lesson.state.keys}
     assert unlocked_cps == set(order[:4])
     assert order[4] not in unlocked_cps
+
+
+def test_finish_session_saves_weakest_pair_typed_in_session(clock, id_gen):
+    settings_repo = FakeSettingsRepository(
+        Settings(
+            target_speed_cpm=300,
+            unlock=UnlockTuning(min_transition_confidence_attempts=2),
+        )
+    )
+    repo = FakeSessionRepository()
+    finish = FinishSession(
+        clock=clock,
+        repo=repo,
+        settings_repo=settings_repo,
+        layout_repo=FakeLayoutRepository(dict(BUNDLED_LAYOUTS)),
+    )
+    start = StartSession(clock=clock, id_gen=id_gen)
+    record = RecordKeystroke(clock=clock)
+    order = keyboard_order(BUNDLED_LAYOUTS["qwerty"])
+    a, b = chr(order[0]), chr(order[1])
+    session = start(f"{a}{b}{a}{b}", layout="qwerty", mode=Mode.ADAPTIVE, focus_key=order[0])
+    for ch in f"{a}{b}{a}{b}":
+        clock.advance(2_000_000_000)  # far slower than 300 cpm
+        record(session, ch)
+    result = finish(session)
+    assert result.weakest_pair is not None
+    assert {result.weakest_pair.prev_cp, result.weakest_pair.next_cp} == {order[0], order[1]}
+    assert repo.headers[0].weakest_pair == result.weakest_pair
+
+
+def test_finish_session_without_slow_pair_saves_none(clock, id_gen):
+    repo = FakeSessionRepository()
+    finish = FinishSession(
+        clock=clock,
+        repo=repo,
+        settings_repo=FakeSettingsRepository(),
+        layout_repo=FakeLayoutRepository(dict(BUNDLED_LAYOUTS)),
+    )
+    start = StartSession(clock=clock, id_gen=id_gen)
+    session = start("ab", layout="qwerty", mode=Mode.ADAPTIVE, focus_key=ord("a"))
+    result = finish(session)
+    assert result.weakest_pair is None

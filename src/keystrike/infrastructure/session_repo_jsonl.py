@@ -29,7 +29,9 @@ from .paths import Paths
 # `[samples, time_ns, errors, attempts]`, keyed by codepoint for keys and by
 # "prev,next" codepoints for bigrams. Omitted entirely when the stats are empty.
 _STATS_KEY = "stats"
+_WEAKEST_PAIR_KEY = "weakest_pair"
 _TALLY_FIELDS = 4
+_PAIR_FIELDS = 2
 
 
 class JsonlSessionRepository:
@@ -138,6 +140,10 @@ def header_to_row(h: SessionResult) -> dict[str, object]:
         del base[_STATS_KEY]
     else:
         base[_STATS_KEY] = stats_to_row(h.stats)
+    if h.weakest_pair is None:
+        del base[_WEAKEST_PAIR_KEY]
+    else:
+        base[_WEAKEST_PAIR_KEY] = [h.weakest_pair.prev_cp, h.weakest_pair.next_cp]
     return base
 
 
@@ -167,6 +173,15 @@ def _parse_key_confidence(raw: object) -> dict[int, float]:
     return out
 
 
+def _parse_weakest_pair(raw: object) -> Bigram | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, (list, tuple)) or len(cast("list[object]", raw)) != _PAIR_FIELDS:
+        raise TypeError(f"expected [prev, next] for {_WEAKEST_PAIR_KEY!r}, got {raw!r}")
+    prev, nxt = (coerce_int(v, label=_WEAKEST_PAIR_KEY) for v in cast("list[object]", raw))
+    return Bigram(prev, nxt)
+
+
 def header_from_row(d: dict[str, object]) -> SessionResult:
     session_id = require_str(d, "session_id")
     validate_session_id(session_id)  # Reject path-traversal attempts
@@ -189,4 +204,5 @@ def header_from_row(d: dict[str, object]) -> SessionResult:
         generated_min_len=require_int(d, "generated_min_len", GENERATED_WORD_MIN_LEN),
         generated_max_len=require_int(d, "generated_max_len", GENERATED_WORD_MAX_LEN),
         stats=stats_from_row(d.get(_STATS_KEY)),
+        weakest_pair=_parse_weakest_pair(d.get(_WEAKEST_PAIR_KEY)),
     )

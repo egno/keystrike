@@ -54,6 +54,7 @@ from keystrike.domain.models import (
     Layout,
     LessonKey,
     LessonState,
+    SessionResult,
     Settings,
     TransitionStats,
 )
@@ -346,6 +347,7 @@ def _resolve_lesson_focus(
             ctx.transitions,
             ctx.target,
             now=ctx.now,
+            preferred=ctx.saved_pair,
             threshold=CONFIDENCE_GOOD,
             min_attempts=ctx.settings.unlock.min_confidence_attempts,
             min_transition_attempts=ctx.settings.unlock.min_transition_confidence_attempts,
@@ -362,6 +364,7 @@ def _resolve_lesson_focus(
                 ctx.now,
                 key_stats=ctx.stats,
                 gating_candidates=gating.gating_bigrams if gating.transition_blocked else None,
+                preferred=ctx.saved_pair,
                 min_attempts=ctx.settings.unlock.min_transition_confidence_attempts,
             )
 
@@ -504,6 +507,16 @@ class _LessonContext:
     # The just-finished session's own lesson alphabet, when that session's own
     # WPM fell short of its own target -- None otherwise (normal selection).
     remedial_alphabet: tuple[int, ...] | None = None
+    # The just-finished session's saved weakest pair (`SessionResult.weakest_pair`).
+    saved_pair: Bigram | None = None
+
+
+def _remedial_alphabet(last: SessionResult | None) -> tuple[int, ...] | None:
+    """The last finished session's own lesson alphabet, when that session's
+    own WPM missed its own target -- otherwise None."""
+    if last is None or not session_wpm_below_target(last):
+        return None
+    return last.lesson_alphabet
 
 
 @dataclass(slots=True)
@@ -559,6 +572,7 @@ class BuildLesson:
         settings = self.settings_repo.load()
         layout = self.layout_repo.get(layout_name)
         aggregates = self.aggregates_cache.get(layout_name)
+        last = latest_session_header(self.session_repo, layout_name)
         stats: Mapping[int, KeyStats] = aggregates.keys if aggregates else {}
         transitions: Mapping[Bigram, TransitionStats] = aggregates.transitions if aggregates else {}
         return _LessonContext(
@@ -568,18 +582,9 @@ class BuildLesson:
             transitions=transitions,
             now=self.clock.wall_epoch(),
             target=target_ms_per_char(settings.target_speed_cpm),
-            remedial_alphabet=self._remedial_alphabet(layout_name),
+            remedial_alphabet=_remedial_alphabet(last),
+            saved_pair=last.weakest_pair if last is not None else None,
         )
-
-    def _remedial_alphabet(self, layout_name: str) -> tuple[int, ...] | None:
-        """The last finished session's own lesson alphabet, when that
-        session's own WPM missed its own target -- otherwise None."""
-        last = latest_session_header(self.session_repo, layout_name)
-        if last is None:
-            return None
-        if not session_wpm_below_target(last):
-            return None
-        return last.lesson_alphabet
 
     def _generate_text(
         self,

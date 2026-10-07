@@ -5,6 +5,18 @@ rationale lives in commit history/diffs — these are pointers, not narratives.
 Milestone-level feature work (what shipped in M1–M4, the keybr algorithm
 design) stays in `PLAN.md` §5/§6.
 
+## Unreleased
+
+- **Weakest pair saved on the session result** — `FinishSession` now stores
+  `SessionResult.weakest_pair`: the slowest cross-key pair typed in the
+  session (enough attempts, skill < 1.0, lowest raw skill;
+  `domain.focus.weakest_session_pair`). The optional `weakest_pair` field in
+  the `index.jsonl` row stays schema 5, and rows without it read back as
+  `None`. After a lesson that missed its WPM target, `remedial_focus` starts
+  from that pair instead of a calibrating pair with only a few presses. The
+  newest key's gating cohort still takes priority while the unlock gate is
+  open.
+
 ## 2.1.0
 
 - **Session store: per-session stats instead of keystroke logs** — a finished

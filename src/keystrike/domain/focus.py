@@ -4,7 +4,7 @@ generated practice text (§6 of PLAN.md)."""
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
 from .confidence import (
@@ -185,6 +185,39 @@ def newest_key_unmeasured_pairs(
     return [] if measured else unmeasured
 
 
+def _is_slow_measured(stats: TransitionStats | None, target: float, *, min_attempts: int) -> bool:
+    """Enough attempts to trust the timing, and still slower than the goal."""
+    return (
+        stats is not None
+        and attempts_of(stats) >= min_attempts
+        and skill_from_stats(stats, target) < 1.0
+    )
+
+
+def weakest_session_pair(
+    session_pairs: Iterable[Bigram],
+    unlocked: Sequence[int],
+    transitions: Mapping[Bigram, TransitionStats],
+    target: float,
+    *,
+    min_attempts: int = MIN_TRANSITION_CONFIDENCE_ATTEMPTS,
+) -> Bigram | None:
+    """Slowest cross-key pair typed in a finished session, judged on the
+    combined window stats: enough attempts (`min_attempts`) and raw skill
+    still under 1.0, lowest skill first. None when no such pair exists.
+
+    Saved on the session result so the next lesson can pick up the weak pair
+    right away instead of starting a fresh calibration."""
+    eligible = frozenset(unlocked_cross_key_pairs(unlocked))
+    slow = [
+        pair
+        for pair in session_pairs
+        if pair in eligible
+        and _is_slow_measured(transitions.get(pair), target, min_attempts=min_attempts)
+    ]
+    return min(slow, key=lambda pair: skill_from_stats(transitions[pair], target), default=None)
+
+
 def select_focus_transition(
     unlocked: Sequence[int],
     transitions: Mapping[Bigram, TransitionStats],
@@ -193,11 +226,17 @@ def select_focus_transition(
     *,
     key_stats: Mapping[int, KeyStats] | None = None,
     gating_candidates: Sequence[Bigram] | None = None,
+    preferred: Bigram | None = None,
     review_penalty: float = 0.5,
     threshold: float = 1.0,
     min_attempts: int = MIN_TRANSITION_CONFIDENCE_ATTEMPTS,
 ) -> Bigram | None:
     """Weakest unlocked bigram by transition confidence.
+
+    `preferred` (the last session's saved `weakest_session_pair`) wins over
+    ordinary weakest-pair scoring when it is still measured and slow, but
+    only after the newest key's unmeasured pairs and never in
+    `gating_candidates` mode, where the unlock cohort comes first.
 
     Measured pairs are preferred. But when the newest practiced key has no
     measured transitions of its own yet (`newest_key_unmeasured_pairs`), fall
@@ -231,8 +270,7 @@ def select_focus_transition(
             pair
             for pair in measured
             if pair not in gating_set
-            and attempts_of(transitions[pair]) >= min_attempts
-            and skill_from_stats(transitions[pair], target) < 1.0
+            and _is_slow_measured(transitions[pair], target, min_attempts=min_attempts)
         ]
         if regressions:
             return min(regressions, key=_score)
@@ -243,6 +281,12 @@ def select_focus_transition(
         return min(candidates, key=_score)
     if not measured:
         return None
+    if (
+        preferred is not None
+        and preferred in measured
+        and _is_slow_measured(transitions.get(preferred), target, min_attempts=min_attempts)
+    ):
+        return preferred
     not_cleared = [
         pair
         for pair in measured
@@ -266,6 +310,7 @@ def remedial_focus(
     target: float,
     *,
     now: float,
+    preferred: Bigram | None = None,
     threshold: float = 1.0,
     min_attempts: int = MIN_CONFIDENCE_ATTEMPTS,
     min_transition_attempts: int = MIN_TRANSITION_CONFIDENCE_ATTEMPTS,
@@ -292,6 +337,7 @@ def remedial_focus(
         target,
         now,
         key_stats=stats,
+        preferred=preferred,
         threshold=threshold,
         min_attempts=min_transition_attempts,
     )

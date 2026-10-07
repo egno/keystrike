@@ -1,3 +1,4 @@
+from dataclasses import replace
 from random import Random
 
 from keystrike.application.build_lesson import (
@@ -1337,3 +1338,54 @@ def test_large_alphabet_unlock_advances_when_keys_rotated():
         else:
             assert len(unlocked) == forced + 1
             assert unlocked[-1] == order[forced]
+
+
+def test_saved_weakest_pair_wins_remedial_focus_over_calibrating_pair():
+    """After a lesson that missed its WPM target, the saved weakest pair wins
+    over a calibrating pair that ordinary scoring would pick (fewer attempts,
+    so lower ramped confidence)."""
+    layout = BUNDLED_LAYOUTS["qwerty"]
+    order = keyboard_order(layout)
+    a, s, h = order[0], order[1], order[2]
+    now = 1_700_000_000.0
+    at_target = 200_000_000.0
+    keys = {cp: KeyStats(cp, 10, at_target, 0, now, attempt_count=10) for cp in (a, s, h)}
+    saved = Bigram(a, s)
+    calibrating = Bigram(s, h)
+    transitions = {
+        saved: TransitionStats(*saved, 10, at_target / 0.5, 0, now, attempt_count=10),
+        calibrating: TransitionStats(*calibrating, 1, at_target, 0, now, attempt_count=1),
+    }
+    cache = FakeAggregatesCache(
+        by_layout={"qwerty": LayoutAggregates(keys=keys, transitions=transitions)},
+    )
+
+    def build(headers: list[SessionResult]):
+        return BuildLesson(
+            layout_repo=FakeLayoutRepository(dict(BUNDLED_LAYOUTS)),
+            aggregates_cache=cache,
+            settings_repo=FakeSettingsRepository(Settings(alphabet_size=3, target_speed_cpm=300)),
+            language_provider=FakeLanguageProvider(),
+            wordlist_store=FakeWordListStore(),
+            rng=Random(0),
+            clock=FakeClock(),
+            session_repo=FakeSessionRepository(headers=headers),
+        )("qwerty")
+
+    last = SessionResult(
+        schema_version=5,
+        session_id="last",
+        started_at=1.0,
+        duration_ns=60_000_000_000,
+        layout="qwerty",
+        mode=Mode.ADAPTIVE,
+        lesson_alphabet=(a, s, h),
+        focus_key=a,
+        total_keystrokes=1,
+        correct_keystrokes=1,
+        words_completed=1,
+        target_speed_cpm=300,  # 60s for one word: far under target, so remedial
+        weakest_pair=saved,
+    )
+    assert build([last]).focus_key == saved.next_cp
+    assert build([replace(last, weakest_pair=None)]).focus_key == calibrating.next_cp

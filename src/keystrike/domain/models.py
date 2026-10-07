@@ -111,6 +111,10 @@ class SessionResult:
     # Per-key/bigram tallies (schema 5+). Empty for sessions older than the
     # stats retention window (see domain.retention) — their history row stays.
     stats: SessionStats = field(default_factory=SessionStats)
+    # Slowest pair typed this session (see `domain.focus.weakest_session_pair`);
+    # the next lesson's transition focus starts there. Optional, so schema 5
+    # rows without it still read back unchanged.
+    weakest_pair: Bigram | None = None
 
     def __post_init__(self) -> None:
         # Freezing the dataclass only blocks attribute rebinding — wrap the
