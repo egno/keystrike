@@ -254,6 +254,7 @@ def test_legacy_row_without_stats_reads_as_empty_stats(paths):
     headers = list(JsonlSessionRepository(paths).iter_headers("qwerty"))
     assert headers[0].session_id == _VALID_ULID_D
     assert headers[0].stats.is_empty
+    assert headers[0].weakest_pair is None
 
 
 @pytest.mark.parametrize(
@@ -275,6 +276,31 @@ def test_malformed_stats_skip_the_row_not_the_index(paths, stats_json):
             '"started_at": 1700000000.0, "duration_ns": 1000000000, "mode": "adaptive", '
             '"lesson_alphabet": [], "focus_key": null, "total_keystrokes": 0, '
             f'"correct_keystrokes": 0, "stats": {stats_json}}}\n'
+        )
+    repo.save_header(_header(sid=_VALID_ULID_B))
+
+    headers = [h.session_id for h in JsonlSessionRepository(paths).iter_headers("qwerty")]
+    assert headers == [_VALID_ULID_A, _VALID_ULID_B]
+
+
+@pytest.mark.parametrize(
+    "pair_json",
+    [
+        "[97]",  # wrong arity
+        "[97, 98, 99]",  # wrong arity
+        '"97,98"',  # not a list
+        '[97, "x"]',  # not a codepoint
+    ],
+)
+def test_malformed_weakest_pair_skips_the_row_not_the_index(paths, pair_json):
+    repo = JsonlSessionRepository(paths)
+    repo.save_header(_header(sid=_VALID_ULID_A))
+    with paths.sessions_index.open("a", encoding="utf-8") as fh:
+        fh.write(
+            f'{{"schema_version": 5, "session_id": "{_VALID_ULID_E}", "layout": "qwerty", '
+            '"started_at": 1700000000.0, "duration_ns": 1000000000, "mode": "adaptive", '
+            '"lesson_alphabet": [], "focus_key": null, "total_keystrokes": 0, '
+            f'"correct_keystrokes": 0, "weakest_pair": {pair_json}}}\n'
         )
     repo.save_header(_header(sid=_VALID_ULID_B))
 

@@ -796,15 +796,56 @@ def test_finish_session_saves_weakest_pair_typed_in_session(clock, id_gen):
     assert repo.headers[0].weakest_pair == result.weakest_pair
 
 
-def test_finish_session_without_slow_pair_saves_none(clock, id_gen):
-    repo = FakeSessionRepository()
+def _finish_typed(clock, id_gen, repo, text: str, step_ns: int, *, min_pair_attempts: int):
+    """Type `text` at a fixed pace through Start/Record/FinishSession."""
     finish = FinishSession(
         clock=clock,
         repo=repo,
-        settings_repo=FakeSettingsRepository(),
+        settings_repo=FakeSettingsRepository(
+            Settings(
+                target_speed_cpm=300,
+                unlock=UnlockTuning(min_transition_confidence_attempts=min_pair_attempts),
+            )
+        ),
         layout_repo=FakeLayoutRepository(dict(BUNDLED_LAYOUTS)),
     )
-    start = StartSession(clock=clock, id_gen=id_gen)
-    session = start("ab", layout="qwerty", mode=Mode.ADAPTIVE, focus_key=ord("a"))
-    result = finish(session)
+    session = StartSession(clock=clock, id_gen=id_gen)(
+        text, layout="qwerty", mode=Mode.ADAPTIVE, focus_key=ord(text[0])
+    )
+    record = RecordKeystroke(clock=clock)
+    for ch in text:
+        clock.advance(step_ns)
+        record(session, ch)
+    return finish(session)
+
+
+def test_finish_session_without_slow_pair_saves_none(clock, id_gen):
+    order = keyboard_order(BUNDLED_LAYOUTS["qwerty"])
+    a, b = chr(order[0]), chr(order[1])
+    fast = 50_000_000  # well over 300 cpm
+    result = _finish_typed(
+        clock, id_gen, FakeSessionRepository(), f"{a}{b}{a}{b}", fast, min_pair_attempts=2
+    )
     assert result.weakest_pair is None
+
+
+def test_finish_session_skips_slow_pair_below_attempt_floor(clock, id_gen):
+    order = keyboard_order(BUNDLED_LAYOUTS["qwerty"])
+    a, b = chr(order[0]), chr(order[1])
+    slow = 2_000_000_000
+    result = _finish_typed(
+        clock, id_gen, FakeSessionRepository(), f"{a}{b}", slow, min_pair_attempts=4
+    )
+    assert result.weakest_pair is None
+
+
+def test_finish_session_skips_slow_pair_only_in_history(clock, id_gen):
+    order = keyboard_order(BUNDLED_LAYOUTS["qwerty"])
+    a, b = chr(order[0]), chr(order[1])
+    slow = 2_000_000_000
+    repo = FakeSessionRepository()
+    first = _finish_typed(clock, id_gen, repo, f"{a}{b}{a}{b}", slow, min_pair_attempts=2)
+    assert first.weakest_pair is not None
+    # Same-key presses only: the slow pair stays in the window but is not typed.
+    second = _finish_typed(clock, id_gen, repo, f"{a}{a}{a}", slow, min_pair_attempts=2)
+    assert second.weakest_pair is None

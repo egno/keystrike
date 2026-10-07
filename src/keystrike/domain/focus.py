@@ -185,13 +185,9 @@ def newest_key_unmeasured_pairs(
     return [] if measured else unmeasured
 
 
-def _is_slow_measured(stats: TransitionStats | None, target: float, *, min_attempts: int) -> bool:
+def _is_slow_measured(stats: TransitionStats, target: float, *, min_attempts: int) -> bool:
     """Enough attempts to trust the timing, and still slower than the goal."""
-    return (
-        stats is not None
-        and attempts_of(stats) >= min_attempts
-        and skill_from_stats(stats, target) < 1.0
-    )
+    return attempts_of(stats) >= min_attempts and skill_from_stats(stats, target) < 1.0
 
 
 def weakest_session_pair(
@@ -213,7 +209,8 @@ def weakest_session_pair(
         pair
         for pair in session_pairs
         if pair in eligible
-        and _is_slow_measured(transitions.get(pair), target, min_attempts=min_attempts)
+        and pair in transitions
+        and _is_slow_measured(transitions[pair], target, min_attempts=min_attempts)
     ]
     return min(slow, key=lambda pair: skill_from_stats(transitions[pair], target), default=None)
 
@@ -284,7 +281,7 @@ def select_focus_transition(
     if (
         preferred is not None
         and preferred in measured
-        and _is_slow_measured(transitions.get(preferred), target, min_attempts=min_attempts)
+        and _is_slow_measured(transitions[preferred], target, min_attempts=min_attempts)
     ):
         return preferred
     not_cleared = [

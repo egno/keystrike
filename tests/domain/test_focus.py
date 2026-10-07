@@ -565,3 +565,52 @@ def test_select_focus_transition_ignores_saved_pair_that_is_no_longer_slow():
         other: _transition(*other, 400_000_000.0, last_seen=now),
     }
     assert select_focus_transition(unlocked, transitions, 200.0, now, preferred=saved) == other
+
+
+def test_select_focus_transition_saved_pair_loses_to_newest_key_unmeasured_pairs():
+    unlocked = (ord("a"), ord("b"), ord("c"))
+    now = 1_700_000_000.0
+    stats = {cp: KeyStats(cp, 10, 200_000_000.0, 0, now, attempt_count=10) for cp in unlocked}
+    saved = Bigram(ord("a"), ord("b"))
+    transitions = {saved: _transition(*saved, 400_000_000.0, last_seen=now)}
+    result = select_focus_transition(
+        unlocked, transitions, 200.0, now, key_stats=stats, preferred=saved
+    )
+    assert result is not None
+    assert ord("c") in result
+
+
+def test_select_focus_transition_ignores_saved_pair_in_gating_mode():
+    a, b, c = map(ord, "abc")
+    gate = Bigram(b, c)
+    weaker = Bigram(a, b)
+    saved = Bigram(c, a)
+    transitions = {
+        weaker: _transition(*weaker, 800_000_000.0),
+        saved: _transition(*saved, 400_000_000.0),
+    }
+    assert (
+        select_focus_transition(
+            (a, b, c), transitions, 200.0, 1_000.0, gating_candidates=(gate,), preferred=saved
+        )
+        == weaker
+    )
+
+
+@pytest.mark.parametrize(
+    "saved",
+    [
+        Bigram(ord("c"), ord("a")),  # no transition data
+        Bigram(ord("a"), ord("b")),  # slow, but too few attempts
+    ],
+)
+def test_select_focus_transition_ignores_unmeasured_or_calibrating_saved_pair(saved):
+    now = 1_700_000_000.0
+    unlocked = (ord("a"), ord("b"), ord("c"))
+    calibrating = Bigram(ord("a"), ord("b"))
+    weakest = Bigram(ord("b"), ord("c"))
+    transitions = {
+        calibrating: _transition(*calibrating, 400_000_000.0, last_seen=now, attempt_count=2),
+        weakest: _transition(*weakest, 800_000_000.0, last_seen=now, attempt_count=1),
+    }
+    assert select_focus_transition(unlocked, transitions, 200.0, now, preferred=saved) == weakest
