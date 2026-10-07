@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from keystrike.domain.enums import Mode
+from keystrike.domain.enums import Mode, TargetSpeedUnit
 from keystrike.domain.models import SessionResult
 from keystrike.presentation.formatting.trends import (
     format_aggregate_metric_trend_block,
@@ -8,6 +8,7 @@ from keystrike.presentation.formatting.trends import (
     format_key_metric_trend_block,
     key_confidence_sparkline,
     key_confidence_values,
+    speed_value_formatter,
 )
 
 
@@ -220,3 +221,24 @@ def test_format_aggregate_metric_trend_block_includes_title():
     assert "[bold cyan]confidence[/]" in detail
     assert "[bold green]speed     [/]" in detail
     assert "[bold yellow]accuracy  [/]" in detail
+
+
+def test_speed_value_formatter_uses_goal_unit():
+    wpm = speed_value_formatter(300, TargetSpeedUnit.WPM, 3.0)
+    cpm = speed_value_formatter(300, TargetSpeedUnit.CPM, 3.0)
+    assert wpm is not None
+    assert cpm is not None
+    assert wpm(0.9) == "90 wpm"
+    assert cpm(0.9) == "270 cpm"
+    assert speed_value_formatter(0, TargetSpeedUnit.WPM, 3.0) is None
+
+
+def test_format_aggregate_metric_trend_block_applies_speed_format():
+    detail = format_aggregate_metric_trend_block(
+        title="Layout",
+        confidence_values=[0.75],
+        speed_values=[0.5, 1.0],
+        accuracy_values=[0.95],
+        speed_format=speed_value_formatter(300, TargetSpeedUnit.CPM, 3.0),
+    )
+    assert "latest  300 cpm  peak  300 cpm" in detail
