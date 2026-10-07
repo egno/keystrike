@@ -7,10 +7,13 @@ through one of these, so the business rules aren't duplicated across screens.
 
 from __future__ import annotations
 
+import time
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 
+from keystrike.domain.alphabet_cut import add_alphabet_cut
 from keystrike.domain.enums import TargetSpeedUnit
-from keystrike.domain.models import Settings
+from keystrike.domain.models import AlphabetCut, Settings
 from keystrike.domain.protocols import LayoutRepository, SettingsRepository
 
 _MIN_LAYOUTS_TO_CYCLE = 2
@@ -32,9 +35,21 @@ class SettingsUpdate:
     learn_daily_minutes: int
 
 
+def _no_rebuild() -> None:
+    pass
+
+
 @dataclass(slots=True)
 class UpdateSettings:
+    """Validate and save the settings screen's fields.
+
+    Lowering `alphabet_size` records an `AlphabetCut`: the closed keys forget
+    their old stats and are learned again (see `domain.alphabet_cut`).
+    `rebuild_aggregates` then refreshes the cached stats, which lessons read."""
+
     repo: SettingsRepository
+    wall_epoch: Callable[[], float] = time.time
+    rebuild_aggregates: Callable[[], None] = _no_rebuild
 
     def __call__(self, update: SettingsUpdate) -> Settings:
         if update.target_speed_cpm <= 0:
@@ -45,15 +60,24 @@ class UpdateSettings:
             raise SettingsValidationError("Number of letters must be zero or more.")
         if update.learn_daily_minutes < 0:
             raise SettingsValidationError("Daily learn minutes must be zero or more.")
+        current = self.repo.load()
+        cuts = current.alphabet_cuts
+        lowered = update.alphabet_size < current.alphabet_size
+        if lowered:
+            cut = AlphabetCut(at=self.wall_epoch(), size=update.alphabet_size)
+            cuts = add_alphabet_cut(cuts, cut)
         updated = replace(
-            self.repo.load(),
+            current,
             layout=update.layout,
             target_speed_cpm=update.target_speed_cpm,
             target_speed_unit=update.target_speed_unit,
             alphabet_size=update.alphabet_size,
             learn_daily_minutes=update.learn_daily_minutes,
+            alphabet_cuts=cuts,
         )
         self.repo.save(updated)
+        if lowered:
+            self.rebuild_aggregates()
         return updated
 
 
