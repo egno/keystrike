@@ -38,7 +38,7 @@ Reading left to right:
 2. **Reason** — `wk`, `cal`, or `rev`. Calibrating adds press progress (`9/10`).
 3. **Speed** — target timing ÷ actual timing for the focus key or pair.
 4. **Accuracy** — correct attempts ÷ total attempts (percent).
-5. **Confidence** — min(speed, accuracy), scaled by attempt count during calibration. Goal is 1.0 for mastery.
+5. **Confidence** — min(speed, accuracy score), scaled by attempt count during calibration. The accuracy score is accuracy ÷ 95%, capped at 1.0, so 95% accuracy already counts in full. Goal is 1.0 for mastery.
 
 ## Key vs transition focus
 
@@ -65,11 +65,14 @@ is due for review (`rev`) again.
 
 ## Lesson WPM gate
 
-If a finished lesson's overall words-per-minute came in under its own target,
+If a finished lesson's overall typing speed came in under its own target,
 the next lesson's focus is pinned to the weakest key or pair from *that
-lesson's own text* until a lesson's WPM meets target again — a low-speed
+lesson's own text* until a lesson's speed meets target again — a low-speed
 lesson pulls focus back to its own weak point rather than drifting to
-whatever else is weakest across the full practice history. The pair comes from the session's saved
+whatever else is weakest across the full practice history. Speed here is
+correct keystrokes per minute, spaces included, against the target CPM — the
+same unit every key is timed against — so a lesson typed at exactly target
+speed on every key meets it. The pair comes from the session's saved
 weakest pair (the slowest pair it typed with enough attempts) when there is
 one, so a barely-sampled calibrating pair doesn't take the slot. This doesn't add a
 new HUD label; the chosen key/pair still shows the ordinary `wk`, `cal`, or

@@ -1,8 +1,19 @@
+from keystrike.domain.aggregate import combine_sessions, tally_session
 from keystrike.domain.confidence import confidence_of, skill_of
-from keystrike.domain.models import Bigram, KeyStats, TransitionStats, UnlockTuning
+from keystrike.domain.enums import Mode
+from keystrike.domain.models import (
+    Bigram,
+    KeyStats,
+    Keystroke,
+    SessionResult,
+    TransitionStats,
+    UnlockTuning,
+)
 from keystrike.domain.newest_key import newest_key_gating_cohort
 from keystrike.domain.unlock import (
     compute_unlocked,
+    default_transition_stall_attempts_cap,
+    gating_bigram_is_ready,
     newest_key_clears_transition_gate,
     newest_key_transition_gate_progress,
 )
@@ -366,3 +377,84 @@ def test_newest_key_clears_transition_gate_stall_cap_overrides_weak_pair():
         )
         is False
     )
+
+
+def _header(i: int) -> SessionResult:
+    return SessionResult(
+        schema_version=5,
+        session_id=f"s{i}",
+        started_at=float(i),
+        duration_ns=1_000_000_000,
+        layout="qwerty",
+        mode=Mode.ADAPTIVE,
+        lesson_alphabet=(),
+        focus_key=None,
+        total_keystrokes=0,
+        correct_keystrokes=0,
+    )
+
+
+def _lesson(text: str, ms: int) -> list[Keystroke]:
+    return [
+        Keystroke(codepoint=ord(ch), typed=ord(ch), t_ns=i * ms * 1_000_000, correct=True)
+        for i, ch in enumerate(text)
+    ]
+
+
+def test_compute_unlocked_sixteen_keys_reach_attempt_floor_over_window():
+    """16 unlocked keys and 12-word lessons (about 2 presses per key per
+    lesson): over the default 10-session window every key has 20 real
+    presses, so the default floor of 10 is met. Recency-weighted attempts
+    settle near 6.5 and held the next letter back forever."""
+    learn_order = tuple(ord(ch) for ch in "abcdefghijklmnopq")
+    sixteen = "abcdefghijklmnop"
+    sessions = [(_header(i), tally_session(_lesson(sixteen * 2, 200))) for i in range(10)]
+    stats = combine_sessions(sessions).keys
+    assert all(stats[cp].attempt_count == 20 for cp in learn_order[:16])
+    tuning = UnlockTuning()
+    assert tuning.min_confidence_attempts == 10
+    unlocked = compute_unlocked(learn_order, 16, stats, target=200.0, tuning=tuning)
+    assert unlocked == learn_order
+
+
+def test_transition_stall_cap_reachable_at_two_attempts_per_lesson():
+    """A stuck cohort pair that gets 2 of the weak-focus coverage slots per
+    lesson reaches the default stall cap (3 x 4 = 12 real attempts) on the
+    6th lesson in the window, instead of settling near 6.5 weighted ones."""
+    ea = Bigram(ord("e"), ord("a"))
+    tuning = UnlockTuning()
+    cap = default_transition_stall_attempts_cap(tuning.min_transition_confidence_attempts)
+    assert cap == 12
+
+    def ready_after(lessons: int) -> bool:
+        # "eaea" types e->a twice, slowly (400 ms vs a 200 ms target).
+        sessions = [(_header(i), tally_session(_lesson("eaea", 400))) for i in range(lessons)]
+        transitions = combine_sessions(sessions).transitions
+        return gating_bigram_is_ready(ea, transitions, 200.0, tuning=tuning, stall_attempts_cap=cap)
+
+    assert not ready_after(5)
+    assert ready_after(6)
+    assert ready_after(10)
+
+
+def test_gate_pair_clears_at_accuracy_target():
+    """The gate uses the same `clears_threshold` rule as key unlock: a pair
+    at target speed with 95% accuracy is ready — no near-perfect bar."""
+    ea = Bigram(ord("e"), ord("a"))
+    pair = TransitionStats(ord("e"), ord("a"), 19, 200_000_000.0, 1, 0.0, attempt_count=20)
+    assert gating_bigram_is_ready(ea, {ea: pair}, 200.0)
+    sloppy = TransitionStats(ord("e"), ord("a"), 15, 200_000_000.0, 1, 0.0, attempt_count=16)
+    assert not gating_bigram_is_ready(ea, {ea: sloppy}, 200.0)
+
+
+def test_compute_unlocked_allows_one_recent_typo_on_a_well_practiced_key():
+    """Key s: 60 weighted samples, speed 1.3, one typo last lesson. Accuracy
+    60 / 61 = 0.984 is above the 95% target, so s no longer blocks the unlock
+    (it read as skill 0.98 against a 100% accuracy bar)."""
+    a, s, d = ord("a"), ord("s"), ord("d")
+    stats = {
+        a: _stats(a, mean_time_ns=200_000_000.0 / 1.3),
+        s: KeyStats(s, 60, 200_000_000.0 / 1.3, 1, 0.0, attempt_count=61),
+    }
+    assert skill_of(s, stats, 200.0) == 1.0
+    assert compute_unlocked((a, s, d), 2, stats, target=200.0) == (a, s, d)

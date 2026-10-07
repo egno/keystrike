@@ -7,6 +7,28 @@ design) stays in `PLAN.md` §5/§6.
 
 ## Unreleased
 
+- **Attempt floors count real presses** — `combine_sessions` now sums
+  `attempt_count` over the window without recency weights; speed and accuracy
+  keep theirs. Weighted attempts settled at about 3.24 × presses per lesson,
+  so a key or cohort pair with 2–3 presses per lesson never reached
+  `min_confidence_attempts` (10) or the transition stall cap (12) and blocked
+  the next letter. The aggregates cache moves to `schema_version` 2; older
+  cache files read as a miss and rebuild from the session rows (session rows
+  are unchanged).
+- **Accuracy is scored against 95%, not 100%** — skill and confidence use
+  `min(speed, min(1, accuracy / ACCURACY_TARGET))` with
+  `ACCURACY_TARGET = 0.95` (`domain/confidence.py`), so one typo no longer
+  needs about 199 clean presses before a key clears. Recency-weighted errors
+  stay fractional instead of being rounded, so one typo in the previous
+  lesson counts as 0.7. The transition gate now calls the same
+  `clears_threshold` rule as key unlock and focus. HUD and Stats still show
+  raw accuracy.
+- **Lesson WPM gate compares like with like** — `session_wpm_below_target`
+  compares correct keystrokes per minute (spaces included) with
+  `target_speed_cpm`. It used WPM against `cpm / mean word length`, which
+  leaves out the space, so a lesson typed at exactly target speed on every
+  key read as about 25% too slow and kept the remedial focus on. Sessions
+  without a target (`target_speed_cpm == 0`) still never trigger it.
 - **Weakest pair saved on the session result** — `FinishSession` now stores
   `SessionResult.weakest_pair`: the slowest cross-key pair typed in the
   session (enough attempts, skill < 1.0, lowest raw skill;

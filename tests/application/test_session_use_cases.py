@@ -25,6 +25,7 @@ from keystrike.application.stats_use_cases import RebuildAggregates
 from keystrike.domain.aggregate import combine_sessions
 from keystrike.domain.confidence import confidence_of, target_ms_per_char
 from keystrike.domain.enums import Mode, SessionState
+from keystrike.domain.generator import wpm_from_cpm
 from keystrike.domain.learn_order import keyboard_order
 from keystrike.domain.models import (
     CONFIDENCE_SESSION_WINDOW,
@@ -460,29 +461,47 @@ def test_session_wpm_below_target_false_for_legacy_session_without_target():
     assert session_wpm_below_target(result) is False
 
 
-def test_session_wpm_below_target_uses_snapshotted_word_bounds():
-    """WPM target conversion must use bounds recorded at finish, not caller overrides."""
-    result = replace(
-        SessionResult(
-            session_id="s1", total_keystrokes=1, correct_keystrokes=1, **_session_stats_common()
-        ),
-        words_completed=50,
-        duration_ns=60_000_000_000,
-        target_speed_cpm=300,
-        generated_min_len=2,
-        generated_max_len=4,
+def _drive_at_pace(text: str, ms_per_keystroke: int, target_speed_cpm: int) -> SessionResult:
+    clock = FakeClock()
+    settings_repo = FakeSettingsRepository(Settings(target_speed_cpm=target_speed_cpm))
+    session = StartSession(clock=clock, id_gen=FakeIdGenerator())(
+        text, layout="qwerty", mode=Mode.ADAPTIVE
     )
-    # 50 wpm vs target 100 wpm (300 cpm / 3 chars per word at 2-4 bounds)
+    record = RecordKeystroke(clock=clock)
+    for ch in text:
+        clock.advance(ms_per_keystroke * 1_000_000)
+        record(session, ch)
+    return FinishSession(clock=clock, settings_repo=settings_repo)(session)
+
+
+# 12 words x 3 letters + 11 spaces = 47 keystrokes (default lesson, 2-4 bounds).
+_TWELVE_WORD_LESSON = " ".join(["abc"] * 12)
+
+
+def test_session_wpm_below_target_false_when_every_key_is_at_target_speed():
+    """40 WPM in Settings is 120 CPM (500 ms per key). Typing every keystroke,
+    spaces included, at exactly 500 ms meets the target: the gate counts the
+    spaces, so it must not fire. WPM against cpm / mean word length (40) would."""
+    result = _drive_at_pace(_TWELVE_WORD_LESSON, 500, target_speed_cpm=120)
+    assert result.correct_keystrokes == 47
+    assert result.words_completed == 12
+    a = result.stats.keys[ord("a")]
+    assert a.time_ns / a.samples == 500_000_000  # key speed exactly 1.0
+    assert compute_wpm(result) < wpm_from_cpm(120)  # the old comparison fired here
+    assert session_wpm_below_target(result) is False
+
+
+def test_session_wpm_below_target_true_when_keys_slower_than_target():
+    result = _drive_at_pace(_TWELVE_WORD_LESSON, 550, target_speed_cpm=120)
     assert session_wpm_below_target(result) is True
-    # Wider bounds would lower target to ~46 wpm and incorrectly clear remedial.
-    assert (
-        session_wpm_below_target(
-            result,
-            generated_min_len=3,
-            generated_max_len=10,
-        )
-        is False
-    )
+
+
+def test_session_wpm_below_target_ignores_word_length_bounds():
+    """Keystrokes per minute need no word-length guess, so word-list lessons
+    (3-10 letters) are judged the same way as generated ones."""
+    result = _drive_at_pace(_TWELVE_WORD_LESSON, 500, target_speed_cpm=120)
+    wide = replace(result, generated_min_len=3, generated_max_len=10)
+    assert session_wpm_below_target(wide) is False
 
 
 def test_finish_session_persists_generated_word_bounds(clock, id_gen):

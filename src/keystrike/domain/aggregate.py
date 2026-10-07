@@ -7,7 +7,8 @@ keystrokes increment error_count for the codepoint they missed.
 The reduction happens in two stages. `tally_session` folds the keystroke
 stream into exact integer `KeyTally` counters per key and per bigram — that
 `SessionStats` is what gets persisted with the session header. `combine_sessions`
-then merges the stored tallies of a window of sessions with recency weights.
+then merges the stored tallies of a window of sessions: recency weights on
+speed and accuracy, plain counts for attempts.
 """
 
 from __future__ import annotations
@@ -228,7 +229,7 @@ class MergedFields:
 
     samples: int
     mean_time_ns: float
-    error_count: int
+    error_count: float
     attempt_count: int
     last_seen: float
 
@@ -237,8 +238,9 @@ def _weighted_merge_fields(
     entries: Sequence[tuple[HasConfidenceFields, float]],
 ) -> MergedFields:
     weighted_samples = sum(weight * stats.samples for stats, weight in entries)
+    # Errors stay fractional: rounding would turn one older typo (weight 0.7)
+    # into a full error and fail the accuracy target on its own.
     weighted_errors = sum(weight * stats.error_count for stats, weight in entries)
-    weighted_attempts = sum(weight * stats.attempt_count for stats, weight in entries)
     if weighted_samples > 0:
         mean = (
             sum(stats.mean_time_ns * weight * stats.samples for stats, weight in entries)
@@ -250,8 +252,10 @@ def _weighted_merge_fields(
     return MergedFields(
         samples=_rounded_weighted_count(weighted_samples),
         mean_time_ns=mean,
-        error_count=round(weighted_errors),
-        attempt_count=_rounded_weighted_count(weighted_attempts),
+        error_count=weighted_errors,
+        # Unweighted: the attempt floors and the transition stall cap count
+        # real presses in the window, so decay cannot hold them below the bar.
+        attempt_count=sum(stats.attempt_count for stats, _ in entries),
         last_seen=last_seen,
     )
 
@@ -260,7 +264,7 @@ def _combine_key_maps_weighted(
     maps: Sequence[dict[int, KeyStats]],
     weights: Sequence[float],
 ) -> dict[int, KeyStats]:
-    """Merge key stats with recency weights on speed, accuracy, and attempts."""
+    """Merge key stats with recency weights on speed and accuracy."""
     by_cp: dict[int, list[tuple[KeyStats, float]]] = {}
     for m, weight in zip(maps, weights, strict=True):
         for cp, stats in m.items():
@@ -312,8 +316,10 @@ def combine_sessions(
     """Merge per-session stats into one layout aggregate.
 
     Sessions must be in chronological order. Recent sessions weigh more on
-    mean time, accuracy, and attempt counts so the sample ramp tracks recent
-    practice, not stale volume alone.
+    mean time and accuracy so stale practice cannot mask recent form. Attempt
+    counts are plain sums over the window: they are evidence (the attempt
+    floors and the stall cap), and decay would keep a key or pair that gets a
+    few presses per lesson below the floor forever.
     """
     if not sessions:
         return LayoutAggregates(keys={}, transitions={})
@@ -334,12 +340,12 @@ def infer_key_stat_samples(samples: int, mean_time_ns: float) -> int:
     return samples
 
 
-def infer_key_stat_attempt_count(samples: int, error_count: int, attempt_count: int) -> int:
+def infer_key_stat_attempt_count(samples: int, error_count: float, attempt_count: int) -> int:
     """Legacy caches predate a stored `attempt_count`; treat samples + errors
     as the inferred total whenever the stored value is non-positive."""
     inferred = samples + error_count
     if attempt_count <= 0 and inferred > 0:
-        return inferred
+        return max(1, round(inferred))
     return attempt_count
 
 

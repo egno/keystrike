@@ -1204,8 +1204,8 @@ def test_remedial_focus_targets_weak_key_from_low_wpm_lesson_alphabet():
 
 
 def test_remedial_focus_uses_session_word_bounds_not_current_settings():
-    """Changing word-length bounds after a session finishes must not alter
-    whether that session triggers remedial focus on the next lesson."""
+    """Word-length bounds (at finish or in current settings) must not alter
+    whether a session triggers remedial focus on the next lesson."""
     layout = BUNDLED_LAYOUTS["qwerty"]
     order = keyboard_order(layout)
     a, s, h, d = order[0], order[1], order[2], order[3]
@@ -1220,7 +1220,7 @@ def test_remedial_focus_uses_session_word_bounds_not_current_settings():
     cache = FakeAggregatesCache(
         by_layout={"qwerty": LayoutAggregates(keys=keys, transitions={})},
     )
-    # 50 wpm: below 100 wpm target at snapshotted 2-4 bounds, above 46 at 3-10.
+    # 1 keystroke in 60 s: far below 300 CPM whatever the word length.
     slow_session = SessionResult(
         schema_version=4,
         session_id="slow",
@@ -1288,18 +1288,19 @@ def test_remedial_focus_clears_once_lesson_wpm_meets_target():
         words_completed=1,
         target_speed_cpm=300,
     )
+    # 12 words x 3 letters + 11 spaces at exactly 200 ms (300 CPM) per keystroke.
     fast_session = SessionResult(
         schema_version=3,
         session_id="fast",
         started_at=2.0,
-        duration_ns=1_000_000_000,
+        duration_ns=46 * 200_000_000,
         layout="qwerty",
         mode=Mode.ADAPTIVE,
         lesson_alphabet=(a, d),
         focus_key=d,
-        total_keystrokes=1,
-        correct_keystrokes=1,
-        words_completed=10,
+        total_keystrokes=47,
+        correct_keystrokes=47,
+        words_completed=12,
         target_speed_cpm=300,
     )
     session_repo = FakeSessionRepository(headers=[slow_session, fast_session])

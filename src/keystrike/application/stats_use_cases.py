@@ -161,7 +161,7 @@ def _aggregate_speed_accuracy(
     target_ms: float,
 ) -> tuple[float, float]:
     total_samples = 0
-    total_errors = 0
+    total_errors = 0.0
     weighted_time = 0.0
     for key_stats in stats.values():
         total_samples += key_stats.samples

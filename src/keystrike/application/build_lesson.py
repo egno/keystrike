@@ -505,7 +505,7 @@ class _LessonContext:
     now: float
     target: float
     # The just-finished session's own lesson alphabet, when that session's own
-    # WPM fell short of its own target -- None otherwise (normal selection).
+    # typing speed fell short of its own target -- None otherwise (normal selection).
     remedial_alphabet: tuple[int, ...] | None = None
     # The just-finished session's saved weakest pair (`SessionResult.weakest_pair`).
     saved_pair: Bigram | None = None
@@ -513,7 +513,7 @@ class _LessonContext:
 
 def _remedial_alphabet(last: SessionResult | None) -> tuple[int, ...] | None:
     """The last finished session's own lesson alphabet, when that session's
-    own WPM missed its own target -- otherwise None."""
+    own typing speed missed its own target -- otherwise None."""
     if last is None or not session_wpm_below_target(last):
         return None
     return last.lesson_alphabet

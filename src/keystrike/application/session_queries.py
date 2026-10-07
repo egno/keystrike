@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from keystrike.domain.generator import typical_chars_per_word, wpm_from_cpm
+from keystrike.domain.generator import typical_chars_per_word
 from keystrike.domain.models import SessionResult
 from keystrike.domain.protocols import SessionRepository
 
@@ -22,6 +22,15 @@ def compute_wpm(result: SessionResult) -> float:
     if minutes <= 0:
         return 0.0
     return _words_for_wpm(result) / minutes
+
+
+def compute_cpm(result: SessionResult) -> float:
+    """Correct keystrokes per minute, spaces included — the same unit as
+    `target_speed_cpm`, which every key (space included) is timed against."""
+    minutes = result.duration_ns / 1e9 / 60.0
+    if minutes <= 0:
+        return 0.0
+    return result.correct_keystrokes / minutes
 
 
 def compute_accuracy(result: SessionResult) -> float:
@@ -50,24 +59,16 @@ def latest_session_header(repo: SessionRepository, layout: str) -> SessionResult
     return max(headers, key=lambda h: h.started_at, default=None)
 
 
-def session_wpm_below_target(
-    result: SessionResult,
-    *,
-    generated_min_len: int | None = None,
-    generated_max_len: int | None = None,
-) -> bool:
-    """Whether a finished session's own WPM fell short of its own target
-    speed. Drives `BuildLesson`'s remedial lesson-alphabet focus gate;
+def session_wpm_below_target(result: SessionResult) -> bool:
+    """Whether a finished session's own typing speed fell short of its own
+    target speed. Drives `BuildLesson`'s remedial lesson-alphabet focus gate;
     legacy sessions with no recorded target (``target_speed_cpm == 0``)
-    never trigger it. Word-length bounds come from the session header
-    (snapshotted at finish); optional overrides exist for tests."""
+    never trigger it.
+
+    Compares keystrokes per minute (spaces included) with `target_speed_cpm`,
+    not WPM with `wpm_from_cpm`: that conversion leaves out the space after
+    each word, so a learner at exactly target speed on every key would miss
+    it by about a quarter."""
     if result.target_speed_cpm <= 0 or result.words_completed <= 0:
         return False
-    min_len = generated_min_len if generated_min_len is not None else result.generated_min_len
-    max_len = generated_max_len if generated_max_len is not None else result.generated_max_len
-    target_wpm = wpm_from_cpm(
-        result.target_speed_cpm,
-        generated_min_len=min_len,
-        generated_max_len=max_len,
-    )
-    return compute_wpm(result) < target_wpm
+    return compute_cpm(result) < result.target_speed_cpm

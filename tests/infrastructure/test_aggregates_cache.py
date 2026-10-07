@@ -60,7 +60,7 @@ def test_get_pre_transition_cache_sets_transitions_computed_false(paths):
     cache._file("qwerty").write_text(
         json.dumps(
             {
-                "schema_version": 1,
+                "schema_version": 2,
                 "layout": "qwerty",
                 "keys": {
                     "97": {
@@ -118,7 +118,7 @@ def test_get_strips_same_key_transitions_from_stale_cache(paths):
     cache._file("qwerty").write_text(
         json.dumps(
             {
-                "schema_version": 1,
+                "schema_version": 2,
                 "layout": "qwerty",
                 "keys": {},
                 "transitions": {
@@ -157,7 +157,7 @@ def test_get_repairs_zero_samples_when_mean_time_present(paths):
     cache._file("qwerty").write_text(
         json.dumps(
             {
-                "schema_version": 1,
+                "schema_version": 2,
                 "layout": "qwerty",
                 "keys": {},
                 "transitions": {
@@ -197,7 +197,7 @@ def test_get_repairs_zero_attempt_count_when_samples_present(paths):
     cache._file("qwerty").write_text(
         json.dumps(
             {
-                "schema_version": 1,
+                "schema_version": 2,
                 "layout": "qwerty",
                 "keys": {},
                 "transitions": {
@@ -229,3 +229,25 @@ def test_get_repairs_zero_attempt_count_when_samples_present(paths):
         )
         > 0.0
     )
+
+
+def test_get_treats_schema_1_cache_as_miss(paths):
+    """Schema 1 stored recency-weighted attempt counts; it must rebuild."""
+    cache = FileAggregatesCache(paths)
+    cache._file("qwerty").write_text(
+        json.dumps({"schema_version": 1, "layout": "qwerty", "keys": {}, "transitions": {}}),
+        encoding="utf-8",
+    )
+    assert cache.get("qwerty") is None
+
+
+def test_put_then_get_keeps_fractional_errors(paths):
+    cache = FileAggregatesCache(paths)
+    aggregates = LayoutAggregates(
+        keys={ord("a"): KeyStats(ord("a"), 7, 200_000_000.0, 0.7, 1.0, attempt_count=9)},
+    )
+    cache.put("qwerty", aggregates)
+    loaded = cache.get("qwerty")
+    assert loaded is not None
+    assert loaded.keys[ord("a")].error_count == 0.7
+    assert json.loads(cache._file("qwerty").read_text(encoding="utf-8"))["schema_version"] == 2
