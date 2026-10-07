@@ -66,18 +66,18 @@ def test_round_trip_single_session(paths):
     assert headers[0].stats.transitions[Bigram(ord("a"), ord("b"))] == KeyTally(1, 100, 0, 1)
 
 
-def test_round_trip_weakest_pair(paths):
+def test_round_trip_focus_pair(paths):
     repo = JsonlSessionRepository(paths)
-    header = replace(_header(), weakest_pair=Bigram(ord("s"), ord("a")))
+    header = replace(_header(), focus_pair=Bigram(ord("s"), ord("a")))
     repo.save_header(header)
     assert list(JsonlSessionRepository(paths).iter_headers("qwerty")) == [header]
 
 
-def test_row_without_weakest_pair_reads_back_as_none(paths):
+def test_row_without_focus_pair_reads_back_as_none(paths):
     repo = JsonlSessionRepository(paths)
     repo.save_header(_header())
-    assert "weakest_pair" not in paths.sessions_index.read_text(encoding="utf-8")
-    assert next(iter(repo.iter_headers("qwerty"))).weakest_pair is None
+    assert "focus_pair" not in paths.sessions_index.read_text(encoding="utf-8")
+    assert next(iter(repo.iter_headers("qwerty"))).focus_pair is None
 
 
 def test_iter_headers_filters_by_layout(paths):
@@ -254,7 +254,7 @@ def test_legacy_row_without_stats_reads_as_empty_stats(paths):
     headers = list(JsonlSessionRepository(paths).iter_headers("qwerty"))
     assert headers[0].session_id == _VALID_ULID_D
     assert headers[0].stats.is_empty
-    assert headers[0].weakest_pair is None
+    assert headers[0].focus_pair is None
 
 
 @pytest.mark.parametrize(
@@ -292,7 +292,7 @@ def test_malformed_stats_skip_the_row_not_the_index(paths, stats_json):
         '[97, "x"]',  # not a codepoint
     ],
 )
-def test_malformed_weakest_pair_skips_the_row_not_the_index(paths, pair_json):
+def test_malformed_focus_pair_skips_the_row_not_the_index(paths, pair_json):
     repo = JsonlSessionRepository(paths)
     repo.save_header(_header(sid=_VALID_ULID_A))
     with paths.sessions_index.open("a", encoding="utf-8") as fh:
@@ -300,7 +300,7 @@ def test_malformed_weakest_pair_skips_the_row_not_the_index(paths, pair_json):
             f'{{"schema_version": 5, "session_id": "{_VALID_ULID_E}", "layout": "qwerty", '
             '"started_at": 1700000000.0, "duration_ns": 1000000000, "mode": "adaptive", '
             '"lesson_alphabet": [], "focus_key": null, "total_keystrokes": 0, '
-            f'"correct_keystrokes": 0, "weakest_pair": {pair_json}}}\n'
+            f'"correct_keystrokes": 0, "focus_pair": {pair_json}}}\n'
         )
     repo.save_header(_header(sid=_VALID_ULID_B))
 

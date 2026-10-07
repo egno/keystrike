@@ -201,6 +201,18 @@ def skill_of(codepoint: int, stats: Mapping[int, KeyStats], target: float) -> fl
     return skill_from_stats(stats.get(codepoint), target)
 
 
+# ponytail: fixed multiplier; upgrade to a Settings field if a stuck key or
+# pair turns out to need per-user tuning.
+STALL_ATTEMPTS_MULTIPLIER = 3
+
+
+def stall_attempts_cap(min_attempts: int) -> int:
+    """Real (unweighted) window attempts after which a key or pair that still
+    has not cleared counts as stalled: the transition gate releases it
+    (`domain.unlock`) and focus stops holding on to it (`domain.focus`)."""
+    return min_attempts * STALL_ATTEMPTS_MULTIPLIER
+
+
 def clears_threshold(
     stats: HasConfidenceFields | None,
     target: float,

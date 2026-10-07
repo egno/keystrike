@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from keystrike.application.build_lesson import BuildLesson
 from keystrike.domain.enums import Mode
 from keystrike.domain.focus import FocusReason
-from keystrike.domain.models import Layout
+from keystrike.domain.models import Bigram, Layout
 from keystrike.domain.null_adapters import NULL_AGGREGATES_ENSURER
 from keystrike.domain.protocols import (
     AggregatesEnsurer,
@@ -23,6 +23,7 @@ class SessionPrep:
     layout: str
     mode: Mode
     focus_key: int | None
+    focus_pair: Bigram | None
     focus_reason: FocusReason | None
     focus_confidence: float | None
     focus_speed: float | None
@@ -51,6 +52,7 @@ class PreparePracticeSession:
             layout=settings.layout,
             mode=Mode.ADAPTIVE,
             focus_key=lesson.focus_key,
+            focus_pair=lesson.focus_pair,
             focus_reason=lesson.focus_reason,
             focus_confidence=lesson.focus_confidence,
             focus_speed=lesson.focus_speed,

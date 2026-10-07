@@ -24,15 +24,6 @@ def compute_wpm(result: SessionResult) -> float:
     return _words_for_wpm(result) / minutes
 
 
-def compute_cpm(result: SessionResult) -> float:
-    """Correct keystrokes per minute, spaces included — the same unit as
-    `target_speed_cpm`, which every key (space included) is timed against."""
-    minutes = result.duration_ns / 1e9 / 60.0
-    if minutes <= 0:
-        return 0.0
-    return result.correct_keystrokes / minutes
-
-
 def compute_accuracy(result: SessionResult) -> float:
     if result.total_keystrokes == 0:
         return 0.0
@@ -53,22 +44,6 @@ def previous_session_header(
 
 def latest_session_header(repo: SessionRepository, layout: str) -> SessionResult | None:
     """Most recently finished session for ``layout``, if any — the header
-    `BuildLesson` reads to decide whether the next lesson needs the
-    lesson-WPM remedial-focus gate (`session_wpm_below_target`)."""
+    `BuildLesson` reads to keep the last lesson's focus."""
     headers = list(repo.iter_headers(layout))
     return max(headers, key=lambda h: h.started_at, default=None)
-
-
-def session_wpm_below_target(result: SessionResult) -> bool:
-    """Whether a finished session's own typing speed fell short of its own
-    target speed. Drives `BuildLesson`'s remedial lesson-alphabet focus gate;
-    legacy sessions with no recorded target (``target_speed_cpm == 0``)
-    never trigger it.
-
-    Compares keystrokes per minute (spaces included) with `target_speed_cpm`,
-    not WPM with `wpm_from_cpm`: that conversion leaves out the space after
-    each word, so a learner at exactly target speed on every key would miss
-    it by about a quarter."""
-    if result.target_speed_cpm <= 0 or result.words_completed <= 0:
-        return False
-    return compute_cpm(result) < result.target_speed_cpm

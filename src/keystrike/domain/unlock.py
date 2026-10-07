@@ -10,21 +10,7 @@ from .confidence import attempts_of, clears_threshold
 from .models import Bigram, KeyStats, TransitionStats, UnlockTuning
 from .newest_key import newest_key_gating_cohort
 
-# ponytail: fixed multiplier; upgrade to a Settings field if a stuck gating
-# bigram turns out to need per-user tuning.
-TRANSITION_STALL_ATTEMPTS_MULTIPLIER = 3
-
 _DEFAULT_UNLOCK_TUNING = UnlockTuning()
-
-
-def default_transition_stall_attempts_cap(min_attempts: int) -> int:
-    """Default `transition_stall_attempts_cap` for `compute_unlocked`: give a
-    stuck gating bigram this many times the normal calibration floor (real,
-    unweighted attempts in the window) before releasing it anyway. Single
-    source of truth so callers that need the
-    gate (`build_lesson`, `session_use_cases`) can't compute this
-    differently and drift apart."""
-    return min_attempts * TRANSITION_STALL_ATTEMPTS_MULTIPLIER
 
 
 def newest_key_clears_transition_gate(

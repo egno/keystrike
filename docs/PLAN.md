@@ -68,7 +68,7 @@ keystrike/
 │   │   ├── protocols.py                   # Clock, IdGenerator, SessionRepository, SettingsRepository, LayoutRepository, LanguageProvider, CodeSnippetProvider, AggregatesCache, FreeformTextProvider, StatsRebuilder, LearningRateEstimator
 │   │   ├── null_adapters.py               # NullSessionRepository, NullStatsRebuilder, NullLearningRateEstimator [DONE]
 │   │   ├── aggregate.py                   # pure: Keystroke → KeyStats rollup [DONE]
-│   │   ├── confidence.py                  # pure: key_confidence, confidence_of, select_focus, compute_unlocked [DONE]
+│   │   ├── confidence.py                  # pure: key_confidence, confidence_of, select_lesson_focus, compute_unlocked [DONE]
 │   │   ├── generator.py                   # pure: AdaptiveGenerator (Markov + focus letter) [DONE]
 │   │   ├── markov.py                      # TransitionTable value object + sampler [DONE]
 │   │   ├── regression.py                  # pure: polynomial fit, estimate_sessions_to_goal [DONE]
@@ -233,7 +233,7 @@ all fixed before M3 began (95 tests passing at that point) — see
 shorter contexts, filtered to the unlocked alphabet), `domain/generator.py`
 (`AdaptiveGenerator`: word length 2–4 by default, `p_stop = min(1, 1.3**length/max_len)`,
 focus letter guaranteed via injection if the Markov walk didn't produce it),
-`domain/confidence.py` (`confidence_of`, `compute_unlocked`, `select_focus` —
+`domain/confidence.py` (`confidence_of`, `compute_unlocked`, `select_lesson_focus` —
 faithful to §6 below), `application/build_lesson.py` (`BuildLesson` ties
 layout + stats + settings + language provider into a `Lesson(text, state)`),
 `infrastructure/languages/` (`BundledLanguageProvider`, gzip+JSON), and
@@ -288,7 +288,7 @@ characters (`():=_[]"`) that aren't part of any `Layout.learn_order` — a
 strict filter would reject nearly every real snippet. Instead
 `select_snippet` weight-picks by how often the snippet contains the focus
 char (`snippet.count(focus_char) + 1`), so unlock/focus state still comes
-from the exact same `compute_unlocked`/`select_focus` logic as English mode
+from the exact same `compute_unlocked`/`select_lesson_focus` logic as English mode
 (factored out to `_lesson_progress()`, shared by `BuildLesson` and the new
 `BuildCodeLesson` in `application/build_lesson.py`) — it just doesn't gate
 which literal characters can appear in the practice text.

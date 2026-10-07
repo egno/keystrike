@@ -1,5 +1,5 @@
 from keystrike.domain.aggregate import combine_sessions, tally_session
-from keystrike.domain.confidence import confidence_of, skill_of
+from keystrike.domain.confidence import confidence_of, skill_of, stall_attempts_cap
 from keystrike.domain.enums import Mode
 from keystrike.domain.models import (
     Bigram,
@@ -12,7 +12,6 @@ from keystrike.domain.models import (
 from keystrike.domain.newest_key import newest_key_gating_cohort
 from keystrike.domain.unlock import (
     compute_unlocked,
-    default_transition_stall_attempts_cap,
     gating_bigram_is_ready,
     newest_key_clears_transition_gate,
     newest_key_transition_gate_progress,
@@ -423,7 +422,7 @@ def test_transition_stall_cap_reachable_at_two_attempts_per_lesson():
     6th lesson in the window, instead of settling near 6.5 weighted ones."""
     ea = Bigram(ord("e"), ord("a"))
     tuning = UnlockTuning()
-    cap = default_transition_stall_attempts_cap(tuning.min_transition_confidence_attempts)
+    cap = stall_attempts_cap(tuning.min_transition_confidence_attempts)
     assert cap == 12
 
     def ready_after(lessons: int) -> bool:

@@ -13,10 +13,10 @@ from keystrike.domain.aggregate import (
 )
 from keystrike.domain.confidence import (
     confidence_of,
+    stall_attempts_cap,
     target_ms_per_char,
 )
 from keystrike.domain.enums import Mode, SessionState
-from keystrike.domain.focus import weakest_session_pair
 from keystrike.domain.generator import effective_generated_word_bounds
 from keystrike.domain.learn_order import keyboard_order
 from keystrike.domain.models import Bigram, Keystroke, SessionResult, SessionStats
@@ -40,7 +40,7 @@ from keystrike.domain.session import (
     note_keystroke_for_timer,
     skip_leading_whitespace,
 )
-from keystrike.domain.unlock import compute_unlocked, default_transition_stall_attempts_cap
+from keystrike.domain.unlock import compute_unlocked
 
 
 @dataclass(slots=True)
@@ -56,6 +56,7 @@ class StartSession:
         mode: Mode = Mode.ADAPTIVE,
         lang: str = "en",
         focus_key: int | None = None,
+        focus_pair: Bigram | None = None,
     ) -> Session:
         return Session(
             id=self.id_gen.new_id(),
@@ -66,6 +67,7 @@ class StartSession:
             started_at_wall=self.clock.wall_epoch(),
             started_at_ns=self.clock.now_ns(),
             focus_key=focus_key,
+            focus_pair=focus_pair,
         )
 
 
@@ -141,7 +143,7 @@ def _snapshot_finish_state(
     repo: SessionRepository,
     settings_repo: SettingsRepository,
     layout_repo: LayoutRepository,
-) -> tuple[tuple[int, ...], dict[int, float], Bigram | None]:
+) -> tuple[tuple[int, ...], dict[int, float]]:
     settings = settings_repo.load()
     layout = layout_repo.get(session.layout)
     draft = _DraftTiming(started_at=session.started_at_wall, duration_ns=duration_ns)
@@ -162,7 +164,7 @@ def _snapshot_finish_state(
         target,
         tuning=settings.unlock,
         transitions=combined.transitions,
-        transition_stall_attempts_cap=default_transition_stall_attempts_cap(
+        transition_stall_attempts_cap=stall_attempts_cap(
             settings.unlock.min_transition_confidence_attempts
         ),
     )
@@ -172,14 +174,7 @@ def _snapshot_finish_state(
         )
         for cp in unlocked
     }
-    weakest_pair = weakest_session_pair(
-        stats.transitions,
-        unlocked,
-        combined.transitions,
-        target,
-        min_attempts=settings.unlock.min_transition_confidence_attempts,
-    )
-    return unlocked, key_confidence, weakest_pair
+    return unlocked, key_confidence
 
 
 @dataclass(slots=True)
@@ -200,7 +195,7 @@ class FinishSession:
         settings = self.settings_repo.load()
         target_speed_cpm = settings.target_speed_cpm
         stats = tally_session(session.keystrokes)
-        unlocked_keys, key_confidence, weakest_pair = _snapshot_finish_state(
+        unlocked_keys, key_confidence = _snapshot_finish_state(
             session,
             duration_ns,
             stats,
@@ -226,6 +221,7 @@ class FinishSession:
             mode=session.mode,
             lesson_alphabet=tuple(sorted({ord(c) for c in session.target_text})),
             focus_key=session.focus_key,
+            focus_pair=session.focus_pair,
             total_keystrokes=session.total_count,
             correct_keystrokes=session.correct_count,
             words_completed=count_words_completed(session.target_text, session.position),
@@ -236,7 +232,6 @@ class FinishSession:
             generated_min_len=generated_min_len,
             generated_max_len=generated_max_len,
             stats=stats,
-            weakest_pair=weakest_pair,
         )
         self.repo.save_header(result)
         return result

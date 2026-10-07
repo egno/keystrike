@@ -132,47 +132,18 @@ Every member must reach confidence 1.0 with
 `[unlock].min_transition_confidence_attempts` attempts.
 Every member must pass the same `domain.confidence.clears_threshold` rule as
 key unlock and focus.
-A `transition_stall_attempts_cap` (`domain.unlock.default_transition_stall_attempts_cap`,
+A `transition_stall_attempts_cap` (`domain.confidence.stall_attempts_cap`,
 3× the transition calibration floor by default, so 12 real attempts in the
 window) releases a specific pair that's been drilled past the cap without
 clearing threshold, so one stubborn bigram can't block progression forever.
 At two cohort-coverage slots per lesson, a stuck pair reaches the cap on its
 sixth lesson.
 
-**Focus selection** is letter-first: while any unlocked key is below the skill
-threshold or key-attempt floor, the lesson emphasizes the weakest unlocked
-**key**. While transition progression is blocked, deficient members of the
-same gating cohort drive transition focus and share guaranteed lesson coverage.
-An older pair can preempt only after enough samples show genuine raw
-speed/accuracy regression; sparse old calibration does not delay progression.
-Outside a blocked progression gate, normal measured transition review remains.
-
-**Focus is sticky.** Once a key or bigram becomes the focus, it keeps that
-focus across lesson builds until it individually clears both the skill
-threshold and its attempt floor (the same two-part gate as unlocks, via
-`domain.confidence.clears_threshold`) — an unrelated stale-but-mastered key's
-review urgency, or the transition gate activating, cannot steal focus away
-mid-calibration. Only once *every* unlocked key/bigram has cleared does
-review-urgency-based staleness compete for focus across the whole set.
-
-## Lesson WPM gate
-
-A finished session's own typing speed is compared against its own target
-speed in the same unit the keys are timed in: correct keystrokes per minute,
-spaces included, against `target_speed_cpm`. (Words per minute converted with
-`SettingsScreen`'s CPM→WPM rule would leave out the space after each word, so
-a lesson typed at exactly target speed on every key would miss it by about a
-quarter; word-list lessons with longer words would also be judged by a wrong
-word length.) If that session's speed fell short, the *next* lesson's focus is confined to the
-weakest key or bigram from that session's own `lesson_alphabet` — the letters
-that actually appeared in the text — instead of ordinary weakest-across-window
-selection or the newest-key transition gate picking elsewhere. This remains in
-effect lesson-over-lesson until a lesson's speed meets target again, at which
-point normal focus selection (including stickiness, above) resumes. Sessions
-with no recorded target (`target_speed_cpm == 0`, e.g. very old data) never
-trigger this gate. There is no separate HUD label — the gate only narrows
-*which* key/bigram is eligible for focus, so the usual `wk`/`cal`/`rev` reason
-still applies to whichever one is chosen.
+**Focus selection** follows one ordered list: keys that have not cleared,
+then the unlock-gate cohort pairs, then weak pairs ranked by weakness ×
+language frequency, then review of the most overdue key or pair. The last
+lesson's focus is kept while it still needs work, until it stalls at the same
+3× attempt cap. See [Focus states](Focus-States) for the full rules.
 
 ### Transition stats
 

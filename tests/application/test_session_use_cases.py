@@ -10,7 +10,6 @@ from keystrike.application.session_queries import (
     compute_wpm,
     latest_session_header,
     previous_session_header,
-    session_wpm_below_target,
 )
 from keystrike.application.session_use_cases import (
     AbortSession,
@@ -25,10 +24,10 @@ from keystrike.application.stats_use_cases import RebuildAggregates
 from keystrike.domain.aggregate import combine_sessions
 from keystrike.domain.confidence import confidence_of, target_ms_per_char
 from keystrike.domain.enums import Mode, SessionState
-from keystrike.domain.generator import wpm_from_cpm
 from keystrike.domain.learn_order import keyboard_order
 from keystrike.domain.models import (
     CONFIDENCE_SESSION_WINDOW,
+    Bigram,
     SessionResult,
     Settings,
     UnlockTuning,
@@ -438,72 +437,6 @@ def test_latest_session_header_none_when_no_sessions():
     assert latest_session_header(FakeSessionRepository(), "qwerty") is None
 
 
-def test_session_wpm_below_target_true_when_slower_than_target(clock, id_gen):
-    _, result = _drive("hello world", "hello ", clock, id_gen)
-    result = replace(result, words_completed=1, duration_ns=60_000_000_000, target_speed_cpm=300)
-    assert session_wpm_below_target(result) is True
-
-
-def test_session_wpm_below_target_false_when_faster_than_target(clock, id_gen):
-    _, result = _drive("hello world", "hello ", clock, id_gen)
-    result = replace(result, words_completed=20, duration_ns=1_000_000_000, target_speed_cpm=300)
-    assert session_wpm_below_target(result) is False
-
-
-def test_session_wpm_below_target_false_for_legacy_session_without_target():
-    result = SessionResult(
-        session_id="s1",
-        total_keystrokes=1,
-        correct_keystrokes=1,
-        **_session_stats_common(),
-    )
-    assert result.target_speed_cpm == 0
-    assert session_wpm_below_target(result) is False
-
-
-def _drive_at_pace(text: str, ms_per_keystroke: int, target_speed_cpm: int) -> SessionResult:
-    clock = FakeClock()
-    settings_repo = FakeSettingsRepository(Settings(target_speed_cpm=target_speed_cpm))
-    session = StartSession(clock=clock, id_gen=FakeIdGenerator())(
-        text, layout="qwerty", mode=Mode.ADAPTIVE
-    )
-    record = RecordKeystroke(clock=clock)
-    for ch in text:
-        clock.advance(ms_per_keystroke * 1_000_000)
-        record(session, ch)
-    return FinishSession(clock=clock, settings_repo=settings_repo)(session)
-
-
-# 12 words x 3 letters + 11 spaces = 47 keystrokes (default lesson, 2-4 bounds).
-_TWELVE_WORD_LESSON = " ".join(["abc"] * 12)
-
-
-def test_session_wpm_below_target_false_when_every_key_is_at_target_speed():
-    """40 WPM in Settings is 120 CPM (500 ms per key). Typing every keystroke,
-    spaces included, at exactly 500 ms meets the target: the gate counts the
-    spaces, so it must not fire. WPM against cpm / mean word length (40) would."""
-    result = _drive_at_pace(_TWELVE_WORD_LESSON, 500, target_speed_cpm=120)
-    assert result.correct_keystrokes == 47
-    assert result.words_completed == 12
-    a = result.stats.keys[ord("a")]
-    assert a.time_ns / a.samples == 500_000_000  # key speed exactly 1.0
-    assert compute_wpm(result) < wpm_from_cpm(120)  # the old comparison fired here
-    assert session_wpm_below_target(result) is False
-
-
-def test_session_wpm_below_target_true_when_keys_slower_than_target():
-    result = _drive_at_pace(_TWELVE_WORD_LESSON, 550, target_speed_cpm=120)
-    assert session_wpm_below_target(result) is True
-
-
-def test_session_wpm_below_target_ignores_word_length_bounds():
-    """Keystrokes per minute need no word-length guess, so word-list lessons
-    (3-10 letters) are judged the same way as generated ones."""
-    result = _drive_at_pace(_TWELVE_WORD_LESSON, 500, target_speed_cpm=120)
-    wide = replace(result, generated_min_len=3, generated_max_len=10)
-    assert session_wpm_below_target(wide) is False
-
-
 def test_finish_session_persists_generated_word_bounds(clock, id_gen):
     settings_repo = FakeSettingsRepository(Settings(word_gen=WordGenBounds(min_len=3, max_len=8)))
     finish = FinishSession(clock=clock, settings_repo=settings_repo)
@@ -787,84 +720,18 @@ def test_finish_session_alphabet_bump_respects_transition_gate(clock, id_gen):
     assert order[4] not in unlocked_cps
 
 
-def test_finish_session_saves_weakest_pair_typed_in_session(clock, id_gen):
-    settings_repo = FakeSettingsRepository(
-        Settings(
-            target_speed_cpm=300,
-            unlock=UnlockTuning(min_transition_confidence_attempts=2),
-        )
-    )
+def test_finish_session_saves_focus_pair(clock, id_gen):
     repo = FakeSessionRepository()
-    finish = FinishSession(
-        clock=clock,
-        repo=repo,
-        settings_repo=settings_repo,
-        layout_repo=FakeLayoutRepository(dict(BUNDLED_LAYOUTS)),
+    finish = FinishSession(clock=clock, repo=repo)
+    pair = Bigram(ord("a"), ord("s"))
+    session = StartSession(clock=clock, id_gen=id_gen)(
+        "as", layout="qwerty", mode=Mode.ADAPTIVE, focus_key=pair.next_cp, focus_pair=pair
     )
-    start = StartSession(clock=clock, id_gen=id_gen)
     record = RecordKeystroke(clock=clock)
-    order = keyboard_order(BUNDLED_LAYOUTS["qwerty"])
-    a, b = chr(order[0]), chr(order[1])
-    session = start(f"{a}{b}{a}{b}", layout="qwerty", mode=Mode.ADAPTIVE, focus_key=order[0])
-    for ch in f"{a}{b}{a}{b}":
-        clock.advance(2_000_000_000)  # far slower than 300 cpm
+    for ch in "as":
+        clock.advance(100_000_000)
         record(session, ch)
     result = finish(session)
-    assert result.weakest_pair is not None
-    assert {result.weakest_pair.prev_cp, result.weakest_pair.next_cp} == {order[0], order[1]}
-    assert repo.headers[0].weakest_pair == result.weakest_pair
-
-
-def _finish_typed(clock, id_gen, repo, text: str, step_ns: int, *, min_pair_attempts: int):
-    """Type `text` at a fixed pace through Start/Record/FinishSession."""
-    finish = FinishSession(
-        clock=clock,
-        repo=repo,
-        settings_repo=FakeSettingsRepository(
-            Settings(
-                target_speed_cpm=300,
-                unlock=UnlockTuning(min_transition_confidence_attempts=min_pair_attempts),
-            )
-        ),
-        layout_repo=FakeLayoutRepository(dict(BUNDLED_LAYOUTS)),
-    )
-    session = StartSession(clock=clock, id_gen=id_gen)(
-        text, layout="qwerty", mode=Mode.ADAPTIVE, focus_key=ord(text[0])
-    )
-    record = RecordKeystroke(clock=clock)
-    for ch in text:
-        clock.advance(step_ns)
-        record(session, ch)
-    return finish(session)
-
-
-def test_finish_session_without_slow_pair_saves_none(clock, id_gen):
-    order = keyboard_order(BUNDLED_LAYOUTS["qwerty"])
-    a, b = chr(order[0]), chr(order[1])
-    fast = 50_000_000  # well over 300 cpm
-    result = _finish_typed(
-        clock, id_gen, FakeSessionRepository(), f"{a}{b}{a}{b}", fast, min_pair_attempts=2
-    )
-    assert result.weakest_pair is None
-
-
-def test_finish_session_skips_slow_pair_below_attempt_floor(clock, id_gen):
-    order = keyboard_order(BUNDLED_LAYOUTS["qwerty"])
-    a, b = chr(order[0]), chr(order[1])
-    slow = 2_000_000_000
-    result = _finish_typed(
-        clock, id_gen, FakeSessionRepository(), f"{a}{b}", slow, min_pair_attempts=4
-    )
-    assert result.weakest_pair is None
-
-
-def test_finish_session_skips_slow_pair_only_in_history(clock, id_gen):
-    order = keyboard_order(BUNDLED_LAYOUTS["qwerty"])
-    a, b = chr(order[0]), chr(order[1])
-    slow = 2_000_000_000
-    repo = FakeSessionRepository()
-    first = _finish_typed(clock, id_gen, repo, f"{a}{b}{a}{b}", slow, min_pair_attempts=2)
-    assert first.weakest_pair is not None
-    # Same-key presses only: the slow pair stays in the window but is not typed.
-    second = _finish_typed(clock, id_gen, repo, f"{a}{a}{a}", slow, min_pair_attempts=2)
-    assert second.weakest_pair is None
+    assert result.focus_key == pair.next_cp
+    assert result.focus_pair == pair
+    assert repo.headers[0].focus_pair == pair

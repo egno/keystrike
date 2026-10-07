@@ -18,6 +18,13 @@ def test_sample_falls_back_to_shorter_context():
     assert table.sample("xb", frozenset("bcxz"), rng) == "c"
 
 
+def test_pair_weight_reads_the_first_letter_row_then_the_global_row():
+    table = TransitionTable(order=2, transitions={"a": {"s": 7}, "": {"s": 2}})
+    assert table.pair_weight(Bigram(ord("a"), ord("s"))) == 7
+    assert table.pair_weight(Bigram(ord("a"), ord("d"))) == 0
+    assert table.pair_weight(Bigram(ord("d"), ord("s"))) == 2
+
+
 def test_sample_falls_back_to_global_distribution():
     table = TransitionTable(order=2, transitions={"": {"e": 1}})
     rng = Random(1)

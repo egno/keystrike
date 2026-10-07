@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from .enums import Mode, SessionState
-from .models import Keystroke
+from .models import Bigram, Keystroke
 
 BACKSPACE = "\x7f"  # normalized backspace codepoint marker used at edges
 LEADING_SKIP_KEYS = frozenset(" \t\n\r")  # accidental space/enter/tab before session/word start
@@ -111,6 +111,7 @@ class Session:
     error_positions: set[int] = field(default_factory=set[int])  # positions that needed correction
     state: SessionState = SessionState.RUNNING
     focus_key: int | None = None  # adaptive mode: the key this lesson emphasized
+    focus_pair: Bigram | None = None  # adaptive mode: the pair, for pair focus
 
     @property
     def finished(self) -> bool:
