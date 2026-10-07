@@ -5,7 +5,7 @@ rationale lives in commit history/diffs — these are pointers, not narratives.
 Milestone-level feature work (what shipped in M1–M4, the keybr algorithm
 design) stays in `PLAN.md` §5/§6.
 
-## Unreleased
+## 2.2.0
 
 - **One focus ladder** — `select_lesson_focus` (`domain/focus.py`) replaces
   `select_focus`, `select_focus_transition`, `remedial_focus` and the
@@ -14,10 +14,9 @@ design) stays in `PLAN.md` §5/§6.
   (`TransitionTable.pair_weight`), then review. Each rule keeps the last
   lesson's focus until it clears or stalls at 3× its attempt floor
   (`domain.confidence.stall_attempts_cap`, moved from `domain.unlock`).
-  Removed: the lesson WPM gate (`session_wpm_below_target`), the review
-  penalty in focus scoring, and the saved `weakest_pair`. Sessions now save
-  `focus_pair` when the focus was a pair (written only when set; old rows
-  read back unchanged).
+  Removed: the lesson WPM gate (`remedial_focus`) and the review penalty in
+  focus scoring. Sessions now save `focus_pair` when the focus was a pair
+  (written only when set, still schema 5; old rows read back unchanged).
 - **Attempt floors count real presses** — `combine_sessions` now sums
   `attempt_count` over the window without recency weights; speed and accuracy
   keep theirs. Weighted attempts settled at about 3.24 × presses per lesson,
@@ -34,21 +33,6 @@ design) stays in `PLAN.md` §5/§6.
   lesson counts as 0.7. The transition gate now calls the same
   `clears_threshold` rule as key unlock and focus. HUD and Stats still show
   raw accuracy.
-- **Lesson WPM gate compares like with like** — `session_wpm_below_target`
-  compares correct keystrokes per minute (spaces included) with
-  `target_speed_cpm`. It used WPM against `cpm / mean word length`, which
-  leaves out the space, so a lesson typed at exactly target speed on every
-  key read as about 25% too slow and kept the remedial focus on. Sessions
-  without a target (`target_speed_cpm == 0`) still never trigger it.
-- **Weakest pair saved on the session result** — `FinishSession` now stores
-  `SessionResult.weakest_pair`: the slowest cross-key pair typed in the
-  session (enough attempts, skill < 1.0, lowest raw skill;
-  `domain.focus.weakest_session_pair`). The optional `weakest_pair` field in
-  the `index.jsonl` row stays schema 5, and rows without it read back as
-  `None`. After a lesson that missed its WPM target, `remedial_focus` starts
-  from that pair instead of a calibrating pair with only a few presses. The
-  newest key's gating cohort still takes priority while the unlock gate is
-  open.
 
 ## 2.1.0
 
