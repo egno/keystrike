@@ -23,6 +23,7 @@ from keystrike.application.stats_use_cases import (
     GetOrRebuildAggregates,
     PruneSessionStats,
     RebuildAggregates,
+    RebuildAllAggregates,
 )
 from keystrike.application.sync_use_cases import GetSyncStatus, InitSync, PullSync, PushSync
 from keystrike.application.wordlist_use_cases import (
@@ -83,6 +84,7 @@ def build_sync() -> SyncServices:
         repo=session_repo,
         cache=aggregates_cache,
         settings_repo=TomlSettingsRepository(paths),
+        layout_repo=CompositeLayoutRepository(paths),
     )
     return SyncServices(
         init=InitSync(gateway=store),
@@ -119,6 +121,7 @@ def build() -> KeystrikeApp:
         repo=session_repo,
         cache=aggregates_cache,
         settings_repo=settings_repo,
+        layout_repo=layout_repo,
     )
     ensure_aggregates = GetOrRebuildAggregates(
         repo=session_repo,
@@ -141,7 +144,11 @@ def build() -> KeystrikeApp:
         settings_repo=settings_repo,
     )
     cycle_layout = CycleLayout(settings_repo=settings_repo, layout_repo=layout_repo)
-    update_settings = UpdateSettings(repo=settings_repo)
+    update_settings = UpdateSettings(
+        repo=settings_repo,
+        wall_epoch=clock.wall_epoch,
+        rebuild_aggregates=RebuildAllAggregates(repo=session_repo, rebuild=rebuild_aggregates),
+    )
     wordlist_store = FileWordListStore(paths)
     # Shared by BuildLesson (load), ImportWordList (download), GetWordListCacheStatus.
     import_wordlist = ImportWordList(store=wordlist_store, settings_repo=settings_repo)

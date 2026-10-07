@@ -11,7 +11,13 @@ from datetime import UTC, datetime
 from typing import cast
 
 from keystrike.domain.enums import TargetSpeedUnit
-from keystrike.domain.models import FocusTuning, Settings, UnlockTuning, WordGenBounds
+from keystrike.domain.models import (
+    AlphabetCut,
+    FocusTuning,
+    Settings,
+    UnlockTuning,
+    WordGenBounds,
+)
 
 from .atomic_write import atomic_write_text
 from .paths import Paths
@@ -80,6 +86,30 @@ def _load_nested(cls: type[_NestedTuning], raw_table: object) -> _NestedTuning:
     return cls(**values)  # type: ignore[arg-type]
 
 
+def _load_alphabet_cut(entry: object) -> AlphabetCut | None:
+    if not isinstance(entry, list):
+        return None
+    match cast("list[object]", entry):
+        case [int() | float() as at, int() as size] if (
+            not isinstance(at, bool) and not isinstance(size, bool) and size >= 0
+        ):
+            return AlphabetCut(at=float(at), size=size)
+        case _:
+            return None
+
+
+def _load_alphabet_cuts(raw_value: object) -> tuple[AlphabetCut, ...]:
+    """`[[at, size], ...]` -> cuts; a malformed entry is skipped, not fatal."""
+    if not isinstance(raw_value, list):
+        return ()
+    loaded = (_load_alphabet_cut(entry) for entry in cast("list[object]", raw_value))
+    return tuple(cut for cut in loaded if cut is not None)
+
+
+def _fmt_alphabet_cuts(cuts: tuple[AlphabetCut, ...]) -> str:
+    return "[" + ", ".join(f"[{_fmt_scalar(c.at)}, {c.size}]" for c in cuts) + "]"
+
+
 def _write_nested_table(lines: list[str], name: str, value: _NestedTuning) -> None:
     lines.append(f"\n[{name}]\n")
     for f in dataclasses.fields(value):
@@ -108,6 +138,9 @@ class TomlSettingsRepository:
                 # Written fresh on save(), not defaulted — only round-tripped here.
                 raw_updated = raw.get("updated_at")
                 values[f.name] = str(raw_updated) if raw_updated is not None else None
+                continue
+            if f.name == "alphabet_cuts":
+                values[f.name] = _load_alphabet_cuts(raw.get(f.name))
                 continue
             default = getattr(defaults, f.name)
             if isinstance(default, _NESTED_TYPES):
@@ -144,6 +177,10 @@ class TomlSettingsRepository:
                 continue
             if field.name == "wordlist_url" and not value:
                 continue  # omit when unset, matching prior hand-rolled behavior
+            if field.name == "alphabet_cuts":
+                if value:
+                    lines.append(f"{field.name} = {_fmt_alphabet_cuts(value)}\n")
+                continue
             lines.append(f"{field.name} = {_fmt_scalar(value)}\n")
         lines.append(f"updated_at = {_fmt_scalar(datetime.now(UTC).isoformat())}\n")
         lines.extend(table_lines)

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import NamedTuple
 
 from keystrike.domain.aggregate import combine_sessions
+from keystrike.domain.alphabet_cut import forget_closed_keys
 from keystrike.domain.confidence import (
     accuracy_of,
     confidence_of,
@@ -16,10 +17,13 @@ from keystrike.domain.confidence import (
     round_confidence,
     target_ms_per_char,
 )
+from keystrike.domain.learn_order import keyboard_order
 from keystrike.domain.models import KeyStats, SessionResult
+from keystrike.domain.null_adapters import NULL_LAYOUT_REPOSITORY
 from keystrike.domain.protocols import (
     AggregatesCache,
     Clock,
+    LayoutRepository,
     SessionRepository,
     SettingsRepository,
 )
@@ -38,20 +42,43 @@ class SessionMetrics(NamedTuple):
 
 @dataclass(slots=True)
 class RebuildAggregates:
-    """Command: replay the last N sessions (from settings) into the cache."""
+    """Command: replay the last N sessions (from settings) into the cache.
+
+    Keys closed by an `AlphabetCut` lose their stats from sessions before the
+    cut (see `domain.alphabet_cut`); `layout_repo` gives their learn order."""
 
     repo: SessionRepository
     cache: AggregatesCache
     settings_repo: SettingsRepository
+    layout_repo: LayoutRepository = NULL_LAYOUT_REPOSITORY
 
     def __call__(self, layout: str) -> None:
-        window = self.settings_repo.load().confidence_session_window
+        settings = self.settings_repo.load()
         headers = sorted(
             self.repo.iter_headers(layout),
             key=lambda h: h.started_at,
-        )[-window:]
-        combined = combine_sessions([(header, header.stats) for header in headers])
+        )[-settings.confidence_session_window :]
+        cuts = settings.alphabet_cuts
+        order = keyboard_order(self.layout_repo.get(layout)) if cuts else ()
+        combined = combine_sessions(
+            [
+                (header, forget_closed_keys(header.stats, header.started_at, order, cuts))
+                for header in headers
+            ]
+        )
         self.cache.put(layout, combined)
+
+
+@dataclass(slots=True)
+class RebuildAllAggregates:
+    """Command: rebuild the cache of every layout that has sessions."""
+
+    repo: SessionRepository
+    rebuild: RebuildAggregates
+
+    def __call__(self) -> None:
+        for layout in sorted({h.layout for h in self.repo.iter_all_headers()}):
+            self.rebuild(layout)
 
 
 @dataclass(slots=True)

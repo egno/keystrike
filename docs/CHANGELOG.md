@@ -5,6 +5,19 @@ rationale lives in commit history/diffs — these are pointers, not narratives.
 Milestone-level feature work (what shipped in M1–M4, the keybr algorithm
 design) stays in `PLAN.md` §5/§6.
 
+## Unreleased
+
+- **Lowering the letter count relearns the closed keys** — `UpdateSettings`
+  records an `AlphabetCut` (time, new size) in `Settings.alphabet_cuts` when
+  `alphabet_size` goes down, then rebuilds every layout's aggregates.
+  `RebuildAggregates` and `FinishSession` drop the closed keys' tallies, and
+  every bigram that touches them, from sessions before the cut
+  (`domain/alphabet_cut.py`). A reopened key starts with no stats, so it goes
+  through key focus and its gate pairs again before the next key opens.
+- **One key per unlock** — `compute_unlocked` opens at most one key past
+  `alphabet_size` per call. Before, keys with old mastered stats all opened
+  at once.
+
 ## 2.2.0
 
 - **One focus ladder** — `select_lesson_focus` (`domain/focus.py`) replaces

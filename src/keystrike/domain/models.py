@@ -236,6 +236,17 @@ class WordGenBounds:
 
 
 @dataclass(frozen=True, slots=True)
+class AlphabetCut:
+    """The user lowered `alphabet_size` to `size` at wall time `at`. Lesson
+    and unlock logic forgets stats recorded before `at` for every key at
+    learn-order position `size` or later, so those keys are learned again
+    (see `domain.alphabet_cut`)."""
+
+    at: float  # unix epoch
+    size: int
+
+
+@dataclass(frozen=True, slots=True)
 class Settings:
     schema_version: int = 1
     layout: str = "qwerty"
@@ -251,6 +262,7 @@ class Settings:
     max_word_repeats: int = MAX_WORD_REPEATS  # per-word repeat cap in generated lessons
     word_gen: WordGenBounds = field(default_factory=WordGenBounds)
     wordlist_url: str = ""  # non-empty + cached file → real words; else Markov
+    alphabet_cuts: tuple[AlphabetCut, ...] = ()  # alphabet_size decreases, oldest first
     updated_at: str | None = None  # ISO-8601 UTC; sync LWW
 
 

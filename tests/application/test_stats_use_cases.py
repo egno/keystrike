@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 from keystrike.application.stats_use_cases import (
     GetAggregateMetricTrends,
     GetHeatmap,
@@ -6,21 +8,28 @@ from keystrike.application.stats_use_cases import (
     GetOrRebuildAggregates,
     RebuildAggregates,
 )
-from keystrike.domain.confidence import MIN_CONFIDENCE_ATTEMPTS
+from keystrike.domain.confidence import MIN_CONFIDENCE_ATTEMPTS, target_ms_per_char
 from keystrike.domain.enums import Mode
+from keystrike.domain.learn_order import keyboard_order
 from keystrike.domain.models import (
     CONFIDENCE_SESSION_WINDOW,
+    AlphabetCut,
     Bigram,
     KeyStats,
     Keystroke,
+    KeyTally,
     LayoutAggregates,
     SessionResult,
+    SessionStats,
     Settings,
     TransitionStats,
 )
+from keystrike.domain.unlock import compute_unlocked
+from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS
 from tests.fakes import (
     FakeAggregatesCache,
     FakeClock,
+    FakeLayoutRepository,
     FakeSessionRepository,
     FakeSettingsRepository,
 )
@@ -536,3 +545,45 @@ def test_get_aggregate_metric_trends_aggregates_all_keys():
     assert speeds[0] > 0
     assert confidences[0] > 0
     assert accuracies == [0.67]  # 2 timing samples, 1 error across keys
+
+
+def test_lowered_alphabet_relearns_closed_keys_one_by_one():
+    """10 keys were mastered, then alphabet_size was lowered to 8. Key 9
+    opens with no stats, so it must be learned again before key 10 opens."""
+    layout = BUNDLED_LAYOUTS["qwerty"]
+    order = keyboard_order(layout)
+    target = target_ms_per_char(300)
+    mastered = KeyTally(samples=20, time_ns=20 * 100_000_000, errors=0, attempts=20)
+
+    def session(session_id: str, started_at: float, keys: tuple[int, ...]) -> SessionResult:
+        pairs = {Bigram(a, b): mastered for a in keys for b in keys if a != b}
+        return replace(
+            _header(session_id, started_at),
+            stats=SessionStats(keys=dict.fromkeys(keys, mastered), transitions=pairs),
+        )
+
+    repo = FakeSessionRepository()
+    cache = FakeAggregatesCache()
+    repo.save_header(session("old", 100.0, order[:10]))
+    settings_repo = FakeSettingsRepository(
+        Settings(alphabet_size=8, alphabet_cuts=(AlphabetCut(at=200.0, size=8),))
+    )
+    rebuild = RebuildAggregates(
+        repo=repo,
+        cache=cache,
+        settings_repo=settings_repo,
+        layout_repo=FakeLayoutRepository({"qwerty": layout}),
+    )
+
+    def unlocked(alphabet_size: int) -> tuple[int, ...]:
+        rebuild("qwerty")
+        aggregates = cache.get("qwerty")
+        assert aggregates is not None
+        return compute_unlocked(
+            order, alphabet_size, aggregates.keys, target, transitions=aggregates.transitions
+        )
+
+    assert unlocked(8) == order[:9]
+    assert unlocked(9) == order[:9]  # key 9's old stats are forgotten
+    repo.save_header(session("relearn", 300.0, order[:9]))
+    assert unlocked(9) == order[:10]

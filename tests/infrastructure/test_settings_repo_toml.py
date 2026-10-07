@@ -5,7 +5,13 @@ import pytest
 
 from keystrike.application.build_lesson import BuildLesson
 from keystrike.domain.enums import TargetSpeedUnit
-from keystrike.domain.models import FocusTuning, Settings, UnlockTuning, WordGenBounds
+from keystrike.domain.models import (
+    AlphabetCut,
+    FocusTuning,
+    Settings,
+    UnlockTuning,
+    WordGenBounds,
+)
 from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS
 from keystrike.infrastructure.paths import Paths
 from keystrike.infrastructure.settings_repo_toml import (
@@ -224,3 +230,21 @@ def test_nested_types_matches_nested_tuning_union():
     via `typing.get_args`) so pyright can narrow `isinstance` checks on it --
     this guards the two from drifting apart instead."""
     assert set(_NESTED_TYPES) == set(get_args(_NestedTuning))
+
+
+def test_alphabet_cuts_round_trip(paths):
+    repo = TomlSettingsRepository(paths)
+    cuts = (AlphabetCut(at=1_700_000_000.5, size=8), AlphabetCut(at=1_700_000_100.0, size=9))
+    repo.save(Settings(alphabet_cuts=cuts))
+    assert repo.load().alphabet_cuts == cuts
+
+
+def test_malformed_alphabet_cuts_are_skipped(paths):
+    paths.settings_file.write_text(
+        'alphabet_cuts = [[1.0, 8], ["x", 8], [2.0, -1], [3.0], [4, 9], [5.0, true]]\n',
+        encoding="utf-8",
+    )
+    assert TomlSettingsRepository(paths).load().alphabet_cuts == (
+        AlphabetCut(at=1.0, size=8),
+        AlphabetCut(at=4.0, size=9),
+    )

@@ -11,6 +11,7 @@ from keystrike.domain.aggregate import (
     session_recency_weights,
     tally_session,
 )
+from keystrike.domain.alphabet_cut import forget_closed_keys
 from keystrike.domain.confidence import (
     confidence_of,
     stall_attempts_cap,
@@ -151,14 +152,19 @@ def _snapshot_finish_state(
         repo.iter_headers(session.layout),
         key=lambda h: h.started_at,
     )[-(settings.confidence_session_window - 1) :]
+    order = keyboard_order(layout)
     sessions: list[tuple[SessionTiming, SessionStats]] = [
-        (header, header.stats) for header in prior_headers
+        (
+            header,
+            forget_closed_keys(header.stats, header.started_at, order, settings.alphabet_cuts),
+        )
+        for header in prior_headers
     ]
     sessions.append((draft, stats))
     combined = combine_sessions(sessions)
     target = target_ms_per_char(settings.target_speed_cpm)
     unlocked = compute_unlocked(
-        keyboard_order(layout),
+        order,
         settings.alphabet_size,
         combined.keys,
         target,

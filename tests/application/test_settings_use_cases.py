@@ -7,7 +7,7 @@ from keystrike.application.settings_use_cases import (
     UpdateSettings,
 )
 from keystrike.domain.enums import TargetSpeedUnit
-from keystrike.domain.models import Settings, UnlockTuning
+from keystrike.domain.models import AlphabetCut, Settings, UnlockTuning
 from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS, CompositeLayoutRepository
 from keystrike.infrastructure.paths import Paths
 from tests.fakes import FakeLayoutRepository, FakeSettingsRepository
@@ -165,3 +165,36 @@ def test_cycle_layout_includes_custom_toml_layout(paths):
 
     assert "myown" in layouts_seen
     assert layouts_seen == set(layout_repo.list_available())
+
+
+def _update(alphabet_size: int) -> SettingsUpdate:
+    return SettingsUpdate(
+        layout="qwerty",
+        target_speed_cpm=300,
+        target_speed_unit=TargetSpeedUnit.WPM,
+        alphabet_size=alphabet_size,
+        learn_daily_minutes=10,
+    )
+
+
+def test_update_settings_records_alphabet_cut_and_rebuilds_when_lowered():
+    repo = FakeSettingsRepository(Settings(alphabet_size=10))
+    rebuilds: list[None] = []
+    update = UpdateSettings(
+        repo=repo, wall_epoch=lambda: 123.0, rebuild_aggregates=lambda: rebuilds.append(None)
+    )
+
+    result = update(_update(8))
+
+    assert result.alphabet_cuts == (AlphabetCut(at=123.0, size=8),)
+    assert len(rebuilds) == 1
+
+
+def test_update_settings_records_no_cut_when_alphabet_not_lowered():
+    repo = FakeSettingsRepository(Settings(alphabet_size=10))
+    rebuilds: list[None] = []
+    update = UpdateSettings(repo=repo, rebuild_aggregates=lambda: rebuilds.append(None))
+
+    assert update(_update(10)).alphabet_cuts == ()
+    assert update(_update(12)).alphabet_cuts == ()
+    assert rebuilds == []

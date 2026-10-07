@@ -112,6 +112,11 @@ def compute_unlocked(
     doesn't grow with alphabet depth. Pass `None` (the default) to skip this
     and unlock purely on solo-key mastery, as before.
 
+    At most one key opens past `alphabet_size` per call, so the alphabet
+    grows by one letter per lesson. Without this cap, keys that keep mastered
+    stats from earlier practice (e.g. after the user lowers `alphabet_size`)
+    would all open at once.
+
     The result can exceed `alphabet_size` once mastery conditions are met --
     `alphabet_size` is a floor, not a cap. Callers that persist a Settings
     object should feed the result through
@@ -120,7 +125,7 @@ def compute_unlocked(
     `session_use_cases.FinishSession` for the two call sites)."""
     forced_count = min(alphabet_size, len(learn_order))
     unlocked = list(learn_order[:forced_count])
-    for codepoint in learn_order[forced_count:]:
+    for codepoint in learn_order[forced_count : forced_count + 1]:
         if not all(
             _key_meets_unlock_threshold(
                 k,

@@ -457,3 +457,12 @@ def test_compute_unlocked_allows_one_recent_typo_on_a_well_practiced_key():
     }
     assert skill_of(s, stats, 200.0) == 1.0
     assert compute_unlocked((a, s, d), 2, stats, target=200.0) == (a, s, d)
+
+
+def test_compute_unlocked_opens_one_key_past_floor_when_more_are_mastered():
+    """10 keys were practiced, then alphabet_size was lowered to 8. Keys 9 and
+    10 keep their mastered stats, but only key 9 opens -- not both."""
+    learn_order = tuple(range(1, 13))
+    stats = {cp: _stats(cp, mean_time_ns=100_000_000.0) for cp in learn_order[:10]}
+    unlocked = compute_unlocked(learn_order, alphabet_size=8, stats=stats, target=200.0)
+    assert unlocked == learn_order[:9]
