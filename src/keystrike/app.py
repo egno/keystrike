@@ -9,6 +9,7 @@ from keystrike.application.prepare_practice import PreparePracticeSession
 from keystrike.application.session_use_cases import (
     AbortSession,
     FinishSession,
+    GetKeystrokesPerWord,
     GetLatestSessionHeader,
     GetSessionBaseline,
     RecordKeystroke,
@@ -117,6 +118,7 @@ def build() -> KeystrikeApp:
     abort = AbortSession()
     get_session_baseline = GetSessionBaseline(repo=session_repo, settings_repo=settings_repo)
     get_latest_session_header = GetLatestSessionHeader(repo=session_repo)
+    get_keystrokes_per_word = GetKeystrokesPerWord(repo=session_repo)
     rebuild_aggregates = RebuildAggregates(
         repo=session_repo,
         cache=aggregates_cache,
@@ -128,7 +130,12 @@ def build() -> KeystrikeApp:
         cache=aggregates_cache,
         rebuild=rebuild_aggregates,
     )
-    get_heatmap = GetHeatmap(cache=aggregates_cache, settings_repo=settings_repo, clock=clock)
+    get_heatmap = GetHeatmap(
+        cache=aggregates_cache,
+        settings_repo=settings_repo,
+        clock=clock,
+        session_repo=session_repo,
+    )
     get_history = GetHistory(repo=session_repo)
     get_key_metric_trends = GetKeyMetricTrends(
         repo=session_repo,
@@ -196,6 +203,7 @@ def build() -> KeystrikeApp:
             get_history=get_history,
             get_key_metric_trends=get_key_metric_trends,
             get_aggregate_metric_trends=get_aggregate_metric_trends,
+            get_keystrokes_per_word=get_keystrokes_per_word,
         ),
         settings=SettingsServices(
             settings_repo=settings_repo,
@@ -204,6 +212,7 @@ def build() -> KeystrikeApp:
             import_wordlist=import_wordlist,
             clear_wordlist=clear_wordlist,
             get_wordlist_cache_status=get_wordlist_cache_status,
+            get_keystrokes_per_word=get_keystrokes_per_word,
         ),
         app_version=__version__,
     )

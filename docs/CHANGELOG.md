@@ -5,6 +5,27 @@ rationale lives in commit history/diffs — these are pointers, not narratives.
 Milestone-level feature work (what shipped in M1–M4, the keybr algorithm
 design) stays in `PLAN.md` §5/§6.
 
+## Unreleased
+
+- **Speed goal fixed in its own unit** — `Settings.target_speed` keeps the
+  goal as entered, in `target_speed_unit` (replaces `target_speed_cpm`;
+  older settings files migrate at load, a WPM goal at the typical rate). A
+  WPM goal becomes the CPM that confidence uses through `goal_cpm`
+  (`domain/generator.py`) and `session_queries.target_speed_cpm`, so it
+  follows the measured rate. Switching the unit in settings converts the
+  shown value.
+- **Measured WPM ↔ CPM rate** — each session header saves its real `cpm`
+  (lesson chars typed, spaces included, per minute) and `wpm`
+  (`SessionResult`, set in `FinishSession`; 0 for legacy rows).
+  `session_queries.keystrokes_per_word` is Σcpm / Σwpm over the layout's
+  last `confidence_session_window` sessions with at least
+  `MIN_RATE_WORDS` (5) words. With none, it falls back to
+  `typical_keystrokes_per_word` (word-length midpoint + 1 space) — the old
+  `typical_chars_per_word` left the space out, so typing at goal speed
+  showed a session WPM below the goal WPM. `compute_wpm` returns the saved
+  `wpm` when set; the legacy estimate now counts spaces and uses the
+  session's stored word bounds.
+
 ## 2.2.2
 
 - **Stats speed in the goal's unit** — the stats screen speed line shows

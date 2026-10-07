@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from random import Random
 
 from keystrike.application.alphabet_sync import sync_alphabet_size
-from keystrike.application.session_queries import latest_session_header
+from keystrike.application.session_queries import latest_session_header, target_speed_cpm
 from keystrike.domain.confidence import (
     CONFIDENCE_GOOD,
     accuracy_of,
@@ -376,7 +376,7 @@ def _lesson_progress(
         # `alphabet_sync.sync_alphabet_size`), and the lesson must always
         # show exactly as many letters as it actually unlocked.
         alphabet_size=len(gating.unlocked),
-        target_speed_cpm=ctx.settings.target_speed_cpm,
+        target_speed_cpm=ctx.target_cpm,
     )
     return LessonProgress(
         unlocked=gating.unlocked,
@@ -470,6 +470,7 @@ class _LessonContext:
     stats: Mapping[int, KeyStats]
     transitions: Mapping[Bigram, TransitionStats]
     now: float
+    target_cpm: int
     target: float
     table: TransitionTable
     # The last finished session's focus, kept while it still needs work.
@@ -534,13 +535,15 @@ class BuildLesson:
         last = latest_session_header(self.session_repo, layout_name)
         stats: Mapping[int, KeyStats] = aggregates.keys if aggregates else {}
         transitions: Mapping[Bigram, TransitionStats] = aggregates.transitions if aggregates else {}
+        target_cpm = target_speed_cpm(self.session_repo, settings, layout_name)
         return _LessonContext(
             settings=settings,
             layout=layout,
             stats=stats,
             transitions=transitions,
             now=self.clock.wall_epoch(),
-            target=target_ms_per_char(settings.target_speed_cpm),
+            target_cpm=target_cpm,
+            target=target_ms_per_char(target_cpm),
             table=self.language_provider.transitions(settings.lang),
             last_key=last.focus_key if last is not None else None,
             last_pair=last.focus_pair if last is not None else None,

@@ -80,7 +80,7 @@ def test_round_trip(paths):
     repo = TomlSettingsRepository(paths)
     original = Settings(
         layout="dvorak",
-        target_speed_cpm=400,
+        target_speed=400,
         target_speed_unit=TargetSpeedUnit.WPM,
         alphabet_size=20,
         confidence_session_window=8,
@@ -105,7 +105,7 @@ def test_round_trip(paths):
     repo.save(original)
     loaded = repo.load()
     assert loaded.layout == original.layout
-    assert loaded.target_speed_cpm == original.target_speed_cpm
+    assert loaded.target_speed == original.target_speed
     assert loaded.confidence_session_window == 8
     assert loaded.unlock == original.unlock
     assert loaded.focus == original.focus
@@ -146,12 +146,26 @@ def test_ignores_removed_settings_keys(paths):
 
 def test_malformed_field_value_falls_back_to_default_instead_of_crashing(paths):
     paths.settings_file.write_text(
-        'schema_version = 1\nlayout = "qwerty"\ntarget_speed_cpm = "fast"\n',
+        'schema_version = 1\nlayout = "qwerty"\ntarget_speed = "fast"\n',
         encoding="utf-8",
     )
     s = TomlSettingsRepository(paths).load()
     assert s.layout == "qwerty"
-    assert s.target_speed_cpm == Settings().target_speed_cpm
+    assert s.target_speed == Settings().target_speed
+
+
+@pytest.mark.parametrize(
+    ("unit", "expected"),
+    [("wpm", 75), ("cpm", 300)],  # 300 CPM / 4 keystrokes per 2-4 letter word
+)
+def test_legacy_target_speed_cpm_migrates_to_goal_unit(paths, unit, expected):
+    paths.settings_file.write_text(
+        f'target_speed_cpm = 300\ntarget_speed_unit = "{unit}"\n',
+        encoding="utf-8",
+    )
+    s = TomlSettingsRepository(paths).load()
+    assert s.target_speed == expected
+    assert s.target_speed_unit == TargetSpeedUnit(unit)
 
 
 def test_malformed_enum_value_falls_back_to_default(paths):

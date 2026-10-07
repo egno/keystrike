@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import NamedTuple
 
+from keystrike.application.session_queries import target_speed_cpm
 from keystrike.domain.aggregate import combine_sessions
 from keystrike.domain.alphabet_cut import forget_closed_keys
 from keystrike.domain.confidence import (
@@ -19,7 +20,7 @@ from keystrike.domain.confidence import (
 )
 from keystrike.domain.learn_order import keyboard_order
 from keystrike.domain.models import KeyStats, SessionResult
-from keystrike.domain.null_adapters import NULL_LAYOUT_REPOSITORY
+from keystrike.domain.null_adapters import NULL_LAYOUT_REPOSITORY, NullSessionRepository
 from keystrike.domain.protocols import (
     AggregatesCache,
     Clock,
@@ -139,6 +140,7 @@ class GetHeatmap:
     cache: AggregatesCache
     settings_repo: SettingsRepository
     clock: Clock
+    session_repo: SessionRepository = field(default_factory=NullSessionRepository)
 
     def __call__(self, layout: str) -> HeatmapView:
         aggregates = self.cache.get(layout)
@@ -146,7 +148,7 @@ class GetHeatmap:
             return HeatmapView(confidence={}, urgency={})
         stats = aggregates.keys
         settings = self.settings_repo.load()
-        target = target_ms_per_char(settings.target_speed_cpm)
+        target = target_ms_per_char(target_speed_cpm(self.session_repo, settings, layout))
         now = self.clock.wall_epoch()
         return HeatmapView(
             confidence={
@@ -263,7 +265,7 @@ def _accumulate_windowed_trends(
     """
     settings = settings_repo.load()
     window = settings.confidence_session_window
-    fallback_target = target_ms_per_char(settings.target_speed_cpm)
+    fallback_target = target_ms_per_char(target_speed_cpm(repo, settings, layout))
     min_attempts = settings.unlock.min_confidence_attempts
 
     all_headers = sorted(

@@ -108,6 +108,11 @@ class SessionResult:
     target_speed_cpm: int = 0  # goal active at finish; 0 = legacy sessions
     generated_min_len: int = GENERATED_WORD_MIN_LEN  # word bounds at finish; legacy default
     generated_max_len: int = GENERATED_WORD_MAX_LEN
+    # Measured speed at finish: lesson chars typed (spaces included) and whole
+    # words per minute. 0 = legacy sessions. cpm / wpm is the real keystrokes
+    # per word, which the settings goal conversion averages over recent sessions.
+    cpm: float = 0.0
+    wpm: float = 0.0
     # Per-key/bigram tallies (schema 5+). Empty for sessions older than the
     # stats retention window (see domain.retention) — their history row stays.
     stats: SessionStats = field(default_factory=SessionStats)
@@ -250,7 +255,9 @@ class AlphabetCut:
 class Settings:
     schema_version: int = 1
     layout: str = "qwerty"
-    target_speed_cpm: int = 300  # ~100 wpm at typical generated word length (2-4)
+    # Goal in `target_speed_unit`, kept as entered. A WPM goal becomes CPM
+    # through the measured keystrokes per word (see `target_speed_cpm`).
+    target_speed: int = 75
     target_speed_unit: TargetSpeedUnit = TargetSpeedUnit.WPM
     alphabet_size: int = 16  # letters force-unlocked from cold start
     confidence_session_window: int = CONFIDENCE_SESSION_WINDOW  # sessions in rolling stats

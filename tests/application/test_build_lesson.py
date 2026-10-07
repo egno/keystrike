@@ -9,7 +9,7 @@ from keystrike.application.build_lesson import (
 )
 from keystrike.domain.aggregate import _combine_transition_maps_weighted, session_recency_weights
 from keystrike.domain.confidence import target_ms_per_char, transition_confidence_of
-from keystrike.domain.enums import FocusKind, Mode
+from keystrike.domain.enums import FocusKind, Mode, TargetSpeedUnit
 from keystrike.domain.focus import FocusReason
 from keystrike.domain.generator import weak_focus_word_quota, word_matches_focus
 from keystrike.domain.learn_order import keyboard_order
@@ -69,7 +69,7 @@ def test_lesson_focus_key_is_among_unlocked_keys():
 
 
 def test_lesson_state_reflects_settings():
-    settings = Settings(alphabet_size=5, target_speed_cpm=250)
+    settings = Settings(alphabet_size=5, target_speed=250, target_speed_unit=TargetSpeedUnit.CPM)
     lesson = _build_lesson(settings)("qwerty")
     assert lesson.state.layout == "qwerty"
     assert lesson.state.alphabet_size == 5
@@ -591,7 +591,12 @@ def test_build_lesson_gating_pair_not_zero_confidence_when_counts_zeroed():
         layout_repo=FakeLayoutRepository(dict(BUNDLED_LAYOUTS)),
         aggregates_cache=cache,
         settings_repo=FakeSettingsRepository(
-            Settings(layout=layout_name, alphabet_size=4, target_speed_cpm=104),
+            Settings(
+                layout=layout_name,
+                alphabet_size=4,
+                target_speed=104,
+                target_speed_unit=TargetSpeedUnit.CPM,
+            ),
         ),
         language_provider=FakeLanguageProvider(),
         wordlist_store=FakeWordListStore(),

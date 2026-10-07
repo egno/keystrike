@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from typing import cast
 
 from keystrike.domain.enums import TargetSpeedUnit
+from keystrike.domain.generator import typical_keystrokes_per_word
 from keystrike.domain.models import (
     AlphabetCut,
     FocusTuning,
@@ -116,6 +117,24 @@ def _write_nested_table(lines: list[str], name: str, value: _NestedTuning) -> No
         lines.append(f"{f.name} = {_fmt_scalar(getattr(value, f.name))}\n")
 
 
+def _migrate_target_speed_cpm(raw: dict[str, object], values: dict[str, object]) -> None:
+    """Older files stored only `target_speed_cpm`. Keep that goal: as is
+    for a CPM goal, or as WPM at the typical keystrokes per word."""
+    legacy = raw.get("target_speed_cpm")
+    if "target_speed" in raw or not isinstance(legacy, int) or isinstance(legacy, bool):
+        return
+    if legacy <= 0:
+        return
+    if values["target_speed_unit"] == TargetSpeedUnit.CPM:
+        values["target_speed"] = legacy
+        return
+    bounds = cast("WordGenBounds", values["word_gen"])
+    rate = typical_keystrokes_per_word(
+        generated_min_len=bounds.min_len, generated_max_len=bounds.max_len
+    )
+    values["target_speed"] = max(1, round(legacy / rate))
+
+
 class TomlSettingsRepository:
     def __init__(self, paths: Paths) -> None:
         self._paths = paths
@@ -152,6 +171,7 @@ class TomlSettingsRepository:
                 # A hand-edited or stale settings.toml shouldn't be able to crash
                 # startup — fall back to this field's default and keep the rest.
                 values[f.name] = default
+        _migrate_target_speed_cpm(raw, values)
         # `values` is built dynamically off `dataclasses.fields(Settings)`, so
         # pyright can't statically match each entry to its declared parameter
         # type the way it could with a hand-written call — the per-field

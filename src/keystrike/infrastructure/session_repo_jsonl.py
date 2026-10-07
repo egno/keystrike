@@ -203,6 +203,8 @@ def header_from_row(d: dict[str, object]) -> SessionResult:
         target_speed_cpm=require_int(d, "target_speed_cpm", 0),
         generated_min_len=require_int(d, "generated_min_len", GENERATED_WORD_MIN_LEN),
         generated_max_len=require_int(d, "generated_max_len", GENERATED_WORD_MAX_LEN),
+        cpm=require_float(d, "cpm", 0.0),
+        wpm=require_float(d, "wpm", 0.0),
         stats=stats_from_row(d.get(_STATS_KEY)),
         focus_pair=_parse_focus_pair(d.get(_FOCUS_PAIR_KEY)),
     )

@@ -9,7 +9,7 @@ from keystrike.application.stats_use_cases import (
     RebuildAggregates,
 )
 from keystrike.domain.confidence import MIN_CONFIDENCE_ATTEMPTS, target_ms_per_char
-from keystrike.domain.enums import Mode
+from keystrike.domain.enums import Mode, TargetSpeedUnit
 from keystrike.domain.learn_order import keyboard_order
 from keystrike.domain.models import (
     CONFIDENCE_SESSION_WINDOW,
@@ -322,7 +322,9 @@ def test_get_heatmap_empty_cache_returns_empty_view():
 
 def test_get_heatmap_confidence_ratio():
     cache = FakeAggregatesCache()
-    settings_repo = FakeSettingsRepository(Settings(target_speed_cpm=300))
+    settings_repo = FakeSettingsRepository(
+        Settings(target_speed=300, target_speed_unit=TargetSpeedUnit.CPM)
+    )
     repo = FakeSessionRepository()
     now = 1_700_000_000.0
     header = _header("s1", now)
@@ -357,7 +359,9 @@ def test_get_heatmap_confidence_ratio():
 
 def test_get_heatmap_urgency_from_last_seen():
     cache = FakeAggregatesCache()
-    settings_repo = FakeSettingsRepository(Settings(target_speed_cpm=300))
+    settings_repo = FakeSettingsRepository(
+        Settings(target_speed=300, target_speed_unit=TargetSpeedUnit.CPM)
+    )
     now = 1_000_000.0
     cache.put(
         "qwerty",
@@ -392,7 +396,9 @@ def test_get_history_sorted_newest_first_and_limited():
 
 def test_get_key_metric_trends_tracks_speed_and_accuracy():
     repo = FakeSessionRepository()
-    settings_repo = FakeSettingsRepository(Settings(target_speed_cpm=300))  # target 200ms
+    settings_repo = FakeSettingsRepository(
+        Settings(target_speed=300, target_speed_unit=TargetSpeedUnit.CPM)
+    )  # target 200ms
 
     repo.save_with_keystrokes(
         _header("s1", 1.0),
@@ -430,7 +436,9 @@ def test_get_key_metric_trends_tracks_speed_and_accuracy():
 
 def test_get_key_metric_trends_reflects_errors_in_accuracy():
     repo = FakeSessionRepository()
-    settings_repo = FakeSettingsRepository(Settings(target_speed_cpm=300))
+    settings_repo = FakeSettingsRepository(
+        Settings(target_speed=300, target_speed_unit=TargetSpeedUnit.CPM)
+    )
 
     repo.save_with_keystrokes(
         _header("s1", 1.0),
@@ -449,7 +457,9 @@ def test_get_key_metric_trends_reflects_errors_in_accuracy():
 
 def test_get_key_metric_trends_normalizes_speed_to_current_goal():
     repo = FakeSessionRepository()
-    settings_repo = FakeSettingsRepository(Settings(target_speed_cpm=600))
+    settings_repo = FakeSettingsRepository(
+        Settings(target_speed=600, target_speed_unit=TargetSpeedUnit.CPM)
+    )
 
     header = SessionResult(
         schema_version=3,
@@ -486,7 +496,11 @@ def test_get_key_metric_trends_normalizes_speed_to_current_goal():
 def test_get_key_metric_trends_limits_to_confidence_session_window():
     window = 3
     settings_repo = FakeSettingsRepository(
-        Settings(confidence_session_window=window, target_speed_cpm=300),
+        Settings(
+            confidence_session_window=window,
+            target_speed=300,
+            target_speed_unit=TargetSpeedUnit.CPM,
+        ),
     )
     repo = FakeSessionRepository()
 
@@ -514,7 +528,9 @@ def test_get_key_metric_trends_limits_to_confidence_session_window():
 
 def test_get_aggregate_metric_trends_aggregates_all_keys():
     repo = FakeSessionRepository()
-    settings_repo = FakeSettingsRepository(Settings(target_speed_cpm=300))
+    settings_repo = FakeSettingsRepository(
+        Settings(target_speed=300, target_speed_unit=TargetSpeedUnit.CPM)
+    )
 
     repo.save_with_keystrokes(
         _header("s1", 1.0),
