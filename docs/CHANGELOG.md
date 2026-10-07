@@ -5,7 +5,7 @@ rationale lives in commit history/diffs — these are pointers, not narratives.
 Milestone-level feature work (what shipped in M1–M4, the keybr algorithm
 design) stays in `PLAN.md` §5/§6.
 
-## Unreleased
+## 2.2.3
 
 - **Speed goal fixed in its own unit** — `Settings.target_speed` keeps the
   goal as entered, in `target_speed_unit` (replaces `target_speed_cpm`;
