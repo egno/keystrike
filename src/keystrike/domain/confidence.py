@@ -29,6 +29,11 @@ SESSION_RECENCY_DECAY = 0.7
 CONFIDENCE_DECIMALS = 2
 # Mastery threshold: skill/confidence at or above this counts as "good".
 CONFIDENCE_GOOD = 1.0
+# Accuracy that counts as fully accurate for skill/confidence. The methodology
+# (docs/research/typing-pedagogy.md: "accuracy first", structured training with
+# accuracy above 95%) asks for a low error rate, not zero errors — so accuracy
+# is scored against this target instead of against 100%.
+ACCURACY_TARGET = 0.95
 
 
 def round_confidence(value: float) -> float:
@@ -60,7 +65,7 @@ class HasConfidenceFields(Protocol):
     @property
     def samples(self) -> int: ...
     @property
-    def error_count(self) -> int: ...
+    def error_count(self) -> float: ...
     @property
     def attempt_count(self) -> int: ...
     @property
@@ -90,9 +95,15 @@ def accuracy_of(key_stats: KeyStats) -> float:
     return _accuracy(key_stats)
 
 
+def _accuracy_score(stats: HasConfidenceFields) -> float:
+    """Accuracy against `ACCURACY_TARGET`, capped at 1.0: the accuracy term of
+    skill/confidence. Raw accuracy (`accuracy_of`) stays the display value."""
+    return min(1.0, _accuracy(stats) / ACCURACY_TARGET)
+
+
 def _effective_attempt_count(
     samples: int,
-    error_count: int,
+    error_count: float,
     attempt_count: int,
     *,
     mean_time_ns: float = 0.0,
@@ -106,7 +117,7 @@ def _effective_attempt_count(
         return attempt_count
     inferred = samples + error_count
     if inferred > 0:
-        return inferred
+        return max(1, round(inferred))
     return _inferred_attempt(mean_time_ns)
 
 
@@ -153,21 +164,22 @@ def confidence_from_stats(
     min_attempts: int,
 ) -> float:
     """Shared body for `confidence_of`/`transition_confidence_of`: min(speed,
-    accuracy) so fast-but-sloppy or slow-but-accurate cannot read as mastered,
-    scaled down until `min_attempts` so a lucky first session can't read as
-    mastered (see docs/research/typing-pedagogy.md). 0.0 when never practiced.
+    accuracy score) so fast-but-sloppy or slow-but-accurate cannot read as
+    mastered, scaled down until `min_attempts` so a lucky first session can't
+    read as mastered (see docs/research/typing-pedagogy.md). 0.0 when never
+    practiced.
     """
     if stats is None:
         return 0.0
-    raw = min(key_confidence(target, stats.mean_time_ns), _accuracy(stats))
+    raw = min(key_confidence(target, stats.mean_time_ns), _accuracy_score(stats))
     return round_confidence(raw * confidence_sample_factor(_attempts(stats), minimum=min_attempts))
 
 
 def skill_from_stats(stats: HasConfidenceFields | None, target: float) -> float:
-    """Performance skill without attempt ramp — for display only."""
+    """Performance skill without attempt ramp: min(speed, accuracy score)."""
     if stats is None:
         return 0.0
-    raw = min(key_confidence(target, stats.mean_time_ns), _accuracy(stats))
+    raw = min(key_confidence(target, stats.mean_time_ns), _accuracy_score(stats))
     return round_confidence(raw)
 
 
@@ -187,6 +199,18 @@ def confidence_of(
 def skill_of(codepoint: int, stats: Mapping[int, KeyStats], target: float) -> float:
     """Live skill for one key — min(speed, accuracy) without attempt ramp."""
     return skill_from_stats(stats.get(codepoint), target)
+
+
+# ponytail: fixed multiplier; upgrade to a Settings field if a stuck key or
+# pair turns out to need per-user tuning.
+STALL_ATTEMPTS_MULTIPLIER = 3
+
+
+def stall_attempts_cap(min_attempts: int) -> int:
+    """Real (unweighted) window attempts after which a key or pair that still
+    has not cleared counts as stalled: the transition gate releases it
+    (`domain.unlock`) and focus stops holding on to it (`domain.focus`)."""
+    return min_attempts * STALL_ATTEMPTS_MULTIPLIER
 
 
 def clears_threshold(

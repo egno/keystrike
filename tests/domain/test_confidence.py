@@ -1,4 +1,5 @@
 from keystrike.domain.confidence import (
+    ACCURACY_TARGET,
     MIN_CONFIDENCE_ATTEMPTS,
     accuracy_of,
     confidence_of,
@@ -89,8 +90,8 @@ def test_confidence_of_scales_down_with_few_attempts():
             attempt_count=2,
         ),
     }
-    # raw min(speed, accuracy) = min(2.0, 0.5) = 0.5; only 2 attempts -> x0.2
-    assert confidence_of(ord("a"), stats, target=200.0) == 0.1
+    # raw min(speed, accuracy score) = min(2.0, 0.5 / 0.95); only 2 attempts -> x0.2
+    assert confidence_of(ord("a"), stats, target=200.0) == 0.11
 
 
 def test_skill_of_ignores_attempt_ramp():
@@ -202,9 +203,9 @@ def test_transition_confidence_infers_attempts_from_mean_when_all_counts_zeroed(
 
 
 def test_confidence_of_penalizes_frequent_errors():
-    # Fast (2.0 speed) but wrong half the time -> min(2.0, 0.5) = 0.5, not mastered.
+    # Fast (2.0 speed) but wrong half the time -> min(2.0, 0.5 / 0.95), not mastered.
     stats = {ord("a"): _stats(ord("a"), mean_time_ns=100_000_000.0, error_count=10)}
-    assert confidence_of(ord("a"), stats, target=200.0) == 0.5
+    assert confidence_of(ord("a"), stats, target=200.0) == 0.53
 
 
 def test_confidence_of_unseen_key_is_zero():
@@ -295,3 +296,14 @@ def _transition(
         last_seen=last_seen,
         attempt_count=attempts,
     )
+
+
+def test_skill_scores_accuracy_against_target():
+    """Accuracy at `ACCURACY_TARGET` (95%) is full marks; below it scales down.
+    Raw accuracy stays the display value."""
+    assert ACCURACY_TARGET == 0.95
+    at_target = KeyStats(ord("a"), 19, 200_000_000.0, 1, 0.0, attempt_count=20)
+    below = KeyStats(ord("a"), 15, 200_000_000.0, 1, 0.0, attempt_count=16)
+    assert accuracy_of(at_target) == 0.95
+    assert skill_of(ord("a"), {ord("a"): at_target}, 200.0) == 1.0
+    assert skill_of(ord("a"), {ord("a"): below}, 200.0) == 0.99  # 0.9375 / 0.95

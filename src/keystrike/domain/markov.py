@@ -37,6 +37,13 @@ class TransitionTable:
         # dict field too so in-place mutation of its contents also raises.
         object.__setattr__(self, "transitions", MappingProxyType(dict(self.transitions)))
 
+    def pair_weight(self, pair: Bigram) -> int:
+        """Language weight of `pair` -- the order-1 row for its first letter,
+        else the global "" row (same back-off as `sample`). 0 when the pair
+        never occurs."""
+        row = self.transitions.get(chr(pair.prev_cp)) or self.transitions.get("", {})
+        return row.get(chr(pair.next_cp), 0)
+
     def sample(
         self,
         context: str,

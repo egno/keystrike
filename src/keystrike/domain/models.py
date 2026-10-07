@@ -111,6 +111,10 @@ class SessionResult:
     # Per-key/bigram tallies (schema 5+). Empty for sessions older than the
     # stats retention window (see domain.retention) — their history row stays.
     stats: SessionStats = field(default_factory=SessionStats)
+    # The pair this lesson emphasized, for pair focus (`focus_key` is then its
+    # second letter); the next lesson keeps it while it still needs work.
+    # Written only when set, so schema 5 rows without it read back unchanged.
+    focus_pair: Bigram | None = None
 
     def __post_init__(self) -> None:
         # Freezing the dataclass only blocks attribute rebinding — wrap the
@@ -126,8 +130,10 @@ class KeyStats:
     codepoint: int
     samples: int
     mean_time_ns: float
-    error_count: int
+    # Recency-weighted in windowed aggregates, so it can be fractional.
+    error_count: float
     last_seen: float
+    # Real presses in the window (not recency-weighted): the attempt floor.
     attempt_count: int = 0
 
 
@@ -137,9 +143,9 @@ class TransitionStats:
     next_cp: int
     samples: int
     mean_time_ns: float
-    error_count: int
+    error_count: float  # see KeyStats
     last_seen: float
-    attempt_count: int = 0
+    attempt_count: int = 0  # see KeyStats
 
 
 def _empty_transitions() -> dict[Bigram, TransitionStats]:

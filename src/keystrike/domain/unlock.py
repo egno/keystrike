@@ -6,24 +6,11 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from .confidence import attempts_of, clears_threshold, transition_confidence_of
+from .confidence import attempts_of, clears_threshold
 from .models import Bigram, KeyStats, TransitionStats, UnlockTuning
 from .newest_key import newest_key_gating_cohort
 
-# ponytail: fixed multiplier; upgrade to a Settings field if a stuck gating
-# bigram turns out to need per-user tuning.
-TRANSITION_STALL_ATTEMPTS_MULTIPLIER = 3
-
 _DEFAULT_UNLOCK_TUNING = UnlockTuning()
-
-
-def default_transition_stall_attempts_cap(min_attempts: int) -> int:
-    """Default `transition_stall_attempts_cap` for `compute_unlocked`: give a
-    stuck gating bigram this many times the normal calibration floor before
-    releasing it anyway. Single source of truth so callers that need the
-    gate (`build_lesson`, `session_use_cases`) can't compute this
-    differently and drift apart."""
-    return min_attempts * TRANSITION_STALL_ATTEMPTS_MULTIPLIER
 
 
 def newest_key_clears_transition_gate(
@@ -56,18 +43,13 @@ def gating_bigram_is_ready(
     stall_attempts_cap: int | None = None,
 ) -> bool:
     stats = transitions.get(pair)
-    attempts = attempts_of(stats) if stats is not None else 0
-    mastered = (
-        attempts >= tuning.min_transition_confidence_attempts
-        and transition_confidence_of(
-            pair.prev_cp,
-            pair.next_cp,
-            transitions,
-            target,
-            min_attempts=tuning.min_transition_confidence_attempts,
-        )
-        >= tuning.next_letter_unlock_threshold
+    mastered = clears_threshold(
+        stats,
+        target,
+        threshold=tuning.next_letter_unlock_threshold,
+        min_attempts=tuning.min_transition_confidence_attempts,
     )
+    attempts = attempts_of(stats) if stats is not None else 0
     return mastered or (stall_attempts_cap is not None and attempts >= stall_attempts_cap)
 
 

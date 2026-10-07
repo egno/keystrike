@@ -6,8 +6,7 @@ from keystrike.application.stats_use_cases import (
     GetOrRebuildAggregates,
     RebuildAggregates,
 )
-from keystrike.domain.aggregate import session_recency_weights
-from keystrike.domain.confidence import MIN_CONFIDENCE_ATTEMPTS, SESSION_RECENCY_DECAY
+from keystrike.domain.confidence import MIN_CONFIDENCE_ATTEMPTS
 from keystrike.domain.enums import Mode
 from keystrike.domain.models import (
     CONFIDENCE_SESSION_WINDOW,
@@ -267,8 +266,8 @@ def test_rebuild_aggregates_drops_sessions_outside_window():
 
     assert ord("a") in result
     assert ord("z") not in result
-    weights = session_recency_weights(CONFIDENCE_SESSION_WINDOW, decay=SESSION_RECENCY_DECAY)
-    assert result[ord("a")].attempt_count == round(2 * sum(weights))
+    # Attempts are real presses in the window, not recency-weighted.
+    assert result[ord("a")].attempt_count == 2 * CONFIDENCE_SESSION_WINDOW
 
 
 def test_rebuild_aggregates_respects_settings_window():
@@ -300,8 +299,7 @@ def test_rebuild_aggregates_respects_settings_window():
     result = cached.keys
 
     assert ord("z") not in result
-    weights = session_recency_weights(window, decay=SESSION_RECENCY_DECAY)
-    assert result[ord("a")].attempt_count == round(2 * sum(weights))
+    assert result[ord("a")].attempt_count == 2 * window
 
 
 def test_get_heatmap_empty_cache_returns_empty_view():

@@ -38,40 +38,37 @@ Reading left to right:
 2. **Reason** — `wk`, `cal`, or `rev`. Calibrating adds press progress (`9/10`).
 3. **Speed** — target timing ÷ actual timing for the focus key or pair.
 4. **Accuracy** — correct attempts ÷ total attempts (percent).
-5. **Confidence** — min(speed, accuracy), scaled by attempt count during calibration. Goal is 1.0 for mastery.
+5. **Confidence** — min(speed, accuracy score), scaled by attempt count during calibration. The accuracy score is accuracy ÷ 95%, capped at 1.0, so 95% accuracy already counts in full. Goal is 1.0 for mastery.
 
-## Key vs transition focus
+## How focus is chosen
 
-**Key focus** applies while any unlocked key is below the performance skill
-threshold or the configured key-attempt floor (see `blocks_transition_focus`
-in the codebase). Never-typed and sparsely sampled keys therefore take priority.
-The lesson emphasizes the weakest unlocked key by ramped confidence, adjusted
-for review urgency.
+Focus follows one ordered list of rules. The first rule that has candidates
+picks the focus (`select_lesson_focus` in `domain/focus.py`):
 
-**Transition focus** applies after every unlocked key meets both requirements.
-When the next letter is gated, the same stable 2–4 newest-letter cohort controls
-unlocking and lesson coverage. Sparse older pairs cannot preempt it; an older
-pair can preempt only after enough samples show raw performance regression.
-Same-key repeats (double letters) never count as transitions.
+1. **Keys first.** If any unlocked key has not cleared (skill below 1.0 or
+   fewer presses than `[unlock].min_confidence_attempts`), the weakest such
+   key is the focus. Never-typed keys count as not cleared.
+2. **The unlock gate.** If the next letter waits on the newest key's pair
+   cohort, the weakest pair of that cohort that is not ready is the focus.
+3. **Weak pairs.** Otherwise, the pair that is not cleared and has the highest
+   (1 − confidence) × language frequency is the focus. Pairs that do not occur
+   in the language are skipped. Same-key repeats (double letters) never count.
+4. **Review.** When everything has cleared, the most overdue key or pair
+   (by review urgency) is the focus.
+5. **Fallback.** Otherwise, the weakest key.
 
 ## Focus stays put until it clears
 
-Once a key or pair becomes the focus, it keeps that focus lesson-over-lesson
-until it individually clears both confidence (skill ≥ 1.0) and its attempt
-floor — the same bar unlocks use. A different key/pair going stale, or a
-transition gate opening up, does not steal focus away mid-calibration. Once
-everything unlocked has cleared, focus is free to move to whichever key/pair
-is due for review (`rev`) again.
+In rules 1–3, the last lesson's focus is kept while it is still a candidate
+of that rule. So a key or pair keeps the focus lesson-over-lesson until it
+clears both skill and its attempt floor — the same bar unlocks use.
 
-## Lesson WPM gate
+A focus that does not clear after 3× its attempt floor in the session window
+(30 presses for a key, 12 for a pair, by default) is **stalled**. It goes back
+into the pool, so the weakest candidate is picked again from all of them.
 
-If a finished lesson's overall words-per-minute came in under its own target,
-the next lesson's focus is pinned to the weakest key or pair from *that
-lesson's own text* until a lesson's WPM meets target again — a low-speed
-lesson pulls focus back to its own weak point rather than drifting to
-whatever else is weakest across the full practice history. This doesn't add a
-new HUD label; the chosen key/pair still shows the ordinary `wk`, `cal`, or
-`rev` reason.
+The last focus comes from the last saved session: `focus_key`, plus
+`focus_pair` when the focus was a pair.
 
 ## Heatmap underline
 

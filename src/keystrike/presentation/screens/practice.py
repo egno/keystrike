@@ -66,6 +66,7 @@ class PracticeScreen(Screen[None]):
             layout=initial.layout,
             mode=initial.mode,
             focus_key=initial.focus_key,
+            focus_pair=initial.focus_pair,
         )
         self._typing_area = TypingArea(self._session)
         self._hud = HUD(
@@ -181,6 +182,7 @@ class PracticeScreen(Screen[None]):
             layout=prep.layout,
             mode=prep.mode,
             focus_key=prep.focus_key,
+            focus_pair=prep.focus_pair,
         )
         self._typing_area.set_session(self._session)
         self._hud.set_session(

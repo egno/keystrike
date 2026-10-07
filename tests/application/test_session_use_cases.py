@@ -10,7 +10,6 @@ from keystrike.application.session_queries import (
     compute_wpm,
     latest_session_header,
     previous_session_header,
-    session_wpm_below_target,
 )
 from keystrike.application.session_use_cases import (
     AbortSession,
@@ -28,6 +27,7 @@ from keystrike.domain.enums import Mode, SessionState
 from keystrike.domain.learn_order import keyboard_order
 from keystrike.domain.models import (
     CONFIDENCE_SESSION_WINDOW,
+    Bigram,
     SessionResult,
     Settings,
     UnlockTuning,
@@ -437,54 +437,6 @@ def test_latest_session_header_none_when_no_sessions():
     assert latest_session_header(FakeSessionRepository(), "qwerty") is None
 
 
-def test_session_wpm_below_target_true_when_slower_than_target(clock, id_gen):
-    _, result = _drive("hello world", "hello ", clock, id_gen)
-    result = replace(result, words_completed=1, duration_ns=60_000_000_000, target_speed_cpm=300)
-    assert session_wpm_below_target(result) is True
-
-
-def test_session_wpm_below_target_false_when_faster_than_target(clock, id_gen):
-    _, result = _drive("hello world", "hello ", clock, id_gen)
-    result = replace(result, words_completed=20, duration_ns=1_000_000_000, target_speed_cpm=300)
-    assert session_wpm_below_target(result) is False
-
-
-def test_session_wpm_below_target_false_for_legacy_session_without_target():
-    result = SessionResult(
-        session_id="s1",
-        total_keystrokes=1,
-        correct_keystrokes=1,
-        **_session_stats_common(),
-    )
-    assert result.target_speed_cpm == 0
-    assert session_wpm_below_target(result) is False
-
-
-def test_session_wpm_below_target_uses_snapshotted_word_bounds():
-    """WPM target conversion must use bounds recorded at finish, not caller overrides."""
-    result = replace(
-        SessionResult(
-            session_id="s1", total_keystrokes=1, correct_keystrokes=1, **_session_stats_common()
-        ),
-        words_completed=50,
-        duration_ns=60_000_000_000,
-        target_speed_cpm=300,
-        generated_min_len=2,
-        generated_max_len=4,
-    )
-    # 50 wpm vs target 100 wpm (300 cpm / 3 chars per word at 2-4 bounds)
-    assert session_wpm_below_target(result) is True
-    # Wider bounds would lower target to ~46 wpm and incorrectly clear remedial.
-    assert (
-        session_wpm_below_target(
-            result,
-            generated_min_len=3,
-            generated_max_len=10,
-        )
-        is False
-    )
-
-
 def test_finish_session_persists_generated_word_bounds(clock, id_gen):
     settings_repo = FakeSettingsRepository(Settings(word_gen=WordGenBounds(min_len=3, max_len=8)))
     finish = FinishSession(clock=clock, settings_repo=settings_repo)
@@ -766,3 +718,20 @@ def test_finish_session_alphabet_bump_respects_transition_gate(clock, id_gen):
     unlocked_cps = {k.codepoint for k in lesson.state.keys}
     assert unlocked_cps == set(order[:4])
     assert order[4] not in unlocked_cps
+
+
+def test_finish_session_saves_focus_pair(clock, id_gen):
+    repo = FakeSessionRepository()
+    finish = FinishSession(clock=clock, repo=repo)
+    pair = Bigram(ord("a"), ord("s"))
+    session = StartSession(clock=clock, id_gen=id_gen)(
+        "as", layout="qwerty", mode=Mode.ADAPTIVE, focus_key=pair.next_cp, focus_pair=pair
+    )
+    record = RecordKeystroke(clock=clock)
+    for ch in "as":
+        clock.advance(100_000_000)
+        record(session, ch)
+    result = finish(session)
+    assert result.focus_key == pair.next_cp
+    assert result.focus_pair == pair
+    assert repo.headers[0].focus_pair == pair

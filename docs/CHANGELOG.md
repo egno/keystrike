@@ -5,6 +5,35 @@ rationale lives in commit history/diffs — these are pointers, not narratives.
 Milestone-level feature work (what shipped in M1–M4, the keybr algorithm
 design) stays in `PLAN.md` §5/§6.
 
+## 2.2.0
+
+- **One focus ladder** — `select_lesson_focus` (`domain/focus.py`) replaces
+  `select_focus`, `select_focus_transition`, `remedial_focus` and the
+  newest-key unmeasured-pair fallback. Order: keys not cleared, unlock-gate
+  cohort pairs, weak pairs by (1 − confidence) × language frequency
+  (`TransitionTable.pair_weight`), then review. Each rule keeps the last
+  lesson's focus until it clears or stalls at 3× its attempt floor
+  (`domain.confidence.stall_attempts_cap`, moved from `domain.unlock`).
+  Removed: the lesson WPM gate (`remedial_focus`) and the review penalty in
+  focus scoring. Sessions now save `focus_pair` when the focus was a pair
+  (written only when set, still schema 5; old rows read back unchanged).
+- **Attempt floors count real presses** — `combine_sessions` now sums
+  `attempt_count` over the window without recency weights; speed and accuracy
+  keep theirs. Weighted attempts settled at about 3.24 × presses per lesson,
+  so a key or cohort pair with 2–3 presses per lesson never reached
+  `min_confidence_attempts` (10) or the transition stall cap (12) and blocked
+  the next letter. The aggregates cache moves to `schema_version` 2; older
+  cache files read as a miss and rebuild from the session rows (session rows
+  are unchanged).
+- **Accuracy is scored against 95%, not 100%** — skill and confidence use
+  `min(speed, min(1, accuracy / ACCURACY_TARGET))` with
+  `ACCURACY_TARGET = 0.95` (`domain/confidence.py`), so one typo no longer
+  needs about 199 clean presses before a key clears. Recency-weighted errors
+  stay fractional instead of being rounded, so one typo in the previous
+  lesson counts as 0.7. The transition gate now calls the same
+  `clears_threshold` rule as key unlock and focus. HUD and Stats still show
+  raw accuracy.
+
 ## 2.1.0
 
 - **Session store: per-session stats instead of keystroke logs** — a finished

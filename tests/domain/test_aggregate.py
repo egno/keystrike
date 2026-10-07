@@ -1,3 +1,7 @@
+from dataclasses import replace
+
+import pytest
+
 from keystrike.domain.aggregate import (
     _combine_key_maps_weighted,
     _combine_transition_maps_weighted,
@@ -11,6 +15,7 @@ from keystrike.domain.aggregate import (
 )
 from keystrike.domain.confidence import (
     SESSION_RECENCY_DECAY,
+    clears_threshold,
     confidence_of,
     transition_accuracy_of,
     transition_confidence_of,
@@ -152,7 +157,9 @@ def test_combine_sessions_favors_recent_session():
     assert out.keys[ord("a")].mean_time_ns > 200_000_000
 
 
-def test_combine_sessions_weights_recent_attempts_more():
+def test_combine_sessions_counts_attempts_unweighted():
+    """Attempts are evidence for the floors, so they are real presses in the
+    window — only speed and accuracy carry recency weights."""
     s1 = _session("s1", started_at=1.0)
     s2 = _session("s2", started_at=2.0)
     keys1 = [
@@ -163,10 +170,57 @@ def test_combine_sessions_weights_recent_attempts_more():
         Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),
     ]
     out = combine_sessions([(s1, tally_session(keys1)), (s2, tally_session(keys2))])
-    w_old, w_new = session_recency_weights(2)
-    expected_attempts = round(2 * w_old + 1 * w_new)
-    assert out.keys[ord("a")].attempt_count == expected_attempts
-    assert out.keys[ord("a")].attempt_count < 3
+    assert out.keys[ord("a")].attempt_count == 3
+
+
+def _lesson_of_pairs(keys: str, ms: int = 200) -> list[Keystroke]:
+    return [
+        Keystroke(codepoint=ord(ch), typed=ord(ch), t_ns=i * ms * 1_000_000, correct=True)
+        for i, ch in enumerate(keys)
+    ]
+
+
+def test_combine_sessions_attempts_reach_floor_at_two_presses_per_lesson():
+    """Default window (10) and decay (0.7): a pair typed twice per lesson has
+    20 real attempts, not the ~6.5 a recency-weighted count settles at."""
+    sessions = [
+        (_session(f"s{i}", started_at=float(i)), tally_session(_lesson_of_pairs("abab")))
+        for i in range(10)
+    ]
+    ab = combine_sessions(sessions).transitions[Bigram(ord("a"), ord("b"))]
+    assert ab.attempt_count == 20
+    assert 2 * sum(session_recency_weights(10)) < 7
+
+
+def test_weighted_merge_keeps_one_old_typo_fractional():
+    """One typo in the previous lesson (weight 0.7) with about 7 weighted
+    samples counts as 0.7 of an error, not a full one."""
+    ab = Bigram(ord("a"), ord("b"))
+    old = TransitionStats(ord("a"), ord("b"), 4, 200_000_000.0, 1, 1.0, attempt_count=5)
+    recent = TransitionStats(ord("a"), ord("b"), 4, 200_000_000.0, 0, 2.0, attempt_count=4)
+    merged = _combine_transition_maps_weighted(
+        [{ab: old}, {ab: recent}], session_recency_weights(2)
+    )[ab]
+    assert merged.samples == 7  # 0.7 * 4 + 4 = 6.8
+    assert merged.error_count == pytest.approx(0.7)
+    assert merged.attempt_count == 9
+    assert transition_accuracy_of(merged) == pytest.approx(7 / 7.7)
+
+
+def test_one_old_typo_does_not_block_an_otherwise_clean_pair():
+    """14 weighted samples and one typo last-but-one lesson: 14 / 14.7 is
+    above the 95% accuracy target. Rounded to a full error (14 / 15) it was not."""
+    ab = Bigram(ord("a"), ord("b"))
+    old = TransitionStats(ord("a"), ord("b"), 10, 200_000_000.0, 1, 1.0, attempt_count=11)
+    recent = TransitionStats(ord("a"), ord("b"), 7, 200_000_000.0, 0, 2.0, attempt_count=7)
+    merged = _combine_transition_maps_weighted(
+        [{ab: old}, {ab: recent}], session_recency_weights(2)
+    )[ab]
+    assert merged.samples == 14
+    target = 200.0  # 300 CPM; the pair is at exactly target speed
+    assert clears_threshold(merged, target, threshold=1.0, min_attempts=4)
+    rounded = replace(merged, error_count=1)
+    assert not clears_threshold(rounded, target, threshold=1.0, min_attempts=4)
 
 
 def test_combine_sessions_recent_errors_weigh_more_on_confidence():
