@@ -8,6 +8,7 @@ from textual.screen import Screen
 from textual.widgets import Footer, Static
 
 from keystrike.application.stats_use_cases import HeatmapView
+from keystrike.domain.enums import TargetSpeedUnit
 from keystrike.domain.models import Layout, SessionResult
 from keystrike.presentation.bindings import BACK_BINDINGS
 from keystrike.presentation.formatting.trends import (
@@ -15,6 +16,7 @@ from keystrike.presentation.formatting.trends import (
     format_aggregate_metric_trend_block,
     format_focus_confidence_trend_line,
     format_key_metric_trend_block,
+    speed_value_formatter,
 )
 from keystrike.presentation.services import StatsServices
 from keystrike.presentation.widgets.kb_heatmap import (
@@ -44,12 +46,19 @@ class StatsScreen(Screen[None]):
         services: StatsServices,
         current_target_speed_cpm: int = 0,
         confidence_session_window: int = 10,
+        target_speed_unit: TargetSpeedUnit = TargetSpeedUnit.WPM,
+        chars_per_word: float = 0.0,
     ) -> None:
         super().__init__()
         self._layout_name = layout
         self._services = services
         self._current_target_speed_cpm = current_target_speed_cpm
         self._confidence_session_window = confidence_session_window
+        self._speed_format = speed_value_formatter(
+            current_target_speed_cpm,
+            target_speed_unit,
+            chars_per_word,
+        )
         self._view: _View = "overview"
         self._layout: Layout | None = None
         self._heatmap: HeatmapView | None = None
@@ -148,6 +157,7 @@ class StatsScreen(Screen[None]):
             speed_values=speed_values,
             accuracy_values=accuracy_values,
             limit=limit,
+            speed_format=self._speed_format,
         )
         focus_line = format_focus_confidence_trend_line(
             self._trend_history,
@@ -174,6 +184,7 @@ class StatsScreen(Screen[None]):
             accuracy_values=accuracy_values,
             limit=limit,
             current_target_speed_cpm=self._current_target_speed_cpm,
+            speed_format=self._speed_format,
         )
         widget.update(detail if detail else "[dim]No sessions yet for this key.[/]")
 

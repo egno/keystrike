@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from keystrike.application.session_queries import compute_accuracy, compute_wpm
 from keystrike.application.session_use_cases import SessionStatsBaseline
 from keystrike.domain.confidence import target_ms_per_char
+from keystrike.domain.enums import TargetSpeedUnit
 from keystrike.domain.models import SessionResult
 from keystrike.presentation.theme import (
     STYLE_DELTA_IMPROVE,
@@ -222,11 +223,38 @@ def _format_key_confidence_trend_line_grid(
     )
 
 
+def speed_value_formatter(
+    current_target_speed_cpm: int,
+    unit: TargetSpeedUnit,
+    chars_per_word: float,
+) -> Callable[[float], str] | None:
+    """Format a speed ratio (actual / current goal) in the goal's unit.
+
+    Speed trends are normalized to the current goal, so ratio x goal CPM is
+    the actual CPM. Returns None (plain ratio) when there is no goal.
+    """
+    if current_target_speed_cpm <= 0 or chars_per_word <= 0:
+        return None
+    if unit == TargetSpeedUnit.WPM:
+        wpm_per_ratio = current_target_speed_cpm / chars_per_word
+        return lambda v: f"{v * wpm_per_ratio:.0f} wpm"
+    return lambda v: f"{v * current_target_speed_cpm:.0f} cpm"
+
+
 def _format_key_speed_trend_line_grid(
-    values: Sequence[float], *, spark_width: int = _DEFAULT_TREND_LIMIT
+    values: Sequence[float],
+    *,
+    spark_width: int = _DEFAULT_TREND_LIMIT,
+    format_value: Callable[[float], str] | None = None,
 ) -> str:
     return _format_metric_trend_line_grid(
-        MetricLineSpec("speed", STYLE_TREND_SPEED, values, spark_width=spark_width)
+        MetricLineSpec(
+            "speed",
+            STYLE_TREND_SPEED,
+            values,
+            format_value=format_value,
+            spark_width=spark_width,
+        )
     )
 
 
@@ -253,13 +281,18 @@ def _assemble_trend_block(
     accuracy_values: Sequence[float],
     *,
     spark_width: int,
+    speed_format: Callable[[float], str] | None = None,
 ) -> str:
     if not session_count:
         return ""
     lines = [
         f"[bold]{title}[/] ({session_count} sessions)",
         conf_line,
-        _format_key_speed_trend_line_grid(speed_values, spark_width=spark_width),
+        _format_key_speed_trend_line_grid(
+            speed_values,
+            spark_width=spark_width,
+            format_value=speed_format,
+        ),
         _format_key_accuracy_trend_line_grid(accuracy_values, spark_width=spark_width),
     ]
     return "\n".join(line for line in lines if line)
@@ -275,6 +308,7 @@ def format_key_metric_trend_block(
     limit: int = _DEFAULT_TREND_LIMIT,
     current_target_speed_cpm: int = 0,
     cumulative: float | None = None,
+    speed_format: Callable[[float], str] | None = None,
 ) -> str:
     """Trend block for a single key: confidence line driven by session headers."""
     spark_width = limit
@@ -295,6 +329,7 @@ def format_key_metric_trend_block(
         speed_values,
         accuracy_values,
         spark_width=spark_width,
+        speed_format=speed_format,
     )
 
 
@@ -305,6 +340,7 @@ def format_aggregate_metric_trend_block(
     speed_values: Sequence[float] | None = None,
     accuracy_values: Sequence[float] | None = None,
     limit: int = _DEFAULT_TREND_LIMIT,
+    speed_format: Callable[[float], str] | None = None,
 ) -> str:
     """Trend block for layout-wide (or other pre-computed) confidence values.
 
@@ -326,6 +362,7 @@ def format_aggregate_metric_trend_block(
         speed_values,
         accuracy_values,
         spark_width=spark_width,
+        speed_format=speed_format,
     )
 
 

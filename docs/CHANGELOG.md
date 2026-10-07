@@ -5,6 +5,15 @@ rationale lives in commit history/diffs — these are pointers, not narratives.
 Milestone-level feature work (what shipped in M1–M4, the keybr algorithm
 design) stays in `PLAN.md` §5/§6.
 
+## 2.2.2
+
+- **Stats speed in the goal's unit** — the stats screen speed line shows
+  `wpm` or `cpm`, following `Settings.target_speed_unit`, instead of the
+  ratio to the goal. Speed trends are already normalized to the current
+  goal, so ratio × goal CPM is the actual CPM; WPM divides by
+  `typical_chars_per_word` (`presentation/formatting/trends.py`,
+  `speed_value_formatter`). With no goal, it shows the plain ratio.
+
 ## 2.2.1
 
 - **Lowering the letter count relearns the closed keys** — `UpdateSettings`
