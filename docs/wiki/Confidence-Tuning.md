@@ -38,6 +38,29 @@ keys are ignored, and missing nested tables silently fall back to defaults).
 | Generated word max length | `[word_gen].max_len` | `4` | Maximum length for Markov-generated words. |
 
 Valid ranges: window and both attempt floors are **1–100**.
+
+## Target speed and WPM
+
+The target speed is on the Settings screen. It is saved in its own unit as
+`target_speed` and `target_speed_unit` (`wpm` or `cpm`). Confidence always
+compares key times with a CPM goal:
+
+- A **CPM** goal is used as is.
+- A **WPM** goal stays fixed in WPM. Its CPM is WPM × the measured
+  keystrokes per word, so the unlock threshold follows the words you type.
+
+The keystrokes per word (spaces included) come from your recent sessions:
+total CPM ÷ total WPM over the last `confidence_session_window` sessions of
+the layout. Each session saves its own `cpm` and `wpm`. Sessions with fewer
+than 5 completed words do not count. With no such session, the rate is the
+midpoint of `[word_gen]` `min_len`/`max_len` plus 1 for the space (4 for the
+default 2–4 letters, so the default 75 WPM goal is 300 CPM).
+
+Switching the unit on the Settings screen converts the shown value at the
+current rate. Settings files from 2.2.2 and older stored only
+`target_speed_cpm`; it is read once and converted (a WPM goal at the
+midpoint rate). Older versions do not read `target_speed`, so a machine that
+syncs settings with an older version uses that version's default goal.
 `[unlock].gating_bigram_limit` is **2–4** (hand-edited values are clamped). Boost
 multipliers should be **≥ 1.0**. `lesson_word_count` should be **≥ 1**.
 `word_min_fraction` should be in **(0.0, 1.0]**. `max_word_repeats`

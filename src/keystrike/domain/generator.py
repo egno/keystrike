@@ -9,6 +9,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from random import Random
 
+from .enums import TargetSpeedUnit
 from .focus import FOCUS_BIGRAM_WORD_BOOST, FOCUS_WORD_BOOST
 from .markov import TransitionTable
 from .models import (
@@ -18,6 +19,7 @@ from .models import (
     MAX_WORD_REPEATS,
     Bigram,
     Layout,
+    Settings,
 )
 from .models import (
     LESSON_WORD_COUNT as DEFAULT_WORD_COUNT,
@@ -241,47 +243,36 @@ def wordlist_weight_for_word(
     return weight
 
 
-def typical_chars_per_word(
+def typical_keystrokes_per_word(
     *,
     generated_min_len: int = GENERATED_WORD_MIN_LEN,
     generated_max_len: int = GENERATED_WORD_MAX_LEN,
 ) -> float:
-    """Mean chars per generated word (spaces excluded).
+    """Mean keystrokes per generated word, counting its separating space.
+
+    The speed goal times every keystroke, spaces included, so a word costs its
+    letters plus one space; leaving the space out overstates WPM per CPM.
 
     ponytail: midpoint of accepted word lengths; upgrade to measured corpus avg.
     """
     min_len, max_len = effective_generated_word_bounds(generated_min_len, generated_max_len)
-    return (min_len + max_len) / 2.0
+    return (min_len + max_len) / 2.0 + 1.0
 
 
-def cpm_from_wpm(
-    wpm: int,
-    *,
-    generated_min_len: int = GENERATED_WORD_MIN_LEN,
-    generated_max_len: int = GENERATED_WORD_MAX_LEN,
-) -> int:
-    return round(
-        wpm
-        * typical_chars_per_word(
-            generated_min_len=generated_min_len,
-            generated_max_len=generated_max_len,
-        )
-    )
+def cpm_from_wpm(wpm: int, keystrokes_per_word: float) -> int:
+    return round(wpm * keystrokes_per_word)
 
 
-def wpm_from_cpm(
-    cpm: int,
-    *,
-    generated_min_len: int = GENERATED_WORD_MIN_LEN,
-    generated_max_len: int = GENERATED_WORD_MAX_LEN,
-) -> int:
-    return int(
-        cpm
-        / typical_chars_per_word(
-            generated_min_len=generated_min_len,
-            generated_max_len=generated_max_len,
-        )
-    )
+def wpm_from_cpm(cpm: int, keystrokes_per_word: float) -> int:
+    return round(cpm / keystrokes_per_word)
+
+
+def goal_cpm(settings: Settings, keystrokes_per_word: float) -> int:
+    """The speed goal in CPM, which confidence uses. A WPM goal stays fixed
+    in WPM, so its CPM follows the measured keystrokes per word."""
+    if settings.target_speed_unit == TargetSpeedUnit.CPM:
+        return settings.target_speed
+    return max(1, cpm_from_wpm(settings.target_speed, keystrokes_per_word))
 
 
 def _ensure_generated_word_len(

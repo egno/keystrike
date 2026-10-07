@@ -3,7 +3,9 @@ from dataclasses import dataclass, field
 from keystrike.application.session_queries import (
     compute_accuracy,
     compute_wpm,
+    keystrokes_per_word,
     latest_session_header,
+    target_speed_cpm,
 )
 from keystrike.domain.aggregate import (
     SessionTiming,
@@ -20,7 +22,7 @@ from keystrike.domain.confidence import (
 from keystrike.domain.enums import Mode, SessionState
 from keystrike.domain.generator import effective_generated_word_bounds
 from keystrike.domain.learn_order import keyboard_order
-from keystrike.domain.models import Bigram, Keystroke, SessionResult, SessionStats
+from keystrike.domain.models import Bigram, Keystroke, SessionResult, SessionStats, Settings
 from keystrike.domain.null_adapters import (
     NULL_LAYOUT_REPOSITORY,
     NULL_SETTINGS_REPOSITORY,
@@ -162,7 +164,7 @@ def _snapshot_finish_state(
     ]
     sessions.append((draft, stats))
     combined = combine_sessions(sessions)
-    target = target_ms_per_char(settings.target_speed_cpm)
+    target = target_ms_per_char(target_speed_cpm(repo, settings, session.layout))
     unlocked = compute_unlocked(
         order,
         settings.alphabet_size,
@@ -199,7 +201,7 @@ class FinishSession:
         )
 
         settings = self.settings_repo.load()
-        target_speed_cpm = settings.target_speed_cpm
+        goal_cpm = target_speed_cpm(self.repo, settings, session.layout)
         stats = tally_session(session.keystrokes)
         unlocked_keys, key_confidence = _snapshot_finish_state(
             session,
@@ -218,6 +220,8 @@ class FinishSession:
             settings.word_gen.min_len,
             settings.word_gen.max_len,
         )
+        words_completed = count_words_completed(session.target_text, session.position)
+        minutes = duration_ns / 1e9 / 60.0
         result = SessionResult(
             schema_version=5,
             session_id=session.id,
@@ -230,13 +234,15 @@ class FinishSession:
             focus_pair=session.focus_pair,
             total_keystrokes=session.total_count,
             correct_keystrokes=session.correct_count,
-            words_completed=count_words_completed(session.target_text, session.position),
+            words_completed=words_completed,
             lang=session.lang,
             unlocked_keys=unlocked_keys,
             key_confidence=key_confidence,
-            target_speed_cpm=target_speed_cpm,
+            target_speed_cpm=goal_cpm,
             generated_min_len=generated_min_len,
             generated_max_len=generated_max_len,
+            cpm=session.position / minutes if minutes > 0 else 0.0,
+            wpm=words_completed / minutes if minutes > 0 else 0.0,
             stats=stats,
         )
         self.repo.save_header(result)
@@ -319,3 +325,14 @@ class GetLatestSessionHeader:
 
     def __call__(self, layout: str) -> SessionResult | None:
         return latest_session_header(self.repo, layout)
+
+
+@dataclass(slots=True)
+class GetKeystrokesPerWord:
+    """Measured keystrokes per word for WPM <-> CPM display (see
+    `session_queries.keystrokes_per_word`)."""
+
+    repo: SessionRepository = field(default_factory=NullSessionRepository)
+
+    def __call__(self, settings: Settings) -> float:
+        return keystrokes_per_word(self.repo, settings)

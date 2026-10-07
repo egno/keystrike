@@ -3,7 +3,7 @@ from typing import ClassVar
 from textual.app import App
 from textual.binding import BindingType
 
-from keystrike.domain.generator import typical_chars_per_word
+from keystrike.domain.generator import goal_cpm
 from keystrike.presentation.bindings import QUIT
 from keystrike.presentation.screens.home import HomeScreen
 from keystrike.presentation.screens.practice import PracticeScreen
@@ -61,17 +61,15 @@ class KeystrikeApp(App[None]):
 
     def on_home_screen_open_stats(self, _: HomeScreen.OpenStats) -> None:
         settings = self._home.settings_repo.load()
+        keystrokes_per_word = self._stats.get_keystrokes_per_word(settings)
         self.push_screen(
             StatsScreen(
                 layout=settings.layout,
                 services=self._stats,
-                current_target_speed_cpm=settings.target_speed_cpm,
+                current_target_speed_cpm=goal_cpm(settings, keystrokes_per_word),
                 confidence_session_window=settings.confidence_session_window,
                 target_speed_unit=settings.target_speed_unit,
-                chars_per_word=typical_chars_per_word(
-                    generated_min_len=settings.word_gen.min_len,
-                    generated_max_len=settings.word_gen.max_len,
-                ),
+                keystrokes_per_word=keystrokes_per_word,
             )
         )
 

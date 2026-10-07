@@ -6,6 +6,7 @@ from textual.app import App
 from textual.containers import Vertical
 from textual.widgets import Static
 
+from keystrike.application.session_queries import target_speed_cpm
 from keystrike.application.stats_use_cases import (
     GetAggregateMetricTrends,
     GetHeatmap,
@@ -13,7 +14,7 @@ from keystrike.application.stats_use_cases import (
     GetKeyMetricTrends,
     RebuildAggregates,
 )
-from keystrike.domain.enums import Mode
+from keystrike.domain.enums import Mode, TargetSpeedUnit
 from keystrike.domain.models import Keystroke, SessionResult, Settings
 from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS
 from keystrike.infrastructure.layout_toml import load_layout_toml
@@ -60,7 +61,7 @@ def _build_screen(
                 settings_repo=settings_repo,
             ),
         ),
-        current_target_speed_cpm=settings_repo.settings.target_speed_cpm,
+        current_target_speed_cpm=target_speed_cpm(repo, settings_repo.settings),
         confidence_session_window=settings_repo.settings.confidence_session_window,
     )
 
@@ -388,7 +389,7 @@ async def test_stats_key_detail_normalizes_confidence_to_current_goal():
         await app.push_screen(
             _build_screen(
                 repo,
-                settings=Settings(target_speed_cpm=600),
+                settings=Settings(target_speed=600, target_speed_unit=TargetSpeedUnit.CPM),
             )
         )
         await pilot.pause()
@@ -416,7 +417,7 @@ async def test_stats_key_detail_stable_when_goal_changes():
         await app.push_screen(
             _build_screen(
                 repo,
-                settings=Settings(target_speed_cpm=600),
+                settings=Settings(target_speed=600, target_speed_unit=TargetSpeedUnit.CPM),
             )
         )
         await pilot.pause()

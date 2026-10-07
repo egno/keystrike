@@ -10,7 +10,7 @@ from textual.widgets.select import NoSelection
 from keystrike.application.settings_use_cases import SettingsUpdate, SettingsValidationError
 from keystrike.application.wordlist_use_cases import DEFAULT_WORDLIST_URL, WordListError
 from keystrike.domain.enums import TargetSpeedUnit
-from keystrike.domain.generator import cpm_from_wpm, effective_generated_word_bounds, wpm_from_cpm
+from keystrike.domain.generator import cpm_from_wpm, wpm_from_cpm
 from keystrike.presentation.bindings import BACK_BINDINGS, SAVE
 from keystrike.presentation.services import SettingsServices
 
@@ -45,29 +45,19 @@ class SettingsScreen(Screen[None]):
     def __init__(self, *, services: SettingsServices) -> None:
         super().__init__()
         self._services = services
+        self._speed_unit = TargetSpeedUnit.WPM  # unit the speed input shows; set in compose
 
     def compose(self) -> ComposeResult:
         settings = self._services.settings_repo.load()
         layouts = self._layout_select_options()
-        gen_min, gen_max = effective_generated_word_bounds(
-            settings.word_gen.min_len,
-            settings.word_gen.max_len,
-        )
+        self._speed_unit = settings.target_speed_unit
         with Vertical():
             yield Static("[bold]Settings[/]  [dim](Ctrl+S save, Esc/q back)[/]")
             yield Label("Layout")
             yield Select(layouts, value=settings.layout, id="settings-layout", allow_blank=False)
             yield Label("Target speed")
             yield Input(
-                value=str(
-                    wpm_from_cpm(
-                        settings.target_speed_cpm,
-                        generated_min_len=gen_min,
-                        generated_max_len=gen_max,
-                    )
-                    if settings.target_speed_unit == TargetSpeedUnit.WPM
-                    else settings.target_speed_cpm
-                ),
+                value=str(settings.target_speed),
                 id="settings-speed",
                 type="integer",
             )
@@ -111,6 +101,25 @@ class SettingsScreen(Screen[None]):
         self._refresh_layout_select()
         self._refresh_wordlist_status()
 
+    def on_select_changed(self, event: Select.Changed) -> None:
+        """Switching the unit converts the shown goal, so it keeps its meaning."""
+        if event.select.id != "settings-speed-unit" or isinstance(event.value, NoSelection):
+            return
+        unit = cast("TargetSpeedUnit", event.value)
+        if unit == self._speed_unit:
+            return
+        self._speed_unit = unit
+        speed_input = self.query_one("#settings-speed", Input)
+        try:
+            value = int(speed_input.value)
+        except ValueError:
+            return
+        rate = self._services.get_keystrokes_per_word(self._services.settings_repo.load())
+        converted = (
+            cpm_from_wpm(value, rate) if unit == TargetSpeedUnit.CPM else wpm_from_cpm(value, rate)
+        )
+        speed_input.value = str(max(1, converted))
+
     def on_screen_resume(self) -> None:
         settings = self._services.settings_repo.load()
         self.query_one("#settings-alphabet-size", Input).value = str(settings.alphabet_size)
@@ -137,20 +146,6 @@ class SettingsScreen(Screen[None]):
         target_speed_unit = speed_unit_select.value
         if isinstance(target_speed_unit, NoSelection):
             raise FormError("Target speed unit is required.")
-        settings = self._services.settings_repo.load()
-        gen_min, gen_max = effective_generated_word_bounds(
-            settings.word_gen.min_len,
-            settings.word_gen.max_len,
-        )
-        target_speed_cpm = (
-            cpm_from_wpm(
-                target_speed_value,
-                generated_min_len=gen_min,
-                generated_max_len=gen_max,
-            )
-            if target_speed_unit == TargetSpeedUnit.WPM
-            else target_speed_value
-        )
 
         alphabet_size = self._required_int(
             "#settings-alphabet-size", "Number of letters must be an integer."
@@ -168,7 +163,7 @@ class SettingsScreen(Screen[None]):
 
         return SettingsUpdate(
             layout=layout,
-            target_speed_cpm=target_speed_cpm,
+            target_speed=target_speed_value,
             target_speed_unit=target_speed_unit,
             alphabet_size=alphabet_size,
             learn_daily_minutes=learn_daily_minutes,

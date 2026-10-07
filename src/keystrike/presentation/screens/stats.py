@@ -47,7 +47,7 @@ class StatsScreen(Screen[None]):
         current_target_speed_cpm: int = 0,
         confidence_session_window: int = 10,
         target_speed_unit: TargetSpeedUnit = TargetSpeedUnit.WPM,
-        chars_per_word: float = 0.0,
+        keystrokes_per_word: float = 0.0,
     ) -> None:
         super().__init__()
         self._layout_name = layout
@@ -57,7 +57,7 @@ class StatsScreen(Screen[None]):
         self._speed_format = speed_value_formatter(
             current_target_speed_cpm,
             target_speed_unit,
-            chars_per_word,
+            keystrokes_per_word,
         )
         self._view: _View = "overview"
         self._layout: Layout | None = None

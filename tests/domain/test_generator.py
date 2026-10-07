@@ -9,7 +9,7 @@ from keystrike.domain.generator import (
     cpm_from_wpm,
     effective_generated_word_bounds,
     min_focus_words,
-    typical_chars_per_word,
+    typical_keystrokes_per_word,
     weak_focus_word_quota,
     word_matches_focus,
     wordlist_weight_for_word,
@@ -279,17 +279,15 @@ def test_generate_lesson_injects_focus_bigram():
         assert "az" in lesson.replace(" ", "")
 
 
-def test_wpm_cpm_conversion_uses_typical_word_length():
-    avg = typical_chars_per_word()
-    assert cpm_from_wpm(80) == round(80 * avg)
-    assert wpm_from_cpm(round(80 * avg)) == 80
+def test_typical_keystrokes_per_word_counts_the_space():
+    assert typical_keystrokes_per_word(generated_min_len=2, generated_max_len=4) == 4.0
+    assert typical_keystrokes_per_word(generated_min_len=3, generated_max_len=10) == 7.5
 
 
-def test_wpm_cpm_conversion_uses_custom_generated_bounds():
-    avg = typical_chars_per_word(generated_min_len=2, generated_max_len=4)
-    assert avg == 3.0
-    assert cpm_from_wpm(80, generated_min_len=2, generated_max_len=4) == 240
-    assert wpm_from_cpm(240, generated_min_len=2, generated_max_len=4) == 80
+def test_wpm_cpm_conversion_round_trips():
+    assert cpm_from_wpm(80, 4.0) == 320
+    assert wpm_from_cpm(320, 4.0) == 80
+    assert wpm_from_cpm(cpm_from_wpm(46, 3.9), 3.9) == 46
 
 
 def test_markov_fallback_pads_to_generated_min_len():

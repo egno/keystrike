@@ -3,12 +3,13 @@ KeystrikeApp, and the screens themselves. Split out from textual_app.py so scree
 depend on these types without importing textual_app.py (which imports the screens).
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from keystrike.application.prepare_practice import PreparePracticeSession
 from keystrike.application.session_use_cases import (
     AbortSession,
     FinishSession,
+    GetKeystrokesPerWord,
     GetLatestSessionHeader,
     GetSessionBaseline,
     RecordKeystroke,
@@ -63,6 +64,7 @@ class StatsServices:
     get_history: GetHistory
     get_key_metric_trends: GetKeyMetricTrends
     get_aggregate_metric_trends: GetAggregateMetricTrends
+    get_keystrokes_per_word: GetKeystrokesPerWord = field(default_factory=GetKeystrokesPerWord)
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,3 +75,4 @@ class SettingsServices:
     import_wordlist: ImportWordList
     clear_wordlist: ClearWordList
     get_wordlist_cache_status: GetWordListCacheStatus
+    get_keystrokes_per_word: GetKeystrokesPerWord = field(default_factory=GetKeystrokesPerWord)

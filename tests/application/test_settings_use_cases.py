@@ -29,7 +29,7 @@ def test_update_settings_persists_all_fields():
     result = update(
         SettingsUpdate(
             layout="dvorak",
-            target_speed_cpm=400,
+            target_speed=400,
             target_speed_unit=TargetSpeedUnit.WPM,
             alphabet_size=20,
             learn_daily_minutes=15,
@@ -37,7 +37,7 @@ def test_update_settings_persists_all_fields():
     )
 
     assert result.layout == "dvorak"
-    assert result.target_speed_cpm == 400
+    assert result.target_speed == 400
     assert result.target_speed_unit == TargetSpeedUnit.WPM
     assert result.alphabet_size == 20
     assert result.learn_daily_minutes == 15
@@ -62,7 +62,7 @@ def test_update_settings_preserves_confidence_fields_from_repo():
     result = update(
         SettingsUpdate(
             layout="qwerty",
-            target_speed_cpm=300,
+            target_speed=300,
             target_speed_unit=TargetSpeedUnit.CPM,
             alphabet_size=16,
             learn_daily_minutes=10,
@@ -82,7 +82,7 @@ def test_update_settings_rejects_non_positive_speed():
         update(
             SettingsUpdate(
                 layout="qwerty",
-                target_speed_cpm=0,
+                target_speed=0,
                 target_speed_unit=TargetSpeedUnit.CPM,
                 alphabet_size=16,
                 learn_daily_minutes=10,
@@ -100,7 +100,7 @@ def test_update_settings_rejects_negative_alphabet_size():
         update(
             SettingsUpdate(
                 layout="qwerty",
-                target_speed_cpm=300,
+                target_speed=300,
                 target_speed_unit=TargetSpeedUnit.CPM,
                 alphabet_size=-1,
                 learn_daily_minutes=10,
@@ -118,7 +118,7 @@ def test_update_settings_rejects_negative_learn_daily_minutes():
         update(
             SettingsUpdate(
                 layout="qwerty",
-                target_speed_cpm=300,
+                target_speed=300,
                 target_speed_unit=TargetSpeedUnit.CPM,
                 alphabet_size=16,
                 learn_daily_minutes=-1,
@@ -170,7 +170,7 @@ def test_cycle_layout_includes_custom_toml_layout(paths):
 def _update(alphabet_size: int) -> SettingsUpdate:
     return SettingsUpdate(
         layout="qwerty",
-        target_speed_cpm=300,
+        target_speed=300,
         target_speed_unit=TargetSpeedUnit.WPM,
         alphabet_size=alphabet_size,
         learn_daily_minutes=10,

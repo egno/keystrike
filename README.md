@@ -110,7 +110,7 @@ overview.
 | Setting | Default | Notes |
 | --- | --- | --- |
 | Layout | `qwerty` | Any bundled or custom layout |
-| Target speed | 46 WPM | Or CPM — your unlock threshold |
+| Target speed | 75 WPM | Or CPM — your unlock threshold; a WPM goal stays fixed in WPM |
 | Letters unlocked up front | 16 | Force-unlocked before skill gating |
 | Daily learn goal | 10 min | `0` = no goal |
 

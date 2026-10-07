@@ -14,6 +14,7 @@ from keystrike.application.session_queries import (
 from keystrike.application.session_use_cases import (
     AbortSession,
     FinishSession,
+    GetKeystrokesPerWord,
     RecordKeystroke,
     SessionStatsBaseline,
     StartSession,
@@ -23,7 +24,7 @@ from keystrike.application.session_use_cases import (
 from keystrike.application.stats_use_cases import RebuildAggregates
 from keystrike.domain.aggregate import combine_sessions
 from keystrike.domain.confidence import confidence_of, target_ms_per_char
-from keystrike.domain.enums import Mode, SessionState
+from keystrike.domain.enums import Mode, SessionState, TargetSpeedUnit
 from keystrike.domain.learn_order import keyboard_order
 from keystrike.domain.models import (
     CONFIDENCE_SESSION_WINDOW,
@@ -170,6 +171,29 @@ def test_wpm_math(clock, id_gen):
     _, result = _drive("hello", "hello", clock, id_gen)
     assert result.words_completed == 1
     assert 149.0 < compute_wpm(result) < 151.0
+
+
+def test_finish_saves_real_cpm_and_wpm(clock, id_gen):
+    # "ab cd": 5 chars (space included), 2 words, 5 keystrokes over 0.4s.
+    _, result = _drive("ab cd", "ab cd", clock, id_gen)
+    assert result.cpm == 5 / (0.4 / 60)
+    assert result.wpm == 2 / (0.4 / 60)
+    assert compute_wpm(result) == result.wpm
+
+
+def test_keystrokes_per_word_averages_recent_sessions(clock, id_gen):
+    repo = FakeSessionRepository()
+    settings = Settings(confidence_session_window=2)
+    get = GetKeystrokesPerWord(repo=repo)
+    assert get(settings) == 4.0  # no sessions: 2-4 letter midpoint + space
+
+    for text in ("aaaaaaaa " * 5, "ab cd ef gh ij", "abc def ghi jkl mno"):
+        _drive(text.strip(), text.strip(), clock, id_gen, repo)
+    _drive("abcdefghijklmnop", "abcdefghijklmnop", clock, id_gen, repo)  # 1 word: skipped
+    newest = repo.headers[1:3]
+    expected = sum(h.cpm for h in newest) / sum(h.wpm for h in newest)
+    assert get(settings) == expected
+    assert 2.5 < expected < 3.5
 
 
 def test_count_words_completed():
@@ -475,7 +499,7 @@ def test_finish_session_persists_unlocked_keys(clock, id_gen):
         keyboard_order(layout),
         settings.alphabet_size,
         {},
-        target_ms_per_char(settings.target_speed_cpm),
+        target_ms_per_char(result.target_speed_cpm),
     )
     assert result.unlocked_keys == expected
     assert len(repo.headers) == 1
@@ -596,7 +620,7 @@ def test_finish_session_persists_key_confidence(clock, id_gen):
 
     settings = settings_repo.load()
     layout = layout_repo.get("qwerty")
-    target = target_ms_per_char(settings.target_speed_cpm)
+    target = target_ms_per_char(result.target_speed_cpm)
     expected_unlocked = compute_unlocked(
         keyboard_order(layout),
         settings.alphabet_size,
@@ -635,8 +659,7 @@ def test_finish_session_key_confidence_uses_confidence_session_window(clock, id_
     record(session, "a")
     result = finish(session)
 
-    settings = settings_repo.load()
-    target = target_ms_per_char(settings.target_speed_cpm)
+    target = target_ms_per_char(result.target_speed_cpm)
     prior = sorted(repo.headers, key=lambda h: h.started_at)[-(CONFIDENCE_SESSION_WINDOW - 1) :]
     stats = combine_sessions(
         [(header, header.stats) for header in prior] + [(result, result.stats)],
@@ -646,7 +669,9 @@ def test_finish_session_key_confidence_uses_confidence_session_window(clock, id_
 
 def test_finish_session_persists_target_speed_cpm(clock, id_gen):
     settings_repo = FakeSettingsRepository()
-    settings_repo.settings = replace(settings_repo.settings, target_speed_cpm=400)
+    settings_repo.settings = replace(
+        settings_repo.settings, target_speed=400, target_speed_unit=TargetSpeedUnit.CPM
+    )
     layout_repo = FakeLayoutRepository(dict(BUNDLED_LAYOUTS))
     repo = FakeSessionRepository()
     finish = FinishSession(

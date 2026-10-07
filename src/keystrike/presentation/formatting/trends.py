@@ -226,17 +226,17 @@ def _format_key_confidence_trend_line_grid(
 def speed_value_formatter(
     current_target_speed_cpm: int,
     unit: TargetSpeedUnit,
-    chars_per_word: float,
+    keystrokes_per_word: float,
 ) -> Callable[[float], str] | None:
     """Format a speed ratio (actual / current goal) in the goal's unit.
 
     Speed trends are normalized to the current goal, so ratio x goal CPM is
     the actual CPM. Returns None (plain ratio) when there is no goal.
     """
-    if current_target_speed_cpm <= 0 or chars_per_word <= 0:
+    if current_target_speed_cpm <= 0 or keystrokes_per_word <= 0:
         return None
     if unit == TargetSpeedUnit.WPM:
-        wpm_per_ratio = current_target_speed_cpm / chars_per_word
+        wpm_per_ratio = current_target_speed_cpm / keystrokes_per_word
         return lambda v: f"{v * wpm_per_ratio:.0f} wpm"
     return lambda v: f"{v * current_target_speed_cpm:.0f} cpm"
 

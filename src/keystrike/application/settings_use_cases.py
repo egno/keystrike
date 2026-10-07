@@ -29,7 +29,7 @@ class SettingsUpdate:
     so `UpdateSettings.__call__` takes one parameter instead of five."""
 
     layout: str
-    target_speed_cpm: int
+    target_speed: int  # in target_speed_unit
     target_speed_unit: TargetSpeedUnit
     alphabet_size: int
     learn_daily_minutes: int
@@ -52,7 +52,7 @@ class UpdateSettings:
     rebuild_aggregates: Callable[[], None] = _no_rebuild
 
     def __call__(self, update: SettingsUpdate) -> Settings:
-        if update.target_speed_cpm <= 0:
+        if update.target_speed <= 0:
             raise SettingsValidationError("Target speed must be a positive integer.")
         if update.target_speed_unit not in TargetSpeedUnit:
             raise SettingsValidationError("Target speed unit must be wpm or cpm.")
@@ -69,7 +69,7 @@ class UpdateSettings:
         updated = replace(
             current,
             layout=update.layout,
-            target_speed_cpm=update.target_speed_cpm,
+            target_speed=update.target_speed,
             target_speed_unit=update.target_speed_unit,
             alphabet_size=update.alphabet_size,
             learn_daily_minutes=update.learn_daily_minutes,
