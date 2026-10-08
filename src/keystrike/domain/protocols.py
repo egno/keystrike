@@ -12,6 +12,7 @@ from .models import (
     Settings,
     SyncStatusReport,
 )
+from .retention import DatedSession
 
 
 class Clock(Protocol):
@@ -32,7 +33,7 @@ class SessionRepository(Protocol):
     def iter_headers(self, layout: str) -> Iterator[SessionResult]: ...
     def iter_all_headers(self) -> Iterator[SessionResult]: ...
     def replace_all_headers(self, headers: Iterable[SessionResult]) -> None:
-        """Rewrite the whole history with `headers` (used by stats retention)."""
+        """Rewrite the whole history with `headers` (used by history retention)."""
         ...
 
 
@@ -79,6 +80,13 @@ class DailyLearnBudgetProvider(Protocol):
     """Shape of `application.learn_budget_use_cases.GetDailyLearnBudget`."""
 
     def __call__(self, *, extra_ns: int = 0) -> DailyLearnBudget: ...
+
+
+class SessionRetention(Protocol):
+    """Shape of `application.stats_use_cases.KeptSessionIds` — the history
+    rule git sync applies to a merged index (see `domain.retention`)."""
+
+    def __call__(self, rows: Iterable[DatedSession]) -> set[str]: ...
 
 
 class SyncStore(Protocol):

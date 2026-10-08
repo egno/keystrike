@@ -113,8 +113,8 @@ class SessionResult:
     # per word, which the settings goal conversion averages over recent sessions.
     cpm: float = 0.0
     wpm: float = 0.0
-    # Per-key/bigram tallies (schema 5+). Empty for sessions older than the
-    # stats retention window (see domain.retention) — their history row stays.
+    # Per-key/bigram tallies (schema 5+). Empty for kept rows older than the
+    # stats retention window (see domain.retention).
     stats: SessionStats = field(default_factory=SessionStats)
     # The pair this lesson emphasized, for pair focus (`focus_key` is then its
     # second letter); the next lesson keeps it while it still needs work.

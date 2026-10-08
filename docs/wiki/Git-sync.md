@@ -97,6 +97,12 @@ Keystrike applies its own merge logic before every push and pull. Git is used on
 
 This means you can practice on two machines offline and merge later without losing sessions, as long as each session has a unique ID (Keystrike generates UUIDs).
 
+### Sessions — retention after merge
+
+After each merge, Keystrike prunes the merged index: the local index after a pull, the clone before a push. Per layout it keeps the newest 20 sessions (more if `confidence_session_window` is above 10) plus every session from the current local day. Older rows are deleted.
+
+The rule only ever drops rows that are too old for every possible merge, so a machine that still has old rows cannot bring them back: they are pruned again on the next sync. The rows stay in the sync repository's git history; Keystrike does not rewrite it.
+
 ### Settings — last-write-wins
 
 - Keystrike compares `updated_at` in `settings.toml` (ISO timestamp, written on every save).

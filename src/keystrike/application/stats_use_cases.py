@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from typing import NamedTuple
 
@@ -18,6 +18,7 @@ from keystrike.domain.confidence import (
     round_confidence,
     target_ms_per_char,
 )
+from keystrike.domain.daily_learn import session_local_date
 from keystrike.domain.learn_order import keyboard_order
 from keystrike.domain.models import KeyStats, SessionResult
 from keystrike.domain.null_adapters import NULL_LAYOUT_REPOSITORY, NullSessionRepository
@@ -28,7 +29,11 @@ from keystrike.domain.protocols import (
     SessionRepository,
     SettingsRepository,
 )
-from keystrike.domain.retention import prune_session_stats
+from keystrike.domain.retention import (
+    DatedSession,
+    prune_session_history,
+    retained_session_ids,
+)
 
 _NS_PER_MS = 1e6
 
@@ -83,17 +88,42 @@ class RebuildAllAggregates:
 
 
 @dataclass(slots=True)
-class PruneSessionStats:
-    """Command: drop per-session tallies from sessions older than the stats
-    retention window (see `domain.retention`). History rows stay. Returns
-    how many rows were changed; the index is rewritten only when non-zero."""
+class KeptSessionIds:
+    """Query: ids of the rows the history rule keeps (see `domain.retention`),
+    for the settings window and the clock's current local day."""
+
+    clock: Clock
+    settings_repo: SettingsRepository
+
+    def __call__(self, rows: Iterable[DatedSession]) -> set[str]:
+        tz = self.clock.local_tzinfo()
+        return retained_session_ids(
+            rows,
+            window=self.settings_repo.load().confidence_session_window,
+            today=session_local_date(self.clock.wall_epoch(), tz),
+            tz=tz,
+        )
+
+
+@dataclass(slots=True)
+class PruneSessionHistory:
+    """Command: delete history rows outside the retention rule and drop
+    tallies outside the stats window (see `domain.retention`). Returns how
+    many rows were deleted or changed; the index is rewritten only when
+    non-zero."""
 
     repo: SessionRepository
     settings_repo: SettingsRepository
+    clock: Clock
 
     def __call__(self) -> int:
-        window = self.settings_repo.load().confidence_session_window
-        pruned, changed = prune_session_stats(self.repo.iter_all_headers(), window=window)
+        tz = self.clock.local_tzinfo()
+        pruned, changed = prune_session_history(
+            self.repo.iter_all_headers(),
+            window=self.settings_repo.load().confidence_session_window,
+            today=session_local_date(self.clock.wall_epoch(), tz),
+            tz=tz,
+        )
         if changed:
             self.repo.replace_all_headers(pruned)
         return changed

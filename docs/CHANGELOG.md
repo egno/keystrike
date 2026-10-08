@@ -5,6 +5,18 @@ rationale lives in commit history/diffs — these are pointers, not narratives.
 Milestone-level feature work (what shipped in M1–M4, the keybr algorithm
 design) stays in `PLAN.md` §5/§6.
 
+## Unreleased
+
+- **History retention** — the session index keeps, per layout, the newest
+  `max(20, 2 * confidence_session_window - 1)` rows plus every row from the
+  current local day; older rows are deleted (`domain/retention.py`,
+  `PruneSessionHistory`, replaces `PruneSessionStats`). It runs at startup
+  and stats retention still applies to the kept rows. Git sync prunes each
+  merged index — local after a pull, the clone before a push
+  (`KeptSessionIds`, `sync_merge_io.prune_index`). The rule is monotone, so a
+  device with old rows cannot bring pruned sessions back. Rows stay in the
+  sync repo's git history.
+
 ## 2.2.3
 
 - **Speed goal fixed in its own unit** — `Settings.target_speed` keeps the
