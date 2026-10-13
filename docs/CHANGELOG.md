@@ -5,7 +5,7 @@ rationale lives in commit history/diffs — these are pointers, not narratives.
 Milestone-level feature work (what shipped in M1–M4, the keybr algorithm
 design) stays in `PLAN.md` §5/§6.
 
-## Unreleased
+## 2.2.4
 
 - **History retention** — the session index keeps, per layout, the newest
   `max(20, 2 * confidence_session_window - 1)` rows plus every row from the
