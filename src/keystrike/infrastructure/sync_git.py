@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from keystrike.domain.models import SyncStatusReport
-from keystrike.domain.protocols import StatsRebuilder
+from keystrike.domain.protocols import SessionRetention, StatsRebuilder
 from keystrike.infrastructure.git_client import GitClient, GitRunner, GitSyncError
 from keystrike.infrastructure.paths import Paths
 from keystrike.infrastructure.sync_merge_io import (
@@ -21,6 +21,7 @@ from keystrike.infrastructure.sync_merge_io import (
     copy_layouts_to_remote,
     import_missing_sessions,
     iter_layouts_from_index,
+    prune_index,
     read_index_session_ids,
     resolve_settings_lww,
 )
@@ -38,6 +39,7 @@ __all__ = [
     "copy_layouts_to_remote",
     "import_missing_sessions",
     "iter_layouts_from_index",
+    "prune_index",
     "read_index_session_ids",
     "resolve_settings_lww",
 ]
@@ -65,8 +67,17 @@ class SyncConfig:
 
 
 class GitSyncGateway:
-    def __init__(self, paths: Paths, *, client: GitRunner | None = None) -> None:
+    def __init__(
+        self,
+        paths: Paths,
+        *,
+        client: GitRunner | None = None,
+        retention: SessionRetention | None = None,
+    ) -> None:
+        """`retention` prunes each merged index (local after a pull, the clone
+        before a push); `None` keeps every row."""
         self._paths = paths
+        self._retention = retention
         self._config_path = paths.sync_config_file
         self._clone_dir = paths.sync_clone_dir
         self._client = client or GitClient()
@@ -185,6 +196,7 @@ class GitSyncGateway:
             remote_index=self.clone_sessions_index,
             remote_sessions_dir=self.clone_sessions,
         )
+        self._prune(self._paths.sessions_index)
         copy_layouts_missing(
             local_layouts=self._paths.layouts_dir,
             remote_layouts=self.clone_layouts,
@@ -201,11 +213,16 @@ class GitSyncGateway:
             remote_index=self._paths.sessions_index,
             remote_sessions_dir=self._paths.sessions_dir,
         )
+        self._prune(self.clone_sessions_index)
         copy_layouts_to_remote(
             local_layouts=self._paths.layouts_dir,
             remote_layouts=self.clone_layouts,
         )
         copy_file_if_exists(self._paths.settings_file, self.clone_settings)
+
+    def _prune(self, index: Path) -> None:
+        if self._retention is not None:
+            prune_index(index, self._retention)
 
     def _merge_both_ways(self) -> None:
         self._merge_from_clone()

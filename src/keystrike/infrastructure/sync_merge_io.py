@@ -11,6 +11,7 @@ import json
 import shutil
 from pathlib import Path
 
+from keystrike.domain.protocols import SessionRetention
 from keystrike.domain.sync_merge import (
     SessionIndexEntry,
     decide_settings_winner,
@@ -21,6 +22,7 @@ from keystrike.domain.sync_merge import (
     settings_epoch_from_toml,
 )
 
+from .atomic_write import atomic_write_text
 from .session_migration import upgrade_index_line
 
 
@@ -86,6 +88,24 @@ def import_missing_sessions(
             out.write("\n")
             imported.append(plan.session_id)
     return imported
+
+
+def prune_index(index_path: Path, retention: SessionRetention) -> int:
+    """Rewrite the index with only the rows `retention` keeps. Rows stay
+    byte-for-byte; corrupt rows are dropped. Returns how many were dropped."""
+    if not index_path.is_file():
+        return 0
+    entries, lines = _read_index(index_path)
+    with index_path.open(encoding="utf-8") as fh:
+        total = sum(1 for raw in fh if raw.strip())
+    kept_ids = retention(entries)
+    kept = [
+        line for entry, line in zip(entries, lines, strict=True) if entry.session_id in kept_ids
+    ]
+    if len(kept) == total:
+        return 0
+    atomic_write_text(index_path, "".join(line + "\n" for line in kept))
+    return total - len(kept)
 
 
 def _settings_epoch(path: Path) -> float:

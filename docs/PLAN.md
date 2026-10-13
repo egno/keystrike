@@ -353,7 +353,9 @@ all layouts found in the merged session index.
 **Merge rules** (custom logic; JSONL is never left to git's native merge):
 
 - **Sessions:** union by `session_id` — copy missing session files, append
-  missing index entries; existing local IDs are never overwritten.
+  missing index entries; existing local IDs are never overwritten. The merged
+  index is then pruned by the history rule (`domain/retention.py`): local after
+  a pull, the clone before a push.
 - **Settings:** last-write-wins via optional `updated_at` ISO field in
   `settings.toml` (written on every save); falls back to file mtime when absent.
 - **Layouts:** pull copies remote layouts missing locally; push copies all local

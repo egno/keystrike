@@ -53,7 +53,7 @@ for sources and how each maps to the code.
 - **Git backup sync** — optional CLI to push/pull settings and sessions to a private
   remote (union-merge sessions, last-write-wins settings).
 - **Offline by default** — a compact JSONL session history (per-key stats, no
-  keystroke logs) and a local stats cache under platformdirs paths; sync is opt-in.
+  keystroke logs; the newest 20 sessions per layout plus today's) and a local stats cache under platformdirs paths; sync is opt-in.
 
 ## Install
 
@@ -134,8 +134,9 @@ keystrike sync pull      # remote → local (rebuilds stats cache)
 keystrike sync status    # diff summary
 ```
 
-Sync merges sessions by `session_id` (union), resolves settings by `updated_at`
-(last-write-wins), and copies layout files both ways. The stats cache is excluded —
+Sync merges sessions by `session_id` (union), then keeps the newest 20 sessions
+per layout plus today's. It resolves settings by `updated_at` (last-write-wins)
+and copies layout files both ways. The stats cache is excluded —
 pull triggers a rebuild.
 
 ## Data locations

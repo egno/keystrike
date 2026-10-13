@@ -1,10 +1,12 @@
 import json
 import os
 import time
+from collections.abc import Iterable
 from pathlib import Path
 
 import pytest
 
+from keystrike.domain.retention import DatedSession
 from keystrike.infrastructure.paths import Paths
 from keystrike.infrastructure.sync_git import (
     GitClient,
@@ -15,6 +17,7 @@ from keystrike.infrastructure.sync_git import (
     copy_layouts_to_remote,
     import_missing_sessions,
     iter_layouts_from_index,
+    prune_index,
     read_index_session_ids,
     resolve_settings_lww,
 )
@@ -348,6 +351,42 @@ def test_copy_file_if_exists_false_when_missing(tree: dict[str, Path]) -> None:
     assert not dest.exists()
 
 
+class _KeepOnly:
+    """Fakes the `SessionRetention` seam: keeps a fixed set of ids."""
+
+    def __init__(self, *ids: str) -> None:
+        self.ids = set(ids)
+
+    def __call__(self, rows: Iterable[DatedSession]) -> set[str]:
+        return {r.session_id for r in rows} & self.ids
+
+
+def test_prune_index_keeps_retained_rows_byte_for_byte(tree: dict[str, Path]) -> None:
+    _write_index(tree["local_index"], _header(_VALID_ULID_A), _header(_VALID_ULID_B))
+    kept_line = tree["local_index"].read_text(encoding="utf-8").splitlines()[1]
+
+    assert prune_index(tree["local_index"], _KeepOnly(_VALID_ULID_B)) == 1
+    assert tree["local_index"].read_text(encoding="utf-8") == kept_line + "\n"
+
+
+def test_prune_index_drops_corrupt_rows(tree: dict[str, Path]) -> None:
+    _write_index(tree["local_index"], _header(_VALID_ULID_A))
+    with tree["local_index"].open("a", encoding="utf-8") as fh:
+        fh.write("{not json\n")
+
+    assert prune_index(tree["local_index"], _KeepOnly(_VALID_ULID_A)) == 1
+    assert read_index_session_ids(tree["local_index"]) == {_VALID_ULID_A}
+
+
+def test_prune_index_leaves_file_alone_when_nothing_drops(tree: dict[str, Path]) -> None:
+    _write_index(tree["local_index"], _header(_VALID_ULID_A))
+    before = tree["local_index"].stat().st_mtime_ns
+
+    assert prune_index(tree["local_index"], _KeepOnly(_VALID_ULID_A)) == 0
+    assert prune_index(tree["remote_index"].with_name("missing.jsonl"), _KeepOnly()) == 0
+    assert tree["local_index"].stat().st_mtime_ns == before
+
+
 class _FakeGitClient:
     """Fakes the `GitRunner` seam: records calls, raises canned errors, no real git."""
 
@@ -471,3 +510,56 @@ def test_git_client_is_the_default_when_none_injected(paths: Paths) -> None:
     gateway = GitSyncGateway(paths)
 
     assert isinstance(gateway._client, GitClient)
+
+
+def _configure(paths: Paths) -> None:
+    paths.sync_config_file.parent.mkdir(parents=True, exist_ok=True)
+    paths.sync_config_file.write_text('remote_url = "origin"\n', encoding="utf-8")
+    paths.sync_clone_dir.mkdir(parents=True, exist_ok=True)
+
+
+def test_gateway_push_prunes_the_merged_clone_index(paths: Paths) -> None:
+    _configure(paths)
+    gateway = GitSyncGateway(paths, client=_FakeGitClient(), retention=_KeepOnly(_VALID_ULID_B))
+    paths.sessions_index.parent.mkdir(parents=True)
+    _write_index(paths.sessions_index, _header(_VALID_ULID_B))
+    gateway.clone_sessions.mkdir()
+    _write_index(gateway.clone_sessions_index, _header(_VALID_ULID_A))
+
+    gateway.push()
+
+    assert read_index_session_ids(gateway.clone_sessions_index) == {_VALID_ULID_B}
+
+
+def test_gateway_pull_prunes_the_merged_local_index(paths: Paths) -> None:
+    _configure(paths)
+    gateway = GitSyncGateway(paths, client=_FakeGitClient(), retention=_KeepOnly(_VALID_ULID_B))
+    paths.sessions_index.parent.mkdir(parents=True)
+    _write_index(paths.sessions_index, _header(_VALID_ULID_A))
+    gateway.clone_sessions.mkdir()
+    _write_index(gateway.clone_sessions_index, _header(_VALID_ULID_B))
+    rebuilt: list[str] = []
+
+    def rebuild(layout: str) -> None:
+        rebuilt.append(layout)
+
+    assert gateway.pull(rebuild) == 1
+
+    assert read_index_session_ids(paths.sessions_index) == {_VALID_ULID_B}
+    assert rebuilt == ["qwerty"]
+
+
+def test_gateway_without_retention_keeps_every_row(paths: Paths) -> None:
+    _configure(paths)
+    gateway = GitSyncGateway(paths, client=_FakeGitClient())
+    paths.sessions_index.parent.mkdir(parents=True)
+    _write_index(paths.sessions_index, _header(_VALID_ULID_A))
+    gateway.clone_sessions.mkdir()
+    _write_index(gateway.clone_sessions_index, _header(_VALID_ULID_B))
+
+    gateway.push()
+
+    assert read_index_session_ids(gateway.clone_sessions_index) == {
+        _VALID_ULID_A,
+        _VALID_ULID_B,
+    }

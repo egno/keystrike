@@ -22,7 +22,8 @@ from keystrike.application.stats_use_cases import (
     GetHistory,
     GetKeyMetricTrends,
     GetOrRebuildAggregates,
-    PruneSessionStats,
+    KeptSessionIds,
+    PruneSessionHistory,
     RebuildAggregates,
     RebuildAllAggregates,
 )
@@ -64,14 +65,16 @@ class SyncServices:
 def startup(paths: Paths | None = None) -> None:
     """One-time-per-launch store maintenance, run by the CLI before `build()`
     or `build_sync()`: create the data dirs, fold schema ≤4 keystroke logs
-    into the session index, and drop tallies outside the retention window.
+    into the session index, and delete rows / drop tallies outside the
+    retention rule (see `domain.retention`).
     Kept out of the builders so they only assemble the object graph."""
     paths = paths or default_paths()
     ensure_dirs(paths)
     migrate_keystroke_files(paths)
-    PruneSessionStats(
+    PruneSessionHistory(
         repo=JsonlSessionRepository(paths),
         settings_repo=TomlSettingsRepository(paths),
+        clock=MonotonicClock(),
     )()
 
 
@@ -80,11 +83,15 @@ def build_sync() -> SyncServices:
     ensure_dirs(paths)
     session_repo = JsonlSessionRepository(paths)
     aggregates_cache = FileAggregatesCache(paths)
-    store = GitSyncGateway(paths)
+    settings_repo = TomlSettingsRepository(paths)
+    store = GitSyncGateway(
+        paths,
+        retention=KeptSessionIds(clock=MonotonicClock(), settings_repo=settings_repo),
+    )
     rebuild = RebuildAggregates(
         repo=session_repo,
         cache=aggregates_cache,
-        settings_repo=TomlSettingsRepository(paths),
+        settings_repo=settings_repo,
         layout_repo=CompositeLayoutRepository(paths),
     )
     return SyncServices(
