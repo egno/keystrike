@@ -5,6 +5,20 @@ rationale lives in commit history/diffs — these are pointers, not narratives.
 Milestone-level feature work (what shipped in M1–M4, the keybr algorithm
 design) stays in `PLAN.md` §5/§6.
 
+## 2.2.5
+
+- **Fewer saved pairs** — `FinishSession` saves pair tallies only for the
+  newest key's gate cohort and the lesson's focus pair, so a session row
+  stays small as the alphabet grows. Pairs with a space are never tallied
+  (`is_excluded_transition`, replaces `is_same_key_transition`). Focus
+  selection drops the weak-pair rule and pair review: a pair is the focus
+  only through the unlock gate. Lesson pair weights cover the gate cohort
+  only.
+- **Shorter tallies** — session rows store key and pair tallies as
+  `stats.keys_avg` / `stats.pairs_avg`, `[samples, avg_ms, errors, attempts]`
+  with the mean time in whole ms (`session_repo_jsonl`). Older `stats.keys` /
+  `stats.pairs` rows (time as a sum in ns) still read.
+
 ## 2.2.4
 
 - **History retention** — the session index keeps, per layout, the newest

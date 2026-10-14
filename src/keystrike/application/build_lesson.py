@@ -16,7 +16,6 @@ from keystrike.domain.confidence import (
     attempts_of,
     clears_threshold,
     confidence_of,
-    is_same_key_transition,
     key_confidence,
     review_urgency,
     round_confidence,
@@ -339,7 +338,6 @@ def _resolve_lesson_focus(
         ctx.transitions,
         ctx.target,
         ctx.now,
-        pair_frequency=ctx.table.pair_weight,
         gate=gating.gating_bigrams,
         last_key=ctx.last_key,
         last_pair=ctx.last_pair,
@@ -396,7 +394,9 @@ def _compute_weights(
 ) -> tuple[dict[str, float], dict[Bigram, float]]:
     """Per-char and per-transition sampling weights for practice-text
     generation, biased toward weak/stale keys and boosted further for
-    today's focus (see `domain.focus.practice_weight`)."""
+    today's focus (see `domain.focus.practice_weight`). Only the newest key's
+    gate cohort and the focus pair get transition weights: sessions store
+    tallies for those pairs only (`FinishSession`)."""
     focus = progress.focus
     focus_bigram = progress.focus_bigram
     unlocked = progress.unlocked
@@ -417,38 +417,27 @@ def _compute_weights(
         for k in progress.state.keys
     }
     char_weights[chr(focus)] *= ctx.settings.focus.char_boost
-    unlocked_set = frozenset(unlocked)
-    transition_weights = {
-        key: practice_weight(
-            transition_confidence_of(
-                key.prev_cp,
-                key.next_cp,
-                ctx.transitions,
-                ctx.target,
-                min_attempts=min_transition_attempts,
-            ),
-            urgency=review_urgency(ctx.transitions[key].last_seen, ctx.now),
-        )
-        * coverage_deficit_factor(
-            attempts_of(ctx.transitions[key]),
-            min_attempts=min_transition_attempts,
-        )
-        for key in ctx.transitions
-        if key.prev_cp in unlocked_set
-        and key.next_cp in unlocked_set
-        and not is_same_key_transition(key.prev_cp, key.next_cp)
-    }
     newest_pairs = newest_key_gating_cohort(
         unlocked,
         ctx.stats,
         limit=ctx.settings.unlock.gating_bigram_limit,
     )
-    if newest_pairs:
-        default_weight = practice_weight(0.0, urgency=0.0) * coverage_deficit_factor(
-            0, min_attempts=min_transition_attempts
+    transition_weights = {
+        pair: practice_weight(
+            transition_confidence_of(
+                pair.prev_cp,
+                pair.next_cp,
+                ctx.transitions,
+                ctx.target,
+                min_attempts=min_transition_attempts,
+            ),
         )
-        for pair in newest_pairs:
-            transition_weights.setdefault(pair, default_weight)
+        * coverage_deficit_factor(
+            attempts_of(ctx.transitions[pair]) if pair in ctx.transitions else 0,
+            min_attempts=min_transition_attempts,
+        )
+        for pair in newest_pairs
+    }
     if focus_bigram is not None:
         transition_weights.setdefault(
             focus_bigram,

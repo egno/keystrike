@@ -825,17 +825,17 @@ def test_lesson_wordlist_biases_weak_transition():
     assert bigram_words >= quota
     assert max(words.count(w) for w in set(words)) <= 2
 
-    ssa_count = 0
+    other_count = 0
     as_word_count = 0
     for seed in range(50):
         builder.rng = Random(seed)
         for word in builder("qwerty").text.split():
-            if word == "ssa":
-                ssa_count += 1
-            elif pair in word:
+            if pair in word:
                 as_word_count += 1
-    assert as_word_count + ssa_count == 50 * Settings().lesson_word_count
-    assert as_word_count > ssa_count * 2
+            else:
+                other_count += 1
+    assert as_word_count + other_count == 50 * Settings().lesson_word_count
+    assert as_word_count > other_count * 2
 
 
 def test_weak_transition_focus_over_represented_in_lesson_words():

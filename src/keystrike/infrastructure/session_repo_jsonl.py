@@ -26,9 +26,18 @@ from .json_coerce import coerce_float, coerce_int, require_float, require_int, r
 from .paths import Paths
 
 # Row layout of `SessionResult.stats` (schema 5): compact positional tallies,
-# `[samples, time_ns, errors, attempts]`, keyed by codepoint for keys and by
-# "prev,next" codepoints for bigrams. Omitted entirely when the stats are empty.
+# keyed by codepoint for keys and by "prev,next" codepoints for bigrams.
+# Omitted entirely when the stats are empty.
+# - "keys_avg", "pairs_avg": `[samples, avg_ms, errors, attempts]`, time as
+#   the mean delta in whole ms. Written by current versions.
+# - "keys", "pairs": the older layout, `[samples, time_ns, errors, attempts]`
+#   with time as the sum of deltas in ns. Read only.
 _STATS_KEY = "stats"
+_KEYS_KEY = "keys_avg"
+_PAIRS_KEY = "pairs_avg"
+_LEGACY_KEYS_KEY = "keys"
+_LEGACY_PAIRS_KEY = "pairs"
+_NS_PER_MS = 1_000_000
 _FOCUS_PAIR_KEY = "focus_pair"
 _TALLY_FIELDS = 4
 _PAIR_FIELDS = 2
@@ -71,13 +80,19 @@ class JsonlSessionRepository:
 
 
 def _tally_to_row(t: KeyTally) -> list[int]:
-    return list(t)  # NamedTuple field order is the row order
+    avg_ms = round(t.time_ns / t.samples / _NS_PER_MS) if t.samples else 0
+    return [t.samples, avg_ms, t.errors, t.attempts]
+
+
+def _avg_tally_from_row(raw: object, *, label: str) -> KeyTally:
+    t = _tally_from_row(raw, label=label)
+    return t._replace(time_ns=t.time_ns * _NS_PER_MS * t.samples)
 
 
 def stats_to_row(stats: SessionStats) -> dict[str, object]:
     return {
-        "keys": {str(cp): _tally_to_row(t) for cp, t in stats.keys.items()},
-        "pairs": {
+        _KEYS_KEY: {str(cp): _tally_to_row(t) for cp, t in stats.keys.items()},
+        _PAIRS_KEY: {
             f"{key.prev_cp},{key.next_cp}": _tally_to_row(t) for key, t in stats.transitions.items()
         },
     }
@@ -110,18 +125,23 @@ def stats_from_row(raw: object) -> SessionStats:
     if not isinstance(raw, dict):
         raise TypeError(f"expected object for {_STATS_KEY!r}, got {type(raw).__name__}")
     data = cast("dict[str, object]", raw)
-    keys_raw = _require_dict(data, "keys")
-    pairs_raw = _require_dict(data, "pairs")
-    return SessionStats(
-        keys={
-            coerce_int(cp, label="stats key"): _tally_from_row(t, label=f"key {cp}")
-            for cp, t in keys_raw.items()
-        },
-        transitions={
-            _bigram_from_row(pair): _tally_from_row(t, label=f"pair {pair}")
-            for pair, t in pairs_raw.items()
-        },
+    keys = {
+        coerce_int(cp, label="stats key"): _tally_from_row(t, label=f"key {cp}")
+        for cp, t in _require_dict(data, _LEGACY_KEYS_KEY).items()
+    }
+    keys.update(
+        (coerce_int(cp, label="stats key"), _avg_tally_from_row(t, label=f"key {cp}"))
+        for cp, t in _require_dict(data, _KEYS_KEY).items()
     )
+    transitions = {
+        _bigram_from_row(pair): _tally_from_row(t, label=f"pair {pair}")
+        for pair, t in _require_dict(data, _LEGACY_PAIRS_KEY).items()
+    }
+    transitions.update(
+        (_bigram_from_row(pair), _avg_tally_from_row(t, label=f"pair {pair}"))
+        for pair, t in _require_dict(data, _PAIRS_KEY).items()
+    )
+    return SessionStats(keys=keys, transitions=transitions)
 
 
 def header_to_row(h: SessionResult) -> dict[str, object]:

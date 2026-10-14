@@ -15,7 +15,7 @@ The practice HUD shows `Focus: <key or pair> · <reason>`.
 | --- | --- |
 | `wk` | **Weak** — confidence is below the mastery goal (default 1.0). The key or pair needs more deliberate practice. |
 | `cal` | **Calibrating** — not enough presses yet for full confidence weight. Confidence ramps linearly until `[unlock].min_confidence_attempts` (keys) or `[unlock].min_transition_confidence_attempts` (bigrams) is reached. |
-| `rev` | **Review** — confidence meets the goal, but the key or pair has not been practiced recently. Review urgency pushes it back into focus before it fades. |
+| `rev` | **Review** — confidence meets the goal, but the key has not been practiced recently. Review urgency pushes it back into focus before it fades. |
 
 For **transition focus**, the HUD shows the two-letter pair (e.g. `eo`) instead
 of a single key; the reason suffix is still `wk`, `cal`, or `rev`.
@@ -50,16 +50,15 @@ picks the focus (`select_lesson_focus` in `domain/focus.py`):
    key is the focus. Never-typed keys count as not cleared.
 2. **The unlock gate.** If the next letter waits on the newest key's pair
    cohort, the weakest pair of that cohort that is not ready is the focus.
-3. **Weak pairs.** Otherwise, the pair that is not cleared and has the highest
-   (1 − confidence) × language frequency is the focus. Pairs that do not occur
-   in the language are skipped. Same-key repeats (double letters) never count.
-4. **Review.** When everything has cleared, the most overdue key or pair
-   (by review urgency) is the focus.
-5. **Fallback.** Otherwise, the weakest key.
+   This is the only way a pair becomes the focus: sessions save pair stats
+   only for the gate cohort and the focus pair.
+3. **Review.** When all keys have cleared, the most overdue key (by review
+   urgency) is the focus.
+4. **Fallback.** Otherwise, the weakest key.
 
 ## Focus stays put until it clears
 
-In rules 1–3, the last lesson's focus is kept while it is still a candidate
+In rules 1–2, the last lesson's focus is kept while it is still a candidate
 of that rule. So a key or pair keeps the focus lesson-over-lesson until it
 clears both skill and its attempt floor — the same bar unlocks use.
 

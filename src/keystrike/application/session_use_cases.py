@@ -23,6 +23,7 @@ from keystrike.domain.enums import Mode, SessionState
 from keystrike.domain.generator import effective_generated_word_bounds
 from keystrike.domain.learn_order import keyboard_order
 from keystrike.domain.models import Bigram, Keystroke, SessionResult, SessionStats, Settings
+from keystrike.domain.newest_key import newest_key_gating_cohort
 from keystrike.domain.null_adapters import (
     NULL_LAYOUT_REPOSITORY,
     NULL_SETTINGS_REPOSITORY,
@@ -146,7 +147,9 @@ def _snapshot_finish_state(
     repo: SessionRepository,
     settings_repo: SettingsRepository,
     layout_repo: LayoutRepository,
-) -> tuple[tuple[int, ...], dict[int, float]]:
+) -> tuple[tuple[int, ...], dict[int, float], tuple[Bigram, ...]]:
+    """Unlocked keys, their confidence, and the newest key's gate cohort
+    after this session."""
     settings = settings_repo.load()
     layout = layout_repo.get(session.layout)
     draft = _DraftTiming(started_at=session.started_at_wall, duration_ns=duration_ns)
@@ -182,7 +185,17 @@ def _snapshot_finish_state(
         )
         for cp in unlocked
     }
-    return unlocked, key_confidence
+    cohort = newest_key_gating_cohort(
+        unlocked, combined.keys, limit=settings.unlock.gating_bigram_limit
+    )
+    return unlocked, key_confidence, cohort
+
+
+def _keep_pairs(stats: SessionStats, pairs: set[Bigram]) -> SessionStats:
+    return SessionStats(
+        keys=stats.keys,
+        transitions={pair: t for pair, t in stats.transitions.items() if pair in pairs},
+    )
 
 
 @dataclass(slots=True)
@@ -203,7 +216,7 @@ class FinishSession:
         settings = self.settings_repo.load()
         goal_cpm = target_speed_cpm(self.repo, settings, session.layout)
         stats = tally_session(session.keystrokes)
-        unlocked_keys, key_confidence = _snapshot_finish_state(
+        unlocked_keys, key_confidence, cohort = _snapshot_finish_state(
             session,
             duration_ns,
             stats,
@@ -211,6 +224,13 @@ class FinishSession:
             settings_repo=self.settings_repo,
             layout_repo=self.layout_repo,
         )
+        # Only the pairs the next lessons read are saved: the newest key's gate
+        # cohort and this lesson's focus pair. This keeps each row small as
+        # the alphabet grows.
+        kept = set(cohort)
+        if session.focus_pair is not None:
+            kept.add(session.focus_pair)
+        stats = _keep_pairs(stats, kept)
         # alphabet_size growth is persisted by BuildLesson right before the
         # next lesson is generated (see alphabet_sync.sync_alphabet_size),
         # not here -- syncing it immediately on every session finish caused

@@ -26,7 +26,6 @@ from .models import (
     KeyStats,
     TransitionStats,
 )
-from .newest_key import unlocked_cross_key_pairs
 
 # Re-exported for domain.generator, which imports these boost defaults from
 # this module rather than `domain.models` directly.
@@ -90,7 +89,6 @@ def select_lesson_focus(
     target: float,
     now: float,
     *,
-    pair_frequency: Callable[[Bigram], float],
     gate: Sequence[Bigram] = (),
     last_key: int | None = None,
     last_pair: Bigram | None = None,
@@ -104,10 +102,11 @@ def select_lesson_focus(
 
     1. Keys not cleared (skill and attempt floor) -- weakest key.
     2. The newest key's `gate` pairs that block the next unlock -- weakest pair.
-    3. Pairs not cleared that occur in the language -- highest
-       (1 - confidence) x `pair_frequency`.
-    4. Cleared keys and pairs due for review -- most overdue.
-    5. Otherwise the weakest key.
+    3. Cleared keys due for review -- most overdue.
+    4. Otherwise the weakest key.
+
+    Pairs are only a focus through the gate: sessions store tallies for the
+    gate cohort and the focus pair only, so other pairs have no history.
     """
 
     def key_conf(cp: int) -> float:
@@ -126,32 +125,14 @@ def select_lesson_focus(
         pair = _pick(gate, last_pair, transitions.get, min_transition_attempts, pair_conf)
         return pair.next_cp, pair
 
-    weak_pairs = [
-        pair
-        for pair in unlocked_cross_key_pairs(unlocked)
-        if pair_frequency(pair) > 0
-        and not _cleared(transitions.get(pair), target, min_transition_attempts)
-    ]
-    if weak_pairs:
-        pair = _pick(
-            weak_pairs,
-            last_pair,
-            transitions.get,
-            min_transition_attempts,
-            lambda p: -(1.0 - pair_conf(p)) * pair_frequency(p),
-        )
-        return pair.next_cp, pair
-
     def urgency(stats: HasConfidenceFields | None) -> float:
         return review_urgency(stats.last_seen if stats else 0.0, now)
 
-    due = [(urgency(key_stats.get(cp)), cp, None) for cp in unlocked] + [
-        (urgency(transitions.get(pair)), pair.next_cp, pair)
-        for pair in unlocked_cross_key_pairs(unlocked)
-    ]
-    most_due, key, pair = max(due, key=lambda entry: entry[0])
+    most_due, key = max(
+        ((urgency(key_stats.get(cp)), cp) for cp in unlocked), key=lambda entry: entry[0]
+    )
     if most_due > 0:
-        return key, pair
+        return key, None
 
     return min(unlocked, key=key_conf), None
 

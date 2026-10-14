@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from .confidence import is_same_key_transition
+from .confidence import is_excluded_transition
 from .models import GATING_BIGRAM_LIMIT, Bigram, KeyStats
 
 _GATING_BIGRAM_MIN = 2
@@ -33,17 +33,6 @@ def effective_gating_bigram_limit(limit: int) -> int:
     return min(_GATING_BIGRAM_MAX, max(_GATING_BIGRAM_MIN, limit))
 
 
-def unlocked_cross_key_pairs(unlocked: Sequence[int]) -> list[Bigram]:
-    """All directed cross-key pairs among currently-unlocked keys (same-key
-    pairs like `aa` excluded — see `is_same_key_transition`)."""
-    return [
-        Bigram(prev, nxt)
-        for prev in unlocked
-        for nxt in unlocked
-        if not is_same_key_transition(prev, nxt)
-    ]
-
-
 def newest_key_gating_cohort(
     unlocked: Sequence[int],
     key_stats: Mapping[int, KeyStats] | None,
@@ -62,5 +51,10 @@ def newest_key_gating_cohort(
         return ()
     newest = practiced[-1]
     peers = practiced[-(_MAX_GATING_PEERS + 1) : -1]
-    cohort = tuple(pair for peer in peers for pair in (Bigram(peer, newest), Bigram(newest, peer)))
+    cohort = tuple(
+        pair
+        for peer in peers
+        for pair in (Bigram(peer, newest), Bigram(newest, peer))
+        if not is_excluded_transition(pair.prev_cp, pair.next_cp)
+    )
     return cohort[-effective_gating_bigram_limit(limit) :]

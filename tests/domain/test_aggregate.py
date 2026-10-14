@@ -301,6 +301,16 @@ def test_tally_transitions_skips_same_key_pairs():
     assert Bigram(ord("a"), ord("b")) in transitions
 
 
+def test_tally_session_skips_space_pairs():
+    keys = _lesson_of_pairs("ab ca")
+    keys[3] = Keystroke(codepoint=ord("c"), typed=ord("x"), t_ns=keys[3].t_ns, correct=False)
+    keys.insert(
+        4, Keystroke(codepoint=ord("c"), typed=ord("c"), t_ns=keys[3].t_ns + 1, correct=True)
+    )
+    transitions = tally_session(keys).transitions
+    assert set(transitions) == {Bigram(ord("a"), ord("b")), Bigram(ord("c"), ord("a"))}
+
+
 def test_per_transition_deltas_skips_same_key_pairs():
     keys = [
         Keystroke(codepoint=ord("a"), typed=ord("a"), t_ns=0, correct=True),

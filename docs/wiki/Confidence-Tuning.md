@@ -163,21 +163,23 @@ At two cohort-coverage slots per lesson, a stuck pair reaches the cap on its
 sixth lesson.
 
 **Focus selection** follows one ordered list: keys that have not cleared,
-then the unlock-gate cohort pairs, then weak pairs ranked by weakness ×
-language frequency, then review of the most overdue key or pair. The last
+then the unlock-gate cohort pairs, then review of the most overdue key. The last
 lesson's focus is kept while it still needs work, until it stalls at the same
 3× attempt cap. See [Focus states](Focus-States) for the full rules.
 
 ### Transition stats
 
-Same-key / double-letter bigrams are never aggregated into session stats, stored
-in the stats cache, or used in unlock checks — including the transition gate
-above. Only cross-key pairs (e.g. `th`, `he`) participate in transition
-confidence, focus selection, the unlock gate, and bigram-weighted lesson
-text. Transition sampling weights apply to measured unlocked cross-key bigrams.
-Unmeasured members of the stable newest-key cohort receive explicit
-zero-attempt weighting, and deficient cohort members are distributed across
-guaranteed lesson slots instead of waiting to appear by chance.
+Same-key / double-letter bigrams and pairs with a space (word boundaries) are
+never aggregated into session stats, stored in the stats cache, or used in
+unlock checks — including the transition gate above.
+
+A session saves pair stats only for the newest key's gate cohort and for the
+lesson's focus pair. Other pairs are typed but not saved, so each saved session
+stays small as the alphabet grows. Pair stats are saved with the mean time per
+pair in whole ms. Only the cohort pairs get transition sampling weights.
+Unmeasured cohort members receive zero-attempt weighting, and deficient cohort
+members are distributed across guaranteed lesson slots instead of waiting to
+appear by chance.
 
 ## Tradeoffs
 
@@ -192,7 +194,7 @@ guaranteed lesson slots instead of waiting to appear by chance.
 - **Min attempts too high** — Progress feels grindy; focus stays on keys you've
   already typed many times.
 - **Transition floor** — Raise it if bigram focus switches too eagerly on thin
-  data; lower it if weak pairs never get targeted.
+  data; lower it if the unlock gate holds new letters back too long.
 - **Coverage deficit** — Lesson sampling multiplies char (and transition)
   weights by a session-scale boost when in-window attempts are below
   `[unlock].min_confidence_attempts` (peaking at zero attempts). This is separate

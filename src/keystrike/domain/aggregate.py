@@ -17,7 +17,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Protocol
 
-from .confidence import SESSION_RECENCY_DECAY, HasConfidenceFields, is_same_key_transition
+from .confidence import SESSION_RECENCY_DECAY, HasConfidenceFields, is_excluded_transition
 from .models import (
     Bigram,
     KeyStats,
@@ -91,7 +91,7 @@ def per_transition_deltas(keystrokes: Iterable[Keystroke]) -> dict[Bigram, list[
         if (
             last_correct_cp is not None
             and last_correct_t_ns is not None
-            and not is_same_key_transition(last_correct_cp, k.codepoint)
+            and not is_excluded_transition(last_correct_cp, k.codepoint)
         ):
             delta = k.t_ns - last_correct_t_ns
             if delta > 0:
@@ -122,13 +122,13 @@ def _tally_transitions(keystrokes: Sequence[Keystroke]) -> dict[Bigram, KeyTally
         if not k.correct:
             if i > 0:
                 prev_cp = keystrokes[i - 1].codepoint
-                if not is_same_key_transition(prev_cp, k.codepoint):
+                if not is_excluded_transition(prev_cp, k.codepoint):
                     key = Bigram(prev_cp, k.codepoint)
                     entry = partial.setdefault(key, _Partial())
                     entry.attempt_count += 1
                     entry.error_count += 1
             continue
-        if last_correct_cp is not None and not is_same_key_transition(
+        if last_correct_cp is not None and not is_excluded_transition(
             last_correct_cp,
             k.codepoint,
         ):
@@ -139,13 +139,15 @@ def _tally_transitions(keystrokes: Sequence[Keystroke]) -> dict[Bigram, KeyTally
     for key, samples in per_transition_deltas(keystrokes).items():
         partial.setdefault(key, _Partial()).time_samples.extend(samples)
 
-    # Same-key pairs never enter `partial`: every branch above skips them.
+    # Excluded pairs (same-key, space) never enter `partial`: every branch
+    # above skips them.
     return {key: p.tally() for key, p in partial.items()}
 
 
 def tally_session(keystrokes: Iterable[Keystroke]) -> SessionStats:
     """Reduce a session's keystroke stream to its persisted per-key and
-    per-bigram tallies. Same-key bigrams (aa, ee) are never tallied."""
+    per-bigram tallies. Same-key bigrams (aa, ee) and pairs with a space
+    are never tallied."""
     all_keystrokes = list(keystrokes)
     return SessionStats(
         keys=_tally_keys(all_keystrokes),
@@ -194,10 +196,11 @@ def session_transition_stats(
     result: SessionTiming, stats: SessionStats
 ) -> dict[Bigram, TransitionStats]:
     """One session's stored bigram tallies as `TransitionStats`, timestamped at
-    session end. Same-key pairs are filtered here, and only here, because the
-    tallies may come from stored data rather than from `tally_session`."""
+    session end. Excluded pairs (same-key, space) are filtered here, and only
+    here, because the tallies may come from stored data rather than from
+    `tally_session`."""
     end = _session_end_wall(result)
-    return without_same_key_transitions(
+    return without_excluded_transitions(
         {key: _transition_stats_from_tally(key, t, end) for key, t in stats.transitions.items()}
     )
 
@@ -305,7 +308,7 @@ def _combine_transition_maps_weighted(
             last_seen=merged.last_seen,
             attempt_count=merged.attempt_count,
         )
-    return without_same_key_transitions(out)
+    return without_excluded_transitions(out)
 
 
 def combine_sessions(
@@ -349,12 +352,12 @@ def infer_key_stat_attempt_count(samples: int, error_count: float, attempt_count
     return attempt_count
 
 
-def without_same_key_transitions(
+def without_excluded_transitions(
     transitions: Mapping[Bigram, TransitionStats],
 ) -> dict[Bigram, TransitionStats]:
-    """Drop same-key pairs (aa, ee) from stored transition stats."""
+    """Drop same-key pairs (aa, ee) and space pairs from stored transition stats."""
     return {
         key: stats
         for key, stats in transitions.items()
-        if not is_same_key_transition(stats.prev_cp, stats.next_cp)
+        if not is_excluded_transition(stats.prev_cp, stats.next_cp)
     }

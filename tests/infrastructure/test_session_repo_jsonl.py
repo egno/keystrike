@@ -46,8 +46,9 @@ def _header(sid: str = _VALID_ULID_A, layout: str = "qwerty", started_at: float 
 
 def _stats() -> SessionStats:
     return SessionStats(
-        keys={ord("a"): KeyTally(0, 0, 0, 1), ord("b"): KeyTally(1, 100, 0, 1)},
-        transitions={Bigram(ord("a"), ord("b")): KeyTally(1, 100, 0, 1)},
+        # Whole-ms means, so the tallies survive the ms rows exactly.
+        keys={ord("a"): KeyTally(0, 0, 0, 1), ord("b"): KeyTally(1, 100_000_000, 0, 1)},
+        transitions={Bigram(ord("a"), ord("b")): KeyTally(2, 300_000_000, 0, 2)},
     )
 
 
@@ -62,8 +63,10 @@ def test_round_trip_single_session(paths):
     assert len(headers) == 1
     assert headers[0].session_id == _VALID_ULID_A
     assert headers[0] == header
-    assert headers[0].stats.keys[ord("b")] == KeyTally(1, 100, 0, 1)
-    assert headers[0].stats.transitions[Bigram(ord("a"), ord("b"))] == KeyTally(1, 100, 0, 1)
+    assert headers[0].stats.keys[ord("b")] == KeyTally(1, 100_000_000, 0, 1)
+    assert headers[0].stats.transitions[Bigram(ord("a"), ord("b"))] == KeyTally(
+        2, 300_000_000, 0, 2
+    )
 
 
 def test_round_trip_focus_pair(paths):
@@ -228,9 +231,40 @@ def test_stats_row_is_compact_positional_tallies(paths):
 
     row = json.loads(paths.sessions_index.read_text(encoding="utf-8").splitlines()[0])
     assert row["stats"] == {
-        "keys": {"97": [0, 0, 0, 1], "98": [1, 100, 0, 1]},
-        "pairs": {"97,98": [1, 100, 0, 1]},
+        "keys_avg": {"97": [0, 0, 0, 1], "98": [1, 100, 0, 1]},
+        "pairs_avg": {"97,98": [2, 150, 0, 2]},
     }
+
+
+def test_pair_row_rounds_mean_time_to_whole_ms(paths):
+    stats = SessionStats(
+        transitions={
+            Bigram(ord("a"), ord("b")): KeyTally(3, 400_000_000, 1, 4),
+            Bigram(ord("b"), ord("a")): KeyTally(0, 0, 2, 2),
+        }
+    )
+    repo = JsonlSessionRepository(paths)
+    repo.save_header(replace(_header(), stats=stats))
+
+    row = json.loads(paths.sessions_index.read_text(encoding="utf-8").splitlines()[0])
+    assert row["stats"]["pairs_avg"] == {"97,98": [3, 133, 1, 4], "98,97": [0, 0, 2, 2]}
+    transitions = next(JsonlSessionRepository(paths).iter_headers("qwerty")).stats.transitions
+    assert transitions[Bigram(ord("a"), ord("b"))] == KeyTally(3, 399_000_000, 1, 4)
+    assert transitions[Bigram(ord("b"), ord("a"))] == KeyTally(0, 0, 2, 2)
+
+
+def test_legacy_keys_and_pairs_rows_read_time_as_sum(paths):
+    with paths.sessions_index.open("a", encoding="utf-8") as fh:
+        fh.write(
+            f'{{"schema_version": 5, "session_id": "{_VALID_ULID_D}", "layout": "qwerty", '
+            '"started_at": 1700000000.0, "duration_ns": 1000000000, "mode": "adaptive", '
+            '"lesson_alphabet": [], "focus_key": null, "total_keystrokes": 0, '
+            '"correct_keystrokes": 0, "stats": {"keys": {"98": [2, 300000000, 0, 2]}, '
+            '"pairs": {"97,98": [2, 300000000, 0, 2]}}}\n'
+        )
+    header = next(JsonlSessionRepository(paths).iter_headers("qwerty"))
+    assert header.stats.keys[ord("b")] == KeyTally(2, 300_000_000, 0, 2)
+    assert header.stats.transitions[Bigram(ord("a"), ord("b"))] == KeyTally(2, 300_000_000, 0, 2)
 
 
 def test_empty_stats_are_omitted_from_row_and_read_back_empty(paths):
@@ -264,6 +298,10 @@ def test_legacy_row_without_stats_reads_as_empty_stats(paths):
         '{"keys": 5}',  # keys is not an object
         '{"pairs": [1, 2]}',  # pairs is not an object
         '{"pairs": {"97": [1, 1, 0, 1]}}',  # bigram key without a comma
+        '{"keys_avg": 5}',  # keys_avg is not an object
+        '{"keys_avg": {"97": [1, 2]}}',  # key tally with the wrong arity
+        '{"pairs_avg": [1, 2]}',  # pairs_avg is not an object
+        '{"pairs_avg": {"97,98": [1, 2]}}',  # pair tally with the wrong arity
         '"nope"',  # stats is not an object
     ],
 )
