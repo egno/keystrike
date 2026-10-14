@@ -132,8 +132,8 @@ def test_session_union_folds_legacy_keystroke_file_into_imported_row(
     assert row["schema_version"] == 5
     stats = row["stats"]
     assert isinstance(stats, dict)
-    assert stats["keys"]["98"] == [1, 100_000_000, 0, 1]
-    assert stats["pairs"]["97,98"] == [1, 100_000_000, 0, 1]
+    assert stats["keys_avg"]["98"] == [1, 100, 0, 1]
+    assert stats["pairs_avg"]["97,98"] == [1, 100, 0, 1]
     assert not (tree["local_sessions"] / month).exists()
 
 

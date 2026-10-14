@@ -138,9 +138,15 @@ def attempts_of(stats: HasConfidenceFields) -> int:
     return _attempts(stats)
 
 
-def is_same_key_transition(prev_cp: int, next_cp: int) -> bool:
-    """Same physical key twice (e.g. ee, ss) — excluded from transition analysis."""
-    return prev_cp == next_cp
+# Word separator: pairs into or out of it are word boundaries, not finger
+# transitions, and are neither stored nor analyzed.
+_SPACE_CP = ord(" ")
+
+
+def is_excluded_transition(prev_cp: int, next_cp: int) -> bool:
+    """Excluded from transition analysis and storage: the same physical key
+    twice (e.g. ee, ss), or a pair with a space (`a `, ` t`)."""
+    return prev_cp == next_cp or _SPACE_CP in (prev_cp, next_cp)
 
 
 def confidence_sample_factor(

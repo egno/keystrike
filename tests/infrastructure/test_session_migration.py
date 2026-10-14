@@ -71,8 +71,8 @@ def test_embed_legacy_stats_folds_keystroke_file_into_row(paths: Paths) -> None:
     assert row["schema_version"] == 5
     stats = row["stats"]
     assert isinstance(stats, dict)
-    assert stats["keys"] == {"97": [0, 0, 0, 1], "98": [1, 100_000_000, 1, 2]}
-    assert stats["pairs"] == {"97,98": [1, 100_000_000, 1, 2]}
+    assert stats["keys_avg"] == {"97": [0, 0, 0, 1], "98": [1, 100, 1, 2]}
+    assert stats["pairs_avg"] == {"97,98": [1, 100, 1, 2]}
 
 
 def test_embed_legacy_stats_without_file_yields_no_stats(paths: Paths) -> None:

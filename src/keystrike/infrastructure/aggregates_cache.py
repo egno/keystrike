@@ -10,7 +10,7 @@ from pathlib import Path
 from keystrike.domain.aggregate import (
     infer_key_stat_attempt_count,
     infer_key_stat_samples,
-    without_same_key_transitions,
+    without_excluded_transitions,
 )
 from keystrike.domain.models import Bigram, KeyStats, LayoutAggregates, TransitionStats
 
@@ -93,12 +93,12 @@ class FileAggregatesCache:
             return None
         return LayoutAggregates(
             keys=parsed_keys,
-            transitions=without_same_key_transitions(parsed_transitions),
+            transitions=without_excluded_transitions(parsed_transitions),
             transitions_computed="transitions" in data,
         )
 
     def put(self, layout: str, aggregates: LayoutAggregates) -> None:
-        transitions = without_same_key_transitions(aggregates.transitions)
+        transitions = without_excluded_transitions(aggregates.transitions)
         payload = {
             "schema_version": _SCHEMA_VERSION,
             "layout": layout,

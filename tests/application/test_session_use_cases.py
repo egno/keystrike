@@ -716,7 +716,7 @@ def test_finish_session_alphabet_bump_respects_transition_gate(clock, id_gen):
 
     # Master a, s, h, d solo -- each in its OWN session, repeating a single
     # character, so no cross-key bigram is ever produced (same-key deltas
-    # are dropped, see `without_same_key_transitions`).
+    # are dropped, see `without_excluded_transitions`).
     for cp in order[:4]:
         text = chr(cp) * 10
         session = start(text, layout=layout_name, mode=Mode.ADAPTIVE, focus_key=cp)
@@ -743,6 +743,34 @@ def test_finish_session_alphabet_bump_respects_transition_gate(clock, id_gen):
     unlocked_cps = {k.codepoint for k in lesson.state.keys}
     assert unlocked_cps == set(order[:4])
     assert order[4] not in unlocked_cps
+
+
+def test_finish_session_saves_only_gate_cohort_and_focus_pairs(clock, id_gen):
+    order = keyboard_order(BUNDLED_LAYOUTS["qwerty"])
+    c0, c1, c2, c3 = order[:4]
+    repo = FakeSessionRepository()
+    finish = FinishSession(
+        clock=clock,
+        repo=repo,
+        settings_repo=FakeSettingsRepository(Settings(alphabet_size=4)),
+        layout_repo=FakeLayoutRepository(dict(BUNDLED_LAYOUTS)),
+    )
+    focus = Bigram(c0, c1)
+    text = "".join(map(chr, (c0, c1, c3, c1, c2, c3, c2, c0)))
+    session = StartSession(clock=clock, id_gen=id_gen)(
+        text, layout="qwerty", mode=Mode.ADAPTIVE, focus_key=c1, focus_pair=focus
+    )
+    record = RecordKeystroke(clock=clock)
+    for ch in text:
+        clock.advance(100_000_000)
+        record(session, ch)
+    result = finish(session)
+
+    # Newest key c3 with its two latest peers c1, c2, plus the focus pair;
+    # c1→c2 and c2→c0 were typed but are not saved.
+    gate = {Bigram(c1, c3), Bigram(c3, c1), Bigram(c2, c3), Bigram(c3, c2)}
+    assert set(result.stats.transitions) == gate | {focus}
+    assert set(result.stats.keys) == {c0, c1, c2, c3}
 
 
 def test_finish_session_saves_focus_pair(clock, id_gen):

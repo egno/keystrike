@@ -79,15 +79,13 @@ DAY = 86_400.0
 A, S, D = map(ord, "asd")
 
 
-def _focus(keys, transitions=None, *, freq: dict[Bigram, int] | None = None, **kwargs):
-    weights = freq or {}
+def _focus(keys, transitions=None, **kwargs):
     return select_lesson_focus(
         (A, S, D),
         keys,
         transitions or {},
         TARGET,
         NOW,
-        pair_frequency=lambda pair: weights.get(pair, 1),
         min_attempts=10,
         min_transition_attempts=4,
         **kwargs,
@@ -147,41 +145,27 @@ def test_gate_pair_wins_over_other_weak_pairs():
     assert _focus(_cleared_keys(), transitions, gate=(gate,)) == (D, gate)
 
 
-def test_weak_pairs_rank_by_weakness_times_language_frequency():
-    common, rare = Bigram(A, S), Bigram(S, A)
+def test_weak_pair_outside_the_gate_is_not_a_focus():
     transitions = _cleared_pairs()
-    del transitions[common]
-    del transitions[rare]
-    freq = {common: 100, rare: 1}
-    assert _focus(_cleared_keys(), transitions, freq=freq) == (S, common)
+    transitions[Bigram(A, S)] = _transition(A, S, SLOW, last_seen=NOW)
+    assert _focus(_cleared_keys(), transitions) == (A, None)
 
 
-def test_pair_that_never_occurs_in_the_language_is_skipped():
-    never, real = Bigram(A, S), Bigram(S, A)
+def test_last_gate_pair_is_kept_while_it_still_needs_work():
+    weak, last = Bigram(A, S), Bigram(S, D)
     transitions = _cleared_pairs()
-    del transitions[never]
-    transitions[real] = _transition(S, A, SLOW, last_seen=NOW)
-    assert _focus(_cleared_keys(), transitions, freq={never: 0}) == (A, real)
+    transitions[weak] = _transition(A, S, SLOW, last_seen=NOW)
+    transitions[last] = _transition(S, D, 300_000_000.0, last_seen=NOW)
+    gate = (weak, last)
+    assert _focus(_cleared_keys(), transitions, gate=gate) == (S, weak)
+    assert _focus(_cleared_keys(), transitions, gate=gate, last_pair=last) == (D, last)
 
 
-def test_last_pair_is_kept_over_a_more_frequent_weak_pair():
-    common, last = Bigram(A, S), Bigram(S, D)
+def test_most_overdue_key_is_reviewed_when_everything_cleared():
     transitions = _cleared_pairs()
-    del transitions[common]
-    transitions[last] = _transition(S, D, SLOW, last_seen=NOW)
-    freq = {common: 100}
-    assert _focus(_cleared_keys(), transitions, freq=freq) == (S, common)
-    assert _focus(_cleared_keys(), transitions, freq=freq, last_pair=last) == (D, last)
-
-
-def test_most_overdue_key_or_pair_is_reviewed_when_everything_cleared():
-    stale_pair = Bigram(D, A)
-    transitions = _cleared_pairs()
-    transitions[stale_pair] = _transition(D, A, FAST, last_seen=NOW - 3 * DAY)
+    transitions[Bigram(D, A)] = _transition(D, A, FAST, last_seen=NOW - 3 * DAY)
     keys = _cleared_keys()
     keys[S] = _stats(S, FAST, last_seen=NOW - 2 * DAY)
-    assert _focus(keys, transitions) == (A, stale_pair)
-    keys[S] = _stats(S, FAST, last_seen=NOW - 5 * DAY)  # ties the pair: keys first
     assert _focus(keys, transitions) == (S, None)
 
 
