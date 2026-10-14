@@ -5,7 +5,7 @@ rationale lives in commit history/diffs — these are pointers, not narratives.
 Milestone-level feature work (what shipped in M1–M4, the keybr algorithm
 design) stays in `PLAN.md` §5/§6.
 
-## Unreleased
+## 2.2.5
 
 - **Fewer saved pairs** — `FinishSession` saves pair tallies only for the
   newest key's gate cohort and the lesson's focus pair, so a session row
