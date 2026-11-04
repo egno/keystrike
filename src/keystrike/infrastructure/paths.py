@@ -34,6 +34,11 @@ class Paths:
         return self.data_dir / "cache"
 
     @property
+    def raw_keystrokes_dir(self) -> Path:
+        # Deliberately outside `sessions_dir`, which is git-synced.
+        return self.data_dir / "raw_keystrokes"
+
+    @property
     def sync_config_file(self) -> Path:
         return self.config_dir / "sync.toml"
 

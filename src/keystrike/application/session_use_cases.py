@@ -1,3 +1,4 @@
+import contextlib
 from dataclasses import dataclass, field
 
 from keystrike.application.session_queries import (
@@ -22,7 +23,14 @@ from keystrike.domain.confidence import (
 from keystrike.domain.enums import Mode, SessionState
 from keystrike.domain.generator import effective_generated_word_bounds
 from keystrike.domain.learn_order import keyboard_order
-from keystrike.domain.models import Bigram, Keystroke, SessionResult, SessionStats, Settings
+from keystrike.domain.models import (
+    Bigram,
+    Keystroke,
+    Layout,
+    SessionResult,
+    SessionStats,
+    Settings,
+)
 from keystrike.domain.newest_key import newest_key_gating_cohort
 from keystrike.domain.null_adapters import (
     NULL_LAYOUT_REPOSITORY,
@@ -32,6 +40,7 @@ from keystrike.domain.null_adapters import (
 from keystrike.domain.protocols import (
     Clock,
     IdGenerator,
+    KeystrokeArchive,
     LayoutRepository,
     SessionRepository,
     SettingsRepository,
@@ -80,6 +89,9 @@ class RecordKeystroke:
     """Ingest one keystroke. Returns True if the session is now finished."""
 
     clock: Clock
+    layout_repo: LayoutRepository = field(default_factory=lambda: NULL_LAYOUT_REPOSITORY)
+    # Layout lookups can hit disk; resolve each layout once for the app's lifetime.
+    _layouts: dict[str, Layout] = field(default_factory=dict[str, Layout], init=False)
 
     def backspace(self, session: Session) -> bool:
         return self(session, BACKSPACE)
@@ -118,7 +130,12 @@ class RecordKeystroke:
         typed_cp = ord(char)
         correct = typed_cp == target_cp
 
-        k = Keystroke(codepoint=target_cp, typed=typed_cp, t_ns=t_ns, correct=correct)
+        key_pos = self._layout(session.layout).keys.get(target_cp)
+        finger = key_pos.finger if key_pos else None
+
+        k = Keystroke(
+            codepoint=target_cp, typed=typed_cp, t_ns=t_ns, correct=correct, finger=finger
+        )
         session.keystrokes.append(k)
         session.total_count += 1
         if correct:
@@ -128,6 +145,12 @@ class RecordKeystroke:
             session.error_positions.add(session.position)
 
         return session.finished
+
+    def _layout(self, name: str) -> Layout:
+        layout = self._layouts.get(name)
+        if layout is None:
+            layout = self._layouts[name] = self.layout_repo.get(name)
+        return layout
 
 
 @dataclass(frozen=True, slots=True)
@@ -204,6 +227,8 @@ class FinishSession:
     repo: SessionRepository = field(default_factory=NullSessionRepository)
     settings_repo: SettingsRepository = NULL_SETTINGS_REPOSITORY
     layout_repo: LayoutRepository = NULL_LAYOUT_REPOSITORY
+    # Raw keystrokes are archived only while the AI coach is enabled.
+    keystroke_archive: KeystrokeArchive | None = None
 
     def __call__(self, session: Session) -> SessionResult:
         session.state = SessionState.COMPLETE
@@ -216,6 +241,10 @@ class FinishSession:
         settings = self.settings_repo.load()
         goal_cpm = target_speed_cpm(self.repo, settings, session.layout)
         stats = tally_session(session.keystrokes)
+        if self.keystroke_archive is not None and settings.ai_enabled:
+            # best-effort: an archive failure must not lose the session
+            with contextlib.suppress(OSError):
+                self.keystroke_archive.save(session.id, session.keystrokes)
         unlocked_keys, key_confidence, cohort = _snapshot_finish_state(
             session,
             duration_ns,

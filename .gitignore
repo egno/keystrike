@@ -15,3 +15,9 @@ snapshot_report.html
 *.log
 .DS_Store
 .claude/
+
+# Local agent tooling
+.agents/
+.hermes/
+.opencode/
+skills-lock.json

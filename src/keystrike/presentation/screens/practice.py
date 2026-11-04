@@ -1,3 +1,4 @@
+import asyncio
 from typing import ClassVar
 
 from textual import events
@@ -8,11 +9,13 @@ from textual.screen import Screen
 from textual.widgets import Footer, Static
 
 from keystrike.application.prepare_practice import SessionPrep
+from keystrike.domain.ai_models import AiAnalysis
 from keystrike.domain.models import Bigram, SessionResult
 from keystrike.domain.session import leading_key_char, skip_leading_whitespace
 from keystrike.presentation.bindings import BACK_BINDINGS
 from keystrike.presentation.formatting.trends import format_session_stats_line
 from keystrike.presentation.services import PracticeServices
+from keystrike.presentation.widgets.ai_panel import AiAnalysisPanel
 from keystrike.presentation.widgets.hud import HUD
 from keystrike.presentation.widgets.kb_heatmap import (
     HeatmapDisplay,
@@ -74,6 +77,7 @@ class PracticeScreen(Screen[None]):
             get_daily_learn_budget=self._services.get_daily_learn_budget,
             focus_reason=initial.focus_reason,
         )
+        self._ai_panel: AiAnalysisPanel | None = None
 
     def compose(self) -> ComposeResult:
         with Vertical():
@@ -92,6 +96,8 @@ class PracticeScreen(Screen[None]):
                 id="focus-note",
             )
             yield Static("", id="last-session-stats")
+            self._ai_panel = AiAnalysisPanel()
+            yield self._ai_panel
         yield Footer()
 
     def _focus_note_text(self) -> str:
@@ -155,6 +161,7 @@ class PracticeScreen(Screen[None]):
         result = self._services.finish(self._session)
         self._services.rebuild_aggregates(result.layout)
         self._refresh_last_session_stats(result)
+        self._start_ai_analysis(result)
         prep = self._services.prepare_practice()
         if prep is None:
             return
@@ -168,6 +175,42 @@ class PracticeScreen(Screen[None]):
             return
         baseline = self._services.get_session_baseline(header)
         widget.update(format_session_stats_line(header, baseline=baseline))
+
+    def _start_ai_analysis(self, result: SessionResult) -> None:
+        """Kick off the AI coach in the background; the panel shows the outcome.
+
+        The next lesson starts immediately and uses the previous analysis (see
+        `AiAnalyzer.suggestion`); this one lands for the lesson after."""
+        panel = self._ai_panel
+        analyzer = self._services.ai_analyzer
+        if panel is None or analyzer is None or self._services.get_history is None:
+            return
+        if not analyzer.enabled():
+            panel.show_idle()
+            return
+        panel.show_analyzing()
+        # exclusive: a newer session cancels any analysis still in flight, so
+        # a slow reply can never overwrite a fresher one.
+        self.run_worker(
+            self._analyze(result.layout),
+            group="ai-analysis",
+            exclusive=True,
+            exit_on_error=False,
+        )
+
+    async def _analyze(self, layout: str) -> None:
+        analyzer = self._services.ai_analyzer
+        get_history = self._services.get_history
+        panel = self._ai_panel
+        if analyzer is None or get_history is None or panel is None:
+            return
+        # The just-finished session is already saved, so it is in the history.
+        try:
+            history = await asyncio.to_thread(get_history, layout, analyzer.window())
+            analysis = await analyzer.analyze(history)
+        except Exception as exc:
+            analysis = AiAnalysis(error=f"AI analysis unavailable ({type(exc).__name__})")
+        panel.show_analysis(analysis)
 
     def _refresh_focus_note(self) -> None:
         note = self.query_one("#focus-note", Static)

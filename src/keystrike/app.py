@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from random import Random
 
+from keystrike.application.ai_analyzer import AiAnalyzer
 from keystrike.application.build_lesson import BuildLesson
 from keystrike.application.learn_budget_use_cases import GetDailyLearnBudget
 from keystrike.application.prepare_practice import PreparePracticeSession
@@ -40,6 +41,7 @@ from keystrike.infrastructure.id_gen import UlidGenerator
 from keystrike.infrastructure.languages import BundledLanguageProvider
 from keystrike.infrastructure.layout_repo import CompositeLayoutRepository
 from keystrike.infrastructure.paths import Paths, default_paths, ensure_dirs
+from keystrike.infrastructure.raw_keystroke_store import RawKeystrokeStore
 from keystrike.infrastructure.session_migration import migrate_keystroke_files
 from keystrike.infrastructure.session_repo_jsonl import JsonlSessionRepository
 from keystrike.infrastructure.settings_repo_toml import TomlSettingsRepository
@@ -115,12 +117,13 @@ def build() -> KeystrikeApp:
     language_provider = BundledLanguageProvider()
 
     start = StartSession(clock=clock, id_gen=id_gen)
-    record = RecordKeystroke(clock=clock)
+    record = RecordKeystroke(clock=clock, layout_repo=layout_repo)
     finish = FinishSession(
         clock=clock,
         repo=session_repo,
         settings_repo=settings_repo,
         layout_repo=layout_repo,
+        keystroke_archive=RawKeystrokeStore(paths.raw_keystrokes_dir),
     )
     abort = AbortSession()
     get_session_baseline = GetSessionBaseline(repo=session_repo, settings_repo=settings_repo)
@@ -168,6 +171,7 @@ def build() -> KeystrikeApp:
     import_wordlist = ImportWordList(store=wordlist_store, settings_repo=settings_repo)
     clear_wordlist = ClearWordList(settings_repo=settings_repo)
     get_wordlist_cache_status = GetWordListCacheStatus(store=wordlist_store)
+    ai_analyzer = AiAnalyzer(settings_repo=settings_repo)
     build_lesson = BuildLesson(
         layout_repo=layout_repo,
         aggregates_cache=aggregates_cache,
@@ -177,6 +181,7 @@ def build() -> KeystrikeApp:
         rng=Random(),
         clock=clock,
         session_repo=session_repo,
+        ai_suggestion=ai_analyzer.suggestion,
     )
     prepare_practice = PreparePracticeSession(
         settings_repo=settings_repo,
@@ -201,6 +206,8 @@ def build() -> KeystrikeApp:
             get_latest_session_header=get_latest_session_header,
             get_session_baseline=get_session_baseline,
             rebuild_aggregates=rebuild_aggregates,
+            ai_analyzer=ai_analyzer,
+            get_history=get_history,
             get_daily_learn_budget=get_daily_learn_budget,
         ),
         stats=StatsServices(

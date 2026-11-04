@@ -1,11 +1,12 @@
 import datetime as dt
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from typing import Protocol
 
 from .daily_learn import DailyLearnBudget
 from .markov import TransitionTable
 from .models import (
     KeyStats,
+    Keystroke,
     Layout,
     LayoutAggregates,
     SessionResult,
@@ -35,6 +36,13 @@ class SessionRepository(Protocol):
     def replace_all_headers(self, headers: Iterable[SessionResult]) -> None:
         """Rewrite the whole history with `headers` (used by history retention)."""
         ...
+
+
+class KeystrokeArchive(Protocol):
+    """Optional sink for a finished session's raw keystroke stream (separate
+    from `SessionRepository`, which only keeps per-key/bigram tallies)."""
+
+    def save(self, session_id: str, keystrokes: Sequence[Keystroke]) -> None: ...
 
 
 class SettingsRepository(Protocol):

@@ -4,12 +4,13 @@ pick a focus key, and generate practice text for them.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from dataclasses import dataclass, field
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field, replace
 from random import Random
 
 from keystrike.application.alphabet_sync import sync_alphabet_size
 from keystrike.application.session_queries import latest_session_header, target_speed_cpm
+from keystrike.domain.ai_models import AiAnalysis
 from keystrike.domain.confidence import (
     CONFIDENCE_GOOD,
     accuracy_of,
@@ -452,6 +453,42 @@ def _compute_weights(
     return char_weights, transition_weights
 
 
+# Sampling multipliers for the AI coach's "practice more / less" key lists.
+# Deliberately mild: the confidence engine stays in charge of what unlocks.
+AI_EMPHASIS_WEIGHT = 1.5
+AI_REST_WEIGHT = 0.7
+
+
+def _apply_ai_focus(progress: LessonProgress, analysis: AiAnalysis) -> LessonProgress:
+    """Let the AI coach pick the lesson focus, but only among unlocked keys."""
+    unlocked = set(progress.unlocked)
+    pair = analysis.focus_pair
+    if pair is not None and pair.prev_cp in unlocked and pair.next_cp in unlocked:
+        focus, bigram = pair.next_cp, pair
+    elif analysis.focus_key is not None and analysis.focus_key in unlocked:
+        focus, bigram = analysis.focus_key, None
+    else:
+        return progress
+    keys = tuple(replace(k, is_focus=(k.codepoint == focus)) for k in progress.state.keys)
+    return replace(
+        progress,
+        focus=focus,
+        focus_bigram=bigram,
+        state=replace(progress.state, keys=keys),
+    )
+
+
+def _apply_ai_weights(char_weights: dict[str, float], analysis: AiAnalysis) -> dict[str, float]:
+    weights = dict(char_weights)
+    for cp in analysis.rest_keys:
+        if chr(cp) in weights:
+            weights[chr(cp)] *= AI_REST_WEIGHT
+    for cp in analysis.emphasis_keys:
+        if chr(cp) in weights:
+            weights[chr(cp)] *= AI_EMPHASIS_WEIGHT
+    return weights
+
+
 @dataclass(slots=True)
 class _LessonContext:
     settings: Settings
@@ -477,10 +514,16 @@ class BuildLesson:
     rng: Random
     clock: Clock
     session_repo: SessionRepository = field(default_factory=NullSessionRepository)
+    # Latest AI coach suggestion for the next lesson (None when AI is off or
+    # nothing is ready yet); steers focus and character weights only.
+    ai_suggestion: Callable[[], AiAnalysis | None] | None = None
 
     def __call__(self, layout_name: str) -> Lesson:
         ctx = self._load_context(layout_name)
         progress = _lesson_progress(layout_name, ctx)
+        ai = self.ai_suggestion() if self.ai_suggestion is not None else None
+        if ai is not None:
+            progress = _apply_ai_focus(progress, ai)
         # A new letter opening (via `compute_unlocked`'s mastery-driven
         # growth) must bump Settings.alphabet_size before the lesson below
         # is generated -- never show more letters than Settings reports.
@@ -489,6 +532,8 @@ class BuildLesson:
         ctx.settings = sync_alphabet_size(ctx.settings, progress.unlocked, self.settings_repo)
         focus_confidence = _resolve_focus_confidence(progress.focus, progress.focus_bigram, ctx)
         char_weights, transition_weights = _compute_weights(progress, focus_confidence, ctx)
+        if ai is not None:
+            char_weights = _apply_ai_weights(char_weights, ai)
         alphabet_chars = frozenset(chr(cp) for cp in progress.unlocked)
         text = self._generate_text(
             ctx,
