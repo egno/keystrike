@@ -555,6 +555,7 @@ async def test_advice_off_by_default_keeps_panel_idle_and_calls_nothing():
         practice = await _finish_one_session(app, pilot, clock)
         panel = practice.query_one(AdvicePanel)
         assert panel.panel_state is PanelState.IDLE
+        assert not panel.display
         assert len(session_repo.headers) == 1
         assert "Last: WPM" in str(practice.query_one("#last-session-stats", Static).content)
 
@@ -631,6 +632,7 @@ async def test_stored_advice_is_shown_as_soon_as_practice_opens():
         assert panel.panel_state is PanelState.READY
         assert panel.advice is not None
         assert panel.advice.summary == "Keep going"
+        assert panel.display
         assert panel.advisor == "Fake"  # the advisor's label, not its name
         assert str(panel.render()).startswith("Advisor: Fake\n")
 
@@ -643,6 +645,7 @@ async def test_with_an_advisor_but_no_advice_yet_the_panel_says_when_it_comes():
         await pilot.pause()
         panel = app.screen.query_one(AdvicePanel)
         assert panel.panel_state is PanelState.WAITING
+        assert panel.display
         assert str(panel.render()).splitlines()[0] == "Advisor: Fake"
         assert "first session" in str(panel.render())
 
@@ -654,7 +657,9 @@ async def test_with_the_advisor_off_the_panel_stays_empty_at_the_start():
     async with app.run_test() as pilot:
         await pilot.press("enter")
         await pilot.pause()
-        assert app.screen.query_one(AdvicePanel).panel_state is PanelState.IDLE
+        panel = app.screen.query_one(AdvicePanel)
+        assert panel.panel_state is PanelState.IDLE
+        assert not panel.display  # it takes no row while there is nothing to show
 
 
 @pytest.mark.asyncio

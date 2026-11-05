@@ -84,6 +84,8 @@ class AdvicePanel(Static):
         self._advice: LessonAdvice | None = None
         self._advisor = ""
         self._panel_state = PanelState.IDLE
+        # Hidden while there is nothing to show, so an off advisor takes no row.
+        self.display = False
 
     @property
     def advice(self) -> LessonAdvice | None:
@@ -102,11 +104,13 @@ class AdvicePanel(Static):
         self._advice = None
         self._advisor = ""
         self._panel_state = PanelState.IDLE
+        self.display = False
         self.update("")
 
     def _show(self, advisor: str, *body: str) -> None:
         self._advisor = advisor
         header = [advisor_line(advisor)] if advisor else []
+        self.display = True
         self.update("\n".join([*header, *body]))
 
     def show_waiting(self, advisor: str = "") -> None:
@@ -128,4 +132,5 @@ class AdvicePanel(Static):
         self._advice = advice
         self._advisor = advisor
         self._panel_state = PanelState.READY
+        self.display = True
         self.update("\n".join(build_lines(advice, previous=previous, advisor=advisor)))

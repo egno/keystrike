@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from textual.app import App, ComposeResult
+
 from keystrike.domain.advice import CourseState, Kind, LessonAdvice, Reason, validate_advice
-from keystrike.presentation.widgets.advice_panel import build_lines
+from keystrike.presentation.widgets.advice_panel import AdvicePanel, build_lines
 from tests.advice_helpers import advice, rec
 
 A, S, E = ord("a"), ord("s"), ord("e")
@@ -75,3 +77,24 @@ def test_the_advisor_is_named_above_a_failure_too():
 
 def test_without_an_advisor_there_is_no_header_line():
     assert build_lines(advice(rec(Kind.FOCUS, S)))[0].startswith("Focus")
+
+
+async def test_the_panel_takes_no_row_until_it_has_something_to_show():
+    class Host(App[None]):
+        def compose(self) -> ComposeResult:
+            yield AdvicePanel()
+
+    app = Host()
+    async with app.run_test() as pilot:
+        panel = app.query_one(AdvicePanel)
+        assert not panel.display  # nothing to show yet
+        panel.show_thinking("Rules (local)")
+        await pilot.pause()
+        assert panel.display
+        panel.show_advice(advice(rec(Kind.FOCUS, S)), advisor="Rules (local)")
+        assert panel.display
+        panel.show_waiting("Rules (local)")
+        assert panel.display
+        panel.show_idle()
+        await pilot.pause()
+        assert not panel.display
