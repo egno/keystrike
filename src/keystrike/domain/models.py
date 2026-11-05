@@ -32,6 +32,7 @@ class Keystroke:
     t_ns: int  # monotonic ns since session start
     correct: bool
     finger: Finger | None = None
+    hand: Hand | None = None
 
 
 def _empty_key_confidence() -> dict[int, float]:
@@ -272,14 +273,6 @@ class Settings:
     wordlist_url: str = ""  # non-empty + cached file → real words; else Markov
     alphabet_cuts: tuple[AlphabetCut, ...] = ()  # alphabet_size decreases, oldest first
     updated_at: str | None = None  # ISO-8601 UTC; sync LWW
-    # Opt-in AI coach: "" disables it (default); "ollama" talks to a local server.
-    ai_provider: str = ""
-    ai_model: str = "llama3.2"
-    ai_endpoint: str = "http://localhost:11434"
-
-    @property
-    def ai_enabled(self) -> bool:
-        return bool(self.ai_provider)
 
 
 @dataclass(frozen=True, slots=True)

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import datetime as dt
-from collections.abc import Iterable, Iterator
+from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from itertools import count
+from typing import Any
 
 from keystrike.domain.aggregate import tally_session
+from keystrike.domain.ai_models import AiAnalysis, AiSettings
 from keystrike.domain.markov import TransitionTable
 from keystrike.domain.models import (
     Keystroke,
@@ -196,3 +198,84 @@ class FakeSyncStore:
             only_local=0,
             only_clone=0,
         )
+
+
+@dataclass(slots=True)
+class FakeAiSettingsRepository:
+    settings: AiSettings = field(default_factory=AiSettings)
+
+    def load(self) -> AiSettings:
+        return self.settings
+
+    def save(self, settings: AiSettings) -> None:
+        self.settings = settings
+
+
+def _empty_analyses() -> dict[str, AiAnalysis]:
+    return {}
+
+
+@dataclass(slots=True)
+class FakeAiAnalysisStore:
+    by_layout: dict[str, AiAnalysis] = field(default_factory=_empty_analyses)
+
+    def get(self, layout: str) -> AiAnalysis | None:
+        return self.by_layout.get(layout)
+
+    def put(self, analysis: AiAnalysis) -> None:
+        self.by_layout[analysis.layout] = analysis
+
+    def clear(self) -> None:
+        self.by_layout.clear()
+
+
+def _empty_streams() -> dict[str, list[Keystroke]]:
+    return {}
+
+
+@dataclass(slots=True)
+class FakeKeystrokeArchive:
+    saved: dict[str, list[Keystroke]] = field(default_factory=_empty_streams)
+    error: Exception | None = None
+
+    def save(self, session_id: str, keystrokes: Sequence[Keystroke]) -> None:
+        if self.error is not None:
+            raise self.error
+        self.saved[session_id] = list(keystrokes)
+
+    def load(self, session_ids: Sequence[str]) -> dict[str, list[Keystroke]]:
+        return {sid: self.saved[sid] for sid in session_ids if sid in self.saved}
+
+    def prune(self, keep: Collection[str]) -> None:
+        self.saved = {sid: ks for sid, ks in self.saved.items() if sid in keep}
+
+    def clear(self) -> None:
+        self.saved.clear()
+
+
+class FakeChat:
+    """Scripted ChatClient: returns `reply` (or raises `error`) and records
+    every request."""
+
+    def __init__(self, reply: str = "", error: Exception | None = None) -> None:
+        self.reply = reply
+        self.error = error
+        self.prompts: list[tuple[str, str]] = []
+        self.schemas: list[Mapping[str, Any] | None] = []
+
+    @property
+    def calls(self) -> int:
+        return len(self.prompts)
+
+    async def chat(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        *,
+        schema: Mapping[str, Any] | None = None,
+    ) -> str:
+        self.prompts.append((system_prompt, user_prompt))
+        self.schemas.append(schema)
+        if self.error is not None:
+            raise self.error
+        return self.reply

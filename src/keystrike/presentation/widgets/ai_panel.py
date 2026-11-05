@@ -23,9 +23,13 @@ def _format_key_list(keys: tuple[int, ...]) -> str:
     return ", ".join(_format_codepoint(k) for k in keys)
 
 
-def build_lines(analysis: AiAnalysis) -> list[str]:
+def build_lines(analysis: AiAnalysis, *, previous: AiAnalysis | None = None) -> list[str]:
+    """Panel text. For a failed analysis, `previous` is the advice that stays
+    in effect, shown under the error."""
     if analysis.failed:
-        return [analysis.error]
+        if previous is None or previous.failed:
+            return [analysis.error]
+        return [f"{analysis.error} — keeping the previous advice:", *build_lines(previous)]
     lines: list[str] = []
     if analysis.summary:
         lines.append(analysis.summary)
@@ -37,7 +41,7 @@ def build_lines(analysis: AiAnalysis) -> list[str]:
     elif analysis.focus_key is not None:
         lines.append(f"Focus: {_format_codepoint(analysis.focus_key)}")
     if analysis.emphasis_keys:
-        lines.append(f"Try harder: {_format_key_list(analysis.emphasis_keys)}")
+        lines.append(f"Practice more: {_format_key_list(analysis.emphasis_keys)}")
     if analysis.rest_keys:
         lines.append(f"Ease up on: {_format_key_list(analysis.rest_keys)}")
     return lines
@@ -77,7 +81,7 @@ class AiAnalysisPanel(Static):
         self._panel_state = PanelState.ANALYZING
         self.update("Analyzing…")
 
-    def show_analysis(self, analysis: AiAnalysis) -> None:
+    def show_analysis(self, analysis: AiAnalysis, *, previous: AiAnalysis | None = None) -> None:
         self._analysis = analysis
         self._panel_state = PanelState.READY
-        self.update("\n".join(build_lines(analysis)))
+        self.update("\n".join(build_lines(analysis, previous=previous)))

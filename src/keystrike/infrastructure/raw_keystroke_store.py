@@ -1,18 +1,42 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from pathlib import Path
 
-from keystrike.domain.enums import Finger
+from keystrike.domain.enums import Finger, Hand
 from keystrike.domain.models import Keystroke
 from keystrike.infrastructure.atomic_write import atomic_write_text
+
+_SUFFIX = ".jsonl"
 
 
 def _finger_from_name(name: object) -> Finger | None:
     if isinstance(name, str):
         return Finger.__members__.get(name)
     return None
+
+
+def _hand_from_value(value: object) -> Hand | None:
+    try:
+        return Hand(value) if isinstance(value, str) else None
+    except ValueError:
+        return None
+
+
+def _parse_line(line: str) -> Keystroke | None:
+    try:
+        rec = json.loads(line)
+        return Keystroke(
+            codepoint=int(rec["target"]),
+            typed=int(rec["typed"]),
+            t_ns=int(rec["t_ns"]),
+            correct=bool(rec["correct"]),
+            finger=_finger_from_name(rec.get("finger")),
+            hand=_hand_from_value(rec.get("hand")),
+        )
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError, AttributeError):
+        return None  # skip a corrupt row, keep the rest
 
 
 class RawKeystrokeStore:
@@ -25,7 +49,7 @@ class RawKeystrokeStore:
         self._dir = directory
 
     def _path(self, session_id: str) -> Path:
-        return self._dir / f"{session_id}.jsonl"
+        return self._dir / f"{session_id}{_SUFFIX}"
 
     def save(self, session_id: str, keystrokes: Sequence[Keystroke]) -> None:
         self._dir.mkdir(parents=True, exist_ok=True)
@@ -37,6 +61,7 @@ class RawKeystrokeStore:
                     "t_ns": ks.t_ns,
                     "correct": ks.correct,
                     "finger": ks.finger.name if ks.finger is not None else None,
+                    "hand": ks.hand.value if ks.hand is not None else None,
                 }
             )
             for ks in keystrokes
@@ -47,24 +72,24 @@ class RawKeystrokeStore:
         result: dict[str, list[Keystroke]] = {}
         for sid in session_ids:
             path = self._path(sid)
-            if not path.exists():
+            try:
+                text = path.read_text(encoding="utf-8")
+            except OSError:
                 continue
-            keystrokes: list[Keystroke] = []
-            for line in path.read_text(encoding="utf-8").splitlines():
-                if not line.strip():
-                    continue
-                try:
-                    rec = json.loads(line)
-                    keystrokes.append(
-                        Keystroke(
-                            codepoint=int(rec["target"]),
-                            typed=int(rec["typed"]),
-                            t_ns=int(rec["t_ns"]),
-                            correct=bool(rec["correct"]),
-                            finger=_finger_from_name(rec.get("finger")),
-                        )
-                    )
-                except (json.JSONDecodeError, KeyError, TypeError, ValueError):
-                    continue  # skip a corrupt row, keep the rest
-            result[sid] = keystrokes
+            parsed = (_parse_line(line) for line in text.splitlines() if line.strip())
+            result[sid] = [ks for ks in parsed if ks is not None]
         return result
+
+    def _files(self) -> list[Path]:
+        if not self._dir.is_dir():
+            return []
+        return [p for p in self._dir.iterdir() if p.is_file() and p.suffix == _SUFFIX]
+
+    def prune(self, keep: Collection[str]) -> None:
+        keep_set = set(keep)
+        for path in self._files():
+            if path.stem not in keep_set:
+                path.unlink(missing_ok=True)
+
+    def clear(self) -> None:
+        self.prune(())

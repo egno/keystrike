@@ -1,5 +1,6 @@
 from typing import ClassVar, cast
 
+from rich.markup import escape
 from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
 from textual.containers import Vertical
@@ -7,8 +8,19 @@ from textual.screen import Screen
 from textual.widgets import Footer, Input, Label, Select, Static
 from textual.widgets.select import NoSelection
 
+from keystrike.application.ai_settings_use_cases import (
+    AiSettingsValidationError,
+    validate_ai_settings,
+)
 from keystrike.application.settings_use_cases import SettingsUpdate, SettingsValidationError
 from keystrike.application.wordlist_use_cases import DEFAULT_WORDLIST_URL, WordListError
+from keystrike.domain.ai_models import (
+    AI_PROVIDER_OFF,
+    AI_PROVIDER_OLLAMA,
+    AI_PROVIDER_OPENAI,
+    DEFAULT_AI_ENDPOINTS,
+    AiSettings,
+)
 from keystrike.domain.enums import TargetSpeedUnit
 from keystrike.domain.generator import cpm_from_wpm, wpm_from_cpm
 from keystrike.presentation.bindings import BACK_BINDINGS, SAVE
@@ -30,7 +42,8 @@ class SettingsScreen(Screen[None]):
         width: 60;
     }
     SettingsScreen Label,
-    SettingsScreen #settings-wordlist-label {
+    SettingsScreen #settings-wordlist-label,
+    SettingsScreen #settings-ai-label {
         margin-top: 1;
     }
     """
@@ -39,6 +52,7 @@ class SettingsScreen(Screen[None]):
         SAVE,
         Binding("ctrl+i", "import_wordlist", "Import", priority=True),
         Binding("ctrl+x", "clear_wordlist", "Clear", priority=True),
+        Binding("ctrl+t", "test_ai", "Test AI", priority=True),
         *BACK_BINDINGS,
     ]
 
@@ -94,8 +108,88 @@ class SettingsScreen(Screen[None]):
                 self._wordlist_status(settings.wordlist_url),
                 id="settings-wordlist-status",
             )
+            yield from self._compose_ai_section()
             yield Static("", id="settings-error")
         yield Footer()
+
+    def _compose_ai_section(self) -> ComposeResult:
+        repo = self._services.ai_settings_repo
+        if repo is None or self._services.update_ai_settings is None:
+            return
+        ai = repo.load()
+        yield Static(
+            "AI coach  [dim](Ctrl+T test · local to this device, never synced)[/]",
+            id="settings-ai-label",
+        )
+        yield Select(
+            [
+                ("Off", AI_PROVIDER_OFF),
+                ("Ollama", AI_PROVIDER_OLLAMA),
+                ("OpenAI-compatible", AI_PROVIDER_OPENAI),
+            ],
+            value=ai.provider,
+            id="settings-ai-provider",
+            allow_blank=False,
+        )
+        yield Input(value=ai.model, placeholder="model", id="settings-ai-model")
+        yield Input(value=ai.endpoint, placeholder="http://…", id="settings-ai-endpoint")
+        yield Static(self._ai_hint(ai.provider), id="settings-ai-status")
+
+    @property
+    def _has_ai_section(self) -> bool:
+        return (
+            self._services.ai_settings_repo is not None
+            and self._services.update_ai_settings is not None
+        )
+
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        if action == "test_ai":
+            return self._has_ai_section and self._services.check_ai_connection is not None
+        return True
+
+    @staticmethod
+    def _ai_hint(provider: str) -> str:
+        if provider == AI_PROVIDER_OPENAI:
+            return "[dim]API key, if needed: set KEYSTRIKE_AI_API_KEY.[/]"
+        if provider == AI_PROVIDER_OLLAMA:
+            return "[dim]Sends key statistics to this server after each session.[/]"
+        return "[dim]Off: nothing leaves this device.[/]"
+
+    def _on_ai_provider_changed(self, provider: str) -> None:
+        """A new provider gets its default endpoint, unless the user typed a
+        custom one."""
+        endpoint = self.query_one("#settings-ai-endpoint", Input)
+        if not endpoint.value.strip() or endpoint.value in DEFAULT_AI_ENDPOINTS.values():
+            endpoint.value = DEFAULT_AI_ENDPOINTS.get(provider, endpoint.value)
+        self.query_one("#settings-ai-status", Static).update(self._ai_hint(provider))
+
+    def _collect_ai_values(self) -> AiSettings | None:
+        if not self._has_ai_section:
+            return None
+        provider = cast("Select[str]", self.query_one("#settings-ai-provider", Select)).value
+        return AiSettings(
+            provider=provider if isinstance(provider, str) else AI_PROVIDER_OFF,
+            model=self.query_one("#settings-ai-model", Input).value,
+            endpoint=self.query_one("#settings-ai-endpoint", Input).value,
+        )
+
+    def action_test_ai(self) -> None:
+        check = self._services.check_ai_connection
+        proposed = self._collect_ai_values()
+        if check is None or proposed is None:
+            return
+        status = self.query_one("#settings-ai-status", Static)
+        status.update("[dim]Testing…[/]")
+
+        async def run() -> None:
+            try:
+                message = await check(proposed)
+            except Exception as exc:
+                status.update(f"[bold red]Failed: {escape(f'{type(exc).__name__}: {exc}')}[/]")
+                return
+            status.update(f"[green]{escape(message)}[/]")
+
+        self.run_worker(run(), group="ai-test", exclusive=True, exit_on_error=False)
 
     def on_mount(self) -> None:
         self._refresh_layout_select()
@@ -103,6 +197,9 @@ class SettingsScreen(Screen[None]):
 
     def on_select_changed(self, event: Select.Changed) -> None:
         """Switching the unit converts the shown goal, so it keeps its meaning."""
+        if event.select.id == "settings-ai-provider" and isinstance(event.value, str):
+            self._on_ai_provider_changed(event.value)
+            return
         if event.select.id != "settings-speed-unit" or isinstance(event.value, NoSelection):
             return
         unit = cast("TargetSpeedUnit", event.value)
@@ -172,8 +269,13 @@ class SettingsScreen(Screen[None]):
     def action_save(self) -> None:
         try:
             values = self._collect_form_values()
+            ai_values = self._collect_ai_values()
+            if ai_values is not None:
+                validate_ai_settings(ai_values)  # reject before saving anything
             self._services.update_settings(values)
-        except (FormError, SettingsValidationError) as exc:
+            if ai_values is not None and self._services.update_ai_settings is not None:
+                self._services.update_ai_settings(ai_values)
+        except (FormError, SettingsValidationError, AiSettingsValidationError) as exc:
             self._show_error(str(exc))
             return
 

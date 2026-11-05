@@ -15,7 +15,7 @@ def test_full_analysis_lines():
     assert build_lines(analysis) == [
         "Work on s.",
         "Focus: a → s",
-        "Try harder: s, d",
+        "Practice more: s, d",
         "Ease up on: a",
     ]
 
@@ -25,7 +25,7 @@ def test_focus_key_without_pair():
 
 
 def test_unprintable_codepoints_use_hex():
-    assert build_lines(AiAnalysis(emphasis_keys=(0x7,)))[0] == "Try harder: U+0007"
+    assert build_lines(AiAnalysis(emphasis_keys=(0x7,)))[0] == "Practice more: U+0007"
 
 
 def test_failure_shows_only_the_error():
@@ -36,3 +36,15 @@ def test_failure_shows_only_the_error():
 
 def test_empty_analysis_has_no_lines():
     assert build_lines(AiAnalysis()) == []
+
+
+def test_failure_with_previous_advice_keeps_showing_it():
+    previous = AiAnalysis(summary="Work on s.", focus_key=ord("s"))
+    lines = build_lines(
+        AiAnalysis(error="AI analysis unavailable (TimeoutError)"), previous=previous
+    )
+    assert lines == [
+        "AI analysis unavailable (TimeoutError) — keeping the previous advice:",
+        "Work on s.",
+        "Focus: s",
+    ]

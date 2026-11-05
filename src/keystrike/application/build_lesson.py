@@ -96,6 +96,12 @@ class LessonProgress:
     gating_bigrams: tuple[Bigram, ...]
     bigram_calibration: tuple[int, int] | None
     skill_heatmap: dict[int, float]
+    # What the AI coach may pick as focus at this stage (see
+    # `_coach_choices`). `coach_pairs` None = any pair of `coach_keys`.
+    coach_keys: frozenset[int] = frozenset()
+    coach_pairs: frozenset[Bigram] | None = frozenset()
+    # True when the AI coach chose `focus` / `focus_bigram`.
+    coach_focus: bool = False
 
 
 def _key_focus_metrics(
@@ -347,12 +353,42 @@ def _resolve_lesson_focus(
     )
 
 
+def _coach_choices(
+    ctx: _LessonContext,
+    gating: _GatingState,
+) -> tuple[frozenset[int], frozenset[Bigram] | None]:
+    """The focus candidates the AI coach may choose from, by the stage of
+    `select_lesson_focus` the engine is in. Each stage must finish before
+    the next key unlocks, so letting the coach reorder work inside a stage
+    never delays an unlock:
+
+    1. Uncleared keys exist -- any uncleared key, no pairs.
+    2. The newest key's gate pairs block -- only those pairs.
+    3./4. Otherwise -- any unlocked key or pair of unlocked keys."""
+    if gating.keys_need_focus:
+        uncleared = frozenset(
+            cp
+            for cp in gating.unlocked
+            if not clears_threshold(
+                ctx.stats.get(cp),
+                ctx.target,
+                threshold=CONFIDENCE_GOOD,
+                min_attempts=ctx.settings.unlock.min_confidence_attempts,
+            )
+        )
+        return uncleared, frozenset()
+    if gating.gating_bigrams:
+        return frozenset(), frozenset(gating.gating_bigrams)
+    return frozenset(gating.unlocked), None
+
+
 def _lesson_progress(
     layout_name: str,
     ctx: _LessonContext,
 ) -> LessonProgress:
     gating = _gating_state(ctx)
     focus, focus_bigram = _resolve_lesson_focus(ctx, gating)
+    coach_keys, coach_pairs = _coach_choices(ctx, gating)
     keys = tuple(
         LessonKey(
             codepoint=cp,
@@ -385,6 +421,8 @@ def _lesson_progress(
         gating_bigrams=gating.gating_bigrams,
         bigram_calibration=gating.bigram_calibration,
         skill_heatmap={cp: skill_of(cp, ctx.stats, ctx.target) for cp in gating.unlocked},
+        coach_keys=coach_keys,
+        coach_pairs=coach_pairs,
     )
 
 
@@ -459,34 +497,62 @@ AI_EMPHASIS_WEIGHT = 1.5
 AI_REST_WEIGHT = 0.7
 
 
+def _coach_pair_allowed(progress: LessonProgress, pair: Bigram) -> bool:
+    if progress.coach_pairs is None:
+        return pair.prev_cp in progress.coach_keys and pair.next_cp in progress.coach_keys
+    return pair in progress.coach_pairs
+
+
 def _apply_ai_focus(progress: LessonProgress, analysis: AiAnalysis) -> LessonProgress:
-    """Let the AI coach pick the lesson focus, but only among unlocked keys."""
-    unlocked = set(progress.unlocked)
+    """Let the AI coach act as a tie-breaker for the lesson focus: it may
+    pick only among the candidates the engine's current stage allows
+    (`progress.coach_keys` / `coach_pairs`), so the next unlock is never
+    pushed back."""
     pair = analysis.focus_pair
-    if pair is not None and pair.prev_cp in unlocked and pair.next_cp in unlocked:
+    if pair is not None and _coach_pair_allowed(progress, pair):
         focus, bigram = pair.next_cp, pair
-    elif analysis.focus_key is not None and analysis.focus_key in unlocked:
+    elif analysis.focus_key is not None and analysis.focus_key in progress.coach_keys:
         focus, bigram = analysis.focus_key, None
     else:
         return progress
+    if (focus, bigram) == (progress.focus, progress.focus_bigram):
+        return progress  # the engine already chose it
     keys = tuple(replace(k, is_focus=(k.codepoint == focus)) for k in progress.state.keys)
     return replace(
         progress,
         focus=focus,
         focus_bigram=bigram,
         state=replace(progress.state, keys=keys),
+        coach_focus=True,
     )
 
 
-def _apply_ai_weights(char_weights: dict[str, float], analysis: AiAnalysis) -> dict[str, float]:
+def _apply_ai_weights(
+    char_weights: dict[str, float],
+    analysis: AiAnalysis,
+    *,
+    protected: frozenset[int] = frozenset(),
+) -> dict[str, float]:
+    """Scale the coach's emphasis / rest keys. `protected` keys (the focus
+    and the newest key) are never eased off."""
     weights = dict(char_weights)
     for cp in analysis.rest_keys:
-        if chr(cp) in weights:
+        if chr(cp) in weights and cp not in protected:
             weights[chr(cp)] *= AI_REST_WEIGHT
     for cp in analysis.emphasis_keys:
         if chr(cp) in weights:
             weights[chr(cp)] *= AI_EMPHASIS_WEIGHT
     return weights
+
+
+def _coach_explanation(explanation: FocusExplanation, progress: LessonProgress) -> FocusExplanation:
+    """Mark a coach-chosen focus as such. A coach focus is always called
+    out, even when the engine would see no reason to (a cleared key)."""
+    if explanation.reason is not None:
+        return replace(explanation, reason=replace(explanation.reason, coach=True))
+    pair = progress.focus_bigram
+    kind = FocusKind.TRANSITION_REVIEW if pair is not None else FocusKind.KEY_REVIEW
+    return FocusExplanation(reason=FocusReason(kind=kind, pair=pair, coach=True))
 
 
 @dataclass(slots=True)
@@ -514,14 +580,14 @@ class BuildLesson:
     rng: Random
     clock: Clock
     session_repo: SessionRepository = field(default_factory=NullSessionRepository)
-    # Latest AI coach suggestion for the next lesson (None when AI is off or
-    # nothing is ready yet); steers focus and character weights only.
-    ai_suggestion: Callable[[], AiAnalysis | None] | None = None
+    # The AI coach's suggestion for the next lesson of a layout (None when AI
+    # is off or nothing is ready yet); steers focus and character weights only.
+    ai_suggestion: Callable[[str], AiAnalysis | None] | None = None
 
     def __call__(self, layout_name: str) -> Lesson:
         ctx = self._load_context(layout_name)
         progress = _lesson_progress(layout_name, ctx)
-        ai = self.ai_suggestion() if self.ai_suggestion is not None else None
+        ai = self.ai_suggestion(layout_name) if self.ai_suggestion is not None else None
         if ai is not None:
             progress = _apply_ai_focus(progress, ai)
         # A new letter opening (via `compute_unlocked`'s mastery-driven
@@ -533,7 +599,10 @@ class BuildLesson:
         focus_confidence = _resolve_focus_confidence(progress.focus, progress.focus_bigram, ctx)
         char_weights, transition_weights = _compute_weights(progress, focus_confidence, ctx)
         if ai is not None:
-            char_weights = _apply_ai_weights(char_weights, ai)
+            protected = {progress.focus}
+            if progress.unlocked:
+                protected.add(progress.unlocked[-1])
+            char_weights = _apply_ai_weights(char_weights, ai, protected=frozenset(protected))
         alphabet_chars = frozenset(chr(cp) for cp in progress.unlocked)
         text = self._generate_text(
             ctx,
@@ -548,6 +617,8 @@ class BuildLesson:
         explanation = _compute_focus_explanation(
             progress.focus, progress.focus_bigram, focus_confidence, ctx
         )
+        if progress.coach_focus:
+            explanation = _coach_explanation(explanation, progress)
         return Lesson(
             text=text,
             state=progress.state,

@@ -41,6 +41,8 @@ class FocusReason:
 
     kind: FocusKind
     pair: Bigram | None = None
+    # True when the AI coach picked this focus instead of the engine.
+    coach: bool = False
 
     @property
     def is_transition(self) -> bool:

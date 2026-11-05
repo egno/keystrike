@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from keystrike.domain.enums import Finger
+from keystrike.domain.enums import Finger, Hand
 from keystrike.domain.models import Keystroke
 from keystrike.infrastructure.raw_keystroke_store import RawKeystrokeStore
 
@@ -44,3 +44,21 @@ def test_unknown_finger_name_loads_as_none(tmp_path: Path):
         encoding="utf-8",
     )
     assert RawKeystrokeStore(tmp_path).load(["sid"])["sid"][0].finger is None
+
+
+def test_hand_round_trips(tmp_path: Path):
+    keys = [Keystroke(97, 97, 1, correct=True, finger=Finger.PINKY, hand=Hand.L)]
+    store = RawKeystrokeStore(tmp_path / "raw")
+    store.save("sid", keys)
+    assert store.load(["sid"]) == {"sid": keys}
+
+
+def test_prune_keeps_only_listed_sessions_and_clear_removes_all(tmp_path: Path):
+    store = RawKeystrokeStore(tmp_path / "raw")
+    for sid in ("a", "b", "c"):
+        store.save(sid, _KEYS)
+    store.prune({"b"})
+    assert set(store.load(["a", "b", "c"])) == {"b"}
+    store.clear()
+    assert store.load(["b"]) == {}
+    RawKeystrokeStore(tmp_path / "missing").clear()  # no directory: no error

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from random import Random
 
 from keystrike.application.ai_analyzer import AiAnalyzer
+from keystrike.application.ai_settings_use_cases import CheckAiConnection, UpdateAiSettings
 from keystrike.application.build_lesson import BuildLesson
 from keystrike.application.learn_budget_use_cases import GetDailyLearnBudget
 from keystrike.application.prepare_practice import PreparePracticeSession
@@ -36,6 +37,9 @@ from keystrike.application.wordlist_use_cases import (
 )
 from keystrike.domain.version import __version__
 from keystrike.infrastructure.aggregates_cache import FileAggregatesCache
+from keystrike.infrastructure.ai_analysis_store import FileAiAnalysisStore
+from keystrike.infrastructure.ai_clients import make_chat_client
+from keystrike.infrastructure.ai_settings_repo_toml import TomlAiSettingsRepository
 from keystrike.infrastructure.clock import MonotonicClock
 from keystrike.infrastructure.id_gen import UlidGenerator
 from keystrike.infrastructure.languages import BundledLanguageProvider
@@ -115,6 +119,8 @@ def build() -> KeystrikeApp:
     layout_repo = CompositeLayoutRepository(paths)
     aggregates_cache = FileAggregatesCache(paths)
     language_provider = BundledLanguageProvider()
+    ai_settings_repo = TomlAiSettingsRepository(paths)
+    keystroke_archive = RawKeystrokeStore(paths.raw_keystrokes_dir)
 
     start = StartSession(clock=clock, id_gen=id_gen)
     record = RecordKeystroke(clock=clock, layout_repo=layout_repo)
@@ -123,7 +129,8 @@ def build() -> KeystrikeApp:
         repo=session_repo,
         settings_repo=settings_repo,
         layout_repo=layout_repo,
-        keystroke_archive=RawKeystrokeStore(paths.raw_keystrokes_dir),
+        keystroke_archive=keystroke_archive,
+        ai_settings_repo=ai_settings_repo,
     )
     abort = AbortSession()
     get_session_baseline = GetSessionBaseline(repo=session_repo, settings_repo=settings_repo)
@@ -171,7 +178,14 @@ def build() -> KeystrikeApp:
     import_wordlist = ImportWordList(store=wordlist_store, settings_repo=settings_repo)
     clear_wordlist = ClearWordList(settings_repo=settings_repo)
     get_wordlist_cache_status = GetWordListCacheStatus(store=wordlist_store)
-    ai_analyzer = AiAnalyzer(settings_repo=settings_repo)
+    ai_analyzer = AiAnalyzer(
+        ai_settings_repo,
+        settings_repo,
+        make_chat_client,
+        store=FileAiAnalysisStore(paths),
+        archive=keystroke_archive,
+        wall_epoch=clock.wall_epoch,
+    )
     build_lesson = BuildLesson(
         layout_repo=layout_repo,
         aggregates_cache=aggregates_cache,
@@ -227,6 +241,13 @@ def build() -> KeystrikeApp:
             clear_wordlist=clear_wordlist,
             get_wordlist_cache_status=get_wordlist_cache_status,
             get_keystrokes_per_word=get_keystrokes_per_word,
+            ai_settings_repo=ai_settings_repo,
+            update_ai_settings=UpdateAiSettings(
+                repo=ai_settings_repo,
+                archive=keystroke_archive,
+                forget_analyses=ai_analyzer.forget,
+            ),
+            check_ai_connection=CheckAiConnection(client_factory=make_chat_client),
         ),
         app_version=__version__,
     )

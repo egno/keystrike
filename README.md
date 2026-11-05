@@ -120,6 +120,32 @@ Advanced confidence tuning (session window, min key/bigram attempts) is
 and [Focus states wiki](https://github.com/egno/keystrike/wiki/Focus-States)
 for HUD labels (`wk`, `cal`, `rev`).
 
+### AI coach (optional)
+
+Off by default: with no provider set, nothing leaves your machine. When on,
+Keystrike sends a summary of your recent sessions (per-key error rates and
+times, common mistypes, errors per finger) to an LLM after each session. It
+shows the advice under the practice area and gently steers the next lessons.
+
+| Setting | Default | Notes |
+| --- | --- | --- |
+| Provider | Off | `Ollama`, or `OpenAI-compatible` (llama.cpp, LM Studio, vLLM, hosted APIs) |
+| Model | `llama3.2` | Model name on that server |
+| Endpoint | `http://localhost:11434` | Ollama root, or the `/v1` base URL for OpenAI-compatible servers |
+
+- Press `Ctrl+T` in Settings to test the connection before you save.
+- API key (OpenAI-compatible servers only): set the `KEYSTRIKE_AI_API_KEY`
+  environment variable. It is never written to a file.
+- These settings live in `ai.toml`. That file is **not synced**, so each
+  device decides for itself whether to send data.
+- The coach never changes which keys unlock. It can only choose among the
+  keys or pairs the adaptive engine would accept at that point. When it
+  chooses the focus, the HUD shows `ai` before the reason (for example
+  `ai wk`).
+- While the coach is on, raw keystrokes of the sessions in the confidence
+  window are kept locally in `raw_keystrokes/`. Turning the coach off
+  deletes them.
+
 ## Backup sync
 
 Opt-in git sync for backing up or moving data between machines. Requires `git` on
@@ -152,6 +178,8 @@ directory.
 | Sync config (after `sync init`) | `~/.config/keystrike/sync.toml` | `~/Library/Application Support/keystrike/sync.toml` |
 | Session history (`index.jsonl`) | `~/.local/share/keystrike/sessions/` | `~/Library/Application Support/keystrike/sessions/` |
 | Stats cache | `~/.local/share/keystrike/cache/` | `~/Library/Application Support/keystrike/cache/` |
+| AI coach settings (not synced) | `~/.config/keystrike/ai.toml` | `~/Library/Application Support/keystrike/ai.toml` |
+| AI coach keystroke archive (not synced) | `~/.local/share/keystrike/raw_keystrokes/` | `~/Library/Application Support/keystrike/raw_keystrokes/` |
 
 Windows uses `%LOCALAPPDATA%\keystrike\` for the same layout (single directory).
 

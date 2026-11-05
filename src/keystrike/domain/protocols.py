@@ -1,7 +1,8 @@
 import datetime as dt
-from collections.abc import Iterable, Iterator, Mapping, Sequence
-from typing import Protocol
+from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
+from typing import Any, Protocol
 
+from .ai_models import AiAnalysis, AiSettings
 from .daily_learn import DailyLearnBudget
 from .markov import TransitionTable
 from .models import (
@@ -39,10 +40,44 @@ class SessionRepository(Protocol):
 
 
 class KeystrokeArchive(Protocol):
-    """Optional sink for a finished session's raw keystroke stream (separate
-    from `SessionRepository`, which only keeps per-key/bigram tallies)."""
+    """Local-only store for finished sessions' raw keystroke streams
+    (separate from `SessionRepository`, which only keeps per-key/bigram
+    tallies). Used only while the AI coach is on."""
 
     def save(self, session_id: str, keystrokes: Sequence[Keystroke]) -> None: ...
+    def load(self, session_ids: Sequence[str]) -> dict[str, list[Keystroke]]: ...
+    def prune(self, keep: Collection[str]) -> None:
+        """Delete every stored stream whose session id is not in `keep`."""
+        ...
+
+    def clear(self) -> None: ...
+
+
+class AiSettingsRepository(Protocol):
+    def load(self) -> AiSettings: ...
+    def save(self, settings: AiSettings) -> None: ...
+
+
+class AiAnalysisStore(Protocol):
+    """The last good AI analysis per layout, kept across restarts."""
+
+    def get(self, layout: str) -> AiAnalysis | None: ...
+    def put(self, analysis: AiAnalysis) -> None: ...
+    def clear(self) -> None: ...
+
+
+class ChatClient(Protocol):
+    """One request/response exchange with an LLM. `schema` is a JSON Schema
+    the reply should follow; clients pass it to servers that support
+    structured output and ignore it otherwise."""
+
+    async def chat(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        *,
+        schema: Mapping[str, Any] | None = None,
+    ) -> str: ...
 
 
 class SettingsRepository(Protocol):

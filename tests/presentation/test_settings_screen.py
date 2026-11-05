@@ -1,7 +1,10 @@
+from dataclasses import replace
+
 import pytest
 from textual.app import App
 from textual.widgets import Input, Select, Static
 
+from keystrike.application.ai_settings_use_cases import CheckAiConnection, UpdateAiSettings
 from keystrike.application.session_use_cases import GetKeystrokesPerWord
 from keystrike.application.settings_use_cases import UpdateSettings
 from keystrike.application.wordlist_use_cases import (
@@ -10,12 +13,16 @@ from keystrike.application.wordlist_use_cases import (
     GetWordListCacheStatus,
     ImportWordList,
 )
+from keystrike.domain.ai_models import DEFAULT_AI_ENDPOINTS, AiSettings
 from keystrike.domain.enums import Mode, TargetSpeedUnit
 from keystrike.domain.models import SessionResult, Settings, WordGenBounds
 from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS
 from keystrike.presentation.screens.settings import SettingsScreen
 from keystrike.presentation.services import SettingsServices
 from tests.fakes import (
+    FakeAiSettingsRepository,
+    FakeChat,
+    FakeKeystrokeArchive,
     FakeLayoutRepository,
     FakeSessionRepository,
     FakeSettingsRepository,
@@ -464,3 +471,80 @@ async def test_clear_removes_wordlist_and_uses_markov():
         assert app.screen.query_one("#settings-wordlist-url", Input).value == DEFAULT_WORDLIST_URL
         status = str(app.screen.query_one("#settings-wordlist-status", Static).content)
         assert "Markov" in status
+
+
+def _build_ai_screen(ai: AiSettings | None = None, chat: FakeChat | None = None):
+    screen, settings_repo, _store = _build_screen()
+    ai_repo = FakeAiSettingsRepository(ai or AiSettings())
+    archive = FakeKeystrokeArchive()
+    services = replace(
+        screen._services,
+        ai_settings_repo=ai_repo,
+        update_ai_settings=UpdateAiSettings(repo=ai_repo, archive=archive),
+        check_ai_connection=CheckAiConnection(
+            client_factory=lambda _s: chat or FakeChat('{"summary": "ok"}')
+        ),
+    )
+    return SettingsScreen(services=services), settings_repo, ai_repo, archive
+
+
+@pytest.mark.asyncio
+async def test_ai_section_is_hidden_without_ai_services():
+    app = App()
+    async with app.run_test() as pilot:
+        screen, _repo, _store = _build_screen()
+        await app.push_screen(screen)
+        await pilot.pause()
+        assert not app.screen.query("#settings-ai-provider")
+
+
+@pytest.mark.asyncio
+async def test_ai_section_saves_provider_and_swaps_default_endpoint():
+    app = App()
+    async with app.run_test() as pilot:
+        screen, _repo, ai_repo, _archive = _build_ai_screen()
+        await app.push_screen(screen)
+        await pilot.pause()
+        app.screen.query_one("#settings-ai-provider", Select).value = "openai"
+        await pilot.pause()
+        endpoint = app.screen.query_one("#settings-ai-endpoint", Input)
+        assert endpoint.value == DEFAULT_AI_ENDPOINTS["openai"]
+        app.screen.query_one("#settings-ai-model", Input).value = "qwen"
+        await pilot.press("ctrl+s")
+        await pilot.pause()
+        assert ai_repo.settings == AiSettings(
+            provider="openai", model="qwen", endpoint=DEFAULT_AI_ENDPOINTS["openai"]
+        )
+        assert app.screen_stack[-1] is not screen
+
+
+@pytest.mark.asyncio
+async def test_invalid_ai_endpoint_blocks_the_whole_save():
+    app = App()
+    async with app.run_test() as pilot:
+        screen, settings_repo, ai_repo, _archive = _build_ai_screen()
+        await app.push_screen(screen)
+        await pilot.pause()
+        app.screen.query_one("#settings-ai-provider", Select).value = "ollama"
+        await pilot.pause()
+        app.screen.query_one("#settings-ai-endpoint", Input).value = "ftp://x"
+        app.screen.query_one("#settings-speed", Input).value = "77"
+        await pilot.press("ctrl+s")
+        await pilot.pause()
+        assert app.screen_stack[-1] is screen
+        assert ai_repo.settings == AiSettings()
+        assert settings_repo.settings.target_speed != 77
+
+
+@pytest.mark.asyncio
+async def test_test_ai_shows_the_result():
+    app = App()
+    async with app.run_test() as pilot:
+        screen, _repo, _ai_repo, _archive = _build_ai_screen(AiSettings(provider="ollama"))
+        await app.push_screen(screen)
+        await pilot.pause()
+        await pilot.press("ctrl+t")
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        status = str(app.screen.query_one("#settings-ai-status", Static).content)
+        assert "Connected" in status

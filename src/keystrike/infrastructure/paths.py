@@ -18,6 +18,15 @@ class Paths:
         return self.config_dir / "settings.toml"
 
     @property
+    def ai_settings_file(self) -> Path:
+        # Not in the git-synced set (`sync_git._SYNC_REL_PATHS`).
+        return self.config_dir / "ai.toml"
+
+    @property
+    def ai_analysis_file(self) -> Path:
+        return self.cache_dir / "ai_coach.json"
+
+    @property
     def layouts_dir(self) -> Path:
         return self.config_dir / "layouts"
 

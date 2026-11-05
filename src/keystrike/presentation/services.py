@@ -6,6 +6,7 @@ depend on these types without importing textual_app.py (which imports the screen
 from dataclasses import dataclass, field
 
 from keystrike.application.ai_analyzer import AiAnalyzer
+from keystrike.application.ai_settings_use_cases import CheckAiConnection, UpdateAiSettings
 from keystrike.application.prepare_practice import PreparePracticeSession
 from keystrike.application.session_use_cases import (
     AbortSession,
@@ -30,6 +31,7 @@ from keystrike.application.wordlist_use_cases import (
 )
 from keystrike.domain.null_adapters import NULL_DAILY_LEARN_BUDGET
 from keystrike.domain.protocols import (
+    AiSettingsRepository,
     DailyLearnBudgetProvider,
     LayoutRepository,
     SettingsRepository,
@@ -79,3 +81,7 @@ class SettingsServices:
     clear_wordlist: ClearWordList
     get_wordlist_cache_status: GetWordListCacheStatus
     get_keystrokes_per_word: GetKeystrokesPerWord = field(default_factory=GetKeystrokesPerWord)
+    # AI coach section; the screen hides it when these are not wired.
+    ai_settings_repo: AiSettingsRepository | None = None
+    update_ai_settings: UpdateAiSettings | None = None
+    check_ai_connection: CheckAiConnection | None = None

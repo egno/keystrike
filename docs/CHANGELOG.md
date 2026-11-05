@@ -5,6 +5,29 @@ rationale lives in commit history/diffs — these are pointers, not narratives.
 Milestone-level feature work (what shipped in M1–M4, the keybr algorithm
 design) stays in `PLAN.md` §5/§6.
 
+## Unreleased
+
+- **AI coach** (opt-in) — after each session, an LLM reviews recent tallies
+  and the local raw keystrokes (mistypes, errors per finger), and suggests a
+  focus plus keys to practice more or less (`AiAnalyzer`).
+  - Clients live in `infrastructure/ai_clients.py`: Ollama `/api/chat` and
+    OpenAI-compatible `/chat/completions`. Both request structured JSON
+    output, at temperature 0.2. The OpenAI-compatible client retries without
+    the schema if the server rejects it.
+  - Settings are kept in a local `ai.toml` (`AiSettings`) that is not synced,
+    with a Settings-screen section and `Ctrl+T` connection test. The API key
+    comes only from `KEYSTRIKE_AI_API_KEY`.
+  - The coach is a tie-breaker. It picks only among the focus candidates of
+    the engine's current stage, so unlocks are never delayed
+    (`build_lesson._coach_choices`). `FocusReason.coach` marks its picks
+    (`ai wk`). The focus key and the newest key are never eased off.
+  - The last good analysis is kept per layout in `cache/ai_coach.json`. It
+    survives a failure or a restart.
+  - One request runs at a time. Sessions finished meanwhile are combined into
+    one follow-up request, so the coach never cancels itself.
+  - Raw keystrokes (`raw_keystrokes/`) are kept only for each layout's
+    confidence window, and are deleted when the coach is off.
+
 ## 2.2.5
 
 - **Fewer saved pairs** — `FinishSession` saves pair tallies only for the

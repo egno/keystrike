@@ -78,6 +78,8 @@ class PracticeScreen(Screen[None]):
             focus_reason=initial.focus_reason,
         )
         self._ai_panel: AiAnalysisPanel | None = None
+        self._ai_running = False
+        self._ai_pending: str | None = None
 
     def compose(self) -> ComposeResult:
         with Vertical():
@@ -180,7 +182,11 @@ class PracticeScreen(Screen[None]):
         """Kick off the AI coach in the background; the panel shows the outcome.
 
         The next lesson starts immediately and uses the previous analysis (see
-        `AiAnalyzer.suggestion`); this one lands for the lesson after."""
+        `AiAnalyzer.suggestion`); this one lands for the lesson after. Only one
+        request runs at a time: sessions finished meanwhile are folded into a
+        single follow-up request, so a slow model still answers (cancelling
+        it on every session would mean it never does) and its replies arrive
+        in order."""
         panel = self._ai_panel
         analyzer = self._services.ai_analyzer
         if panel is None or analyzer is None or self._services.get_history is None:
@@ -189,14 +195,28 @@ class PracticeScreen(Screen[None]):
             panel.show_idle()
             return
         panel.show_analyzing()
-        # exclusive: a newer session cancels any analysis still in flight, so
-        # a slow reply can never overwrite a fresher one.
+        if self._ai_running:
+            self._ai_pending = result.layout
+            return
+        self._ai_running = True
         self.run_worker(
-            self._analyze(result.layout),
+            self._analyze_until_idle(result.layout),
             group="ai-analysis",
-            exclusive=True,
             exit_on_error=False,
         )
+
+    async def _analyze_until_idle(self, layout: str) -> None:
+        next_layout: str | None = layout
+        try:
+            while next_layout is not None:
+                self._ai_pending = None
+                await self._analyze(next_layout)
+                next_layout = self._ai_pending
+                if next_layout is not None and self._ai_panel is not None:
+                    self._ai_panel.show_analyzing()
+        finally:
+            self._ai_running = False
+            self._ai_pending = None
 
     async def _analyze(self, layout: str) -> None:
         analyzer = self._services.ai_analyzer
@@ -207,10 +227,13 @@ class PracticeScreen(Screen[None]):
         # The just-finished session is already saved, so it is in the history.
         try:
             history = await asyncio.to_thread(get_history, layout, analyzer.window())
-            analysis = await analyzer.analyze(history)
+            analysis = await analyzer.analyze(layout, history)
         except Exception as exc:
-            analysis = AiAnalysis(error=f"AI analysis unavailable ({type(exc).__name__})")
-        panel.show_analysis(analysis)
+            analysis = AiAnalysis(
+                layout=layout, error=f"AI analysis unavailable ({type(exc).__name__})"
+            )
+        previous = analyzer.latest(layout) if analysis.failed else None
+        panel.show_analysis(analysis, previous=previous)
 
     def _refresh_focus_note(self) -> None:
         note = self.query_one("#focus-note", Static)

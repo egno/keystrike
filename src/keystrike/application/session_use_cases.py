@@ -38,6 +38,7 @@ from keystrike.domain.null_adapters import (
     NullSessionRepository,
 )
 from keystrike.domain.protocols import (
+    AiSettingsRepository,
     Clock,
     IdGenerator,
     KeystrokeArchive,
@@ -131,10 +132,14 @@ class RecordKeystroke:
         correct = typed_cp == target_cp
 
         key_pos = self._layout(session.layout).keys.get(target_cp)
-        finger = key_pos.finger if key_pos else None
 
         k = Keystroke(
-            codepoint=target_cp, typed=typed_cp, t_ns=t_ns, correct=correct, finger=finger
+            codepoint=target_cp,
+            typed=typed_cp,
+            t_ns=t_ns,
+            correct=correct,
+            finger=key_pos.finger if key_pos else None,
+            hand=key_pos.hand if key_pos else None,
         )
         session.keystrokes.append(k)
         session.total_count += 1
@@ -221,14 +226,28 @@ def _keep_pairs(stats: SessionStats, pairs: set[Bigram]) -> SessionStats:
     )
 
 
+def _recent_session_ids(repo: SessionRepository, window: int) -> set[str]:
+    """Ids of the newest `window` sessions of every layout."""
+    by_layout: dict[str, list[SessionResult]] = {}
+    for header in repo.iter_all_headers():
+        by_layout.setdefault(header.layout, []).append(header)
+    keep: set[str] = set()
+    for headers in by_layout.values():
+        headers.sort(key=lambda h: h.started_at, reverse=True)
+        keep.update(h.session_id for h in headers[: max(1, window)])
+    return keep
+
+
 @dataclass(slots=True)
 class FinishSession:
     clock: Clock
     repo: SessionRepository = field(default_factory=NullSessionRepository)
     settings_repo: SettingsRepository = NULL_SETTINGS_REPOSITORY
     layout_repo: LayoutRepository = NULL_LAYOUT_REPOSITORY
-    # Raw keystrokes are archived only while the AI coach is enabled.
+    # Raw keystrokes are archived only while the AI coach is enabled, and
+    # only for the sessions inside each layout's confidence window.
     keystroke_archive: KeystrokeArchive | None = None
+    ai_settings_repo: AiSettingsRepository | None = None
 
     def __call__(self, session: Session) -> SessionResult:
         session.state = SessionState.COMPLETE
@@ -241,10 +260,6 @@ class FinishSession:
         settings = self.settings_repo.load()
         goal_cpm = target_speed_cpm(self.repo, settings, session.layout)
         stats = tally_session(session.keystrokes)
-        if self.keystroke_archive is not None and settings.ai_enabled:
-            # best-effort: an archive failure must not lose the session
-            with contextlib.suppress(OSError):
-                self.keystroke_archive.save(session.id, session.keystrokes)
         unlocked_keys, key_confidence, cohort = _snapshot_finish_state(
             session,
             duration_ns,
@@ -295,7 +310,21 @@ class FinishSession:
             stats=stats,
         )
         self.repo.save_header(result)
+        self._archive_keystrokes(session, settings)
         return result
+
+    def _archive_keystrokes(self, session: Session, settings: Settings) -> None:
+        archive = self.keystroke_archive
+        if archive is None:
+            return
+        ai_on = self.ai_settings_repo is not None and self.ai_settings_repo.load().enabled
+        # best-effort: an archive failure must not lose the session
+        with contextlib.suppress(OSError):
+            if not ai_on:
+                archive.clear()
+                return
+            archive.save(session.id, session.keystrokes)
+            archive.prune(_recent_session_ids(self.repo, settings.confidence_session_window))
 
 
 @dataclass(slots=True)

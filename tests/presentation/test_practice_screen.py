@@ -1,10 +1,11 @@
+import asyncio
 import datetime as dt
 from random import Random
 
 import pytest
 from textual.widgets import Static
 
-from keystrike.application.ai_analyzer import AiAnalyzer, ChatClient
+from keystrike.application.ai_analyzer import AiAnalyzer
 from keystrike.application.build_lesson import BuildLesson
 from keystrike.application.learn_budget_use_cases import GetDailyLearnBudget
 from keystrike.application.prepare_practice import PreparePracticeSession
@@ -30,8 +31,10 @@ from keystrike.application.wordlist_use_cases import (
     GetWordListCacheStatus,
     ImportWordList,
 )
+from keystrike.domain.ai_models import AiSettings
 from keystrike.domain.enums import Mode, SessionState
 from keystrike.domain.models import Keystroke, SessionResult, Settings
+from keystrike.domain.protocols import ChatClient
 from keystrike.domain.session import LEARN_IDLE_PAUSE_NS
 from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS
 from keystrike.presentation.screens.home import HomeScreen
@@ -49,6 +52,9 @@ from keystrike.presentation.widgets.ai_panel import AiAnalysisPanel, PanelState
 from keystrike.presentation.widgets.kb_heatmap import KbHeatmap
 from tests.fakes import (
     FakeAggregatesCache,
+    FakeAiAnalysisStore,
+    FakeAiSettingsRepository,
+    FakeChat,
     FakeClock,
     FakeIdGenerator,
     FakeLanguageProvider,
@@ -72,6 +78,7 @@ def _build_app(
     settings: Settings | None = None,
     session_repo: FakeSessionRepository | None = None,
     ai_chat: ChatClient | None = None,
+    ai_settings: AiSettings | None = None,
 ) -> tuple[KeystrikeApp, FakeClock, FakeSessionRepository, FakeSettingsRepository]:
     clock = clock or FakeClock(
         wall=dt.datetime(2026, 7, 28, 12, 0, tzinfo=_TZ).timestamp(),
@@ -115,7 +122,17 @@ def _build_app(
         ensure_aggregates=ensure_aggregates,
     )
 
-    ai_analyzer = AiAnalyzer(settings_repo, client_factory=lambda _s: ai_chat) if ai_chat else None
+    ai_settings_repo = FakeAiSettingsRepository(ai_settings or AiSettings())
+    ai_analyzer = (
+        AiAnalyzer(
+            ai_settings_repo,
+            settings_repo,
+            lambda _s: ai_chat,
+            store=FakeAiAnalysisStore(),
+        )
+        if ai_chat
+        else None
+    )
     app = KeystrikeApp(
         home=HomeServices(
             settings_repo=settings_repo,
@@ -465,20 +482,6 @@ async def test_hud_stays_fixed_while_typing():
         assert hud_text_after == hud_text_before
 
 
-class _FakeChat:
-    def __init__(self, reply: str = "", error: Exception | None = None) -> None:
-        self.reply = reply
-        self.error = error
-        self.calls = 0
-
-    async def chat(self, system_prompt: str, user_prompt: str) -> str:
-        _ = (system_prompt, user_prompt)
-        self.calls += 1
-        if self.error is not None:
-            raise self.error
-        return self.reply
-
-
 async def _finish_one_session(app: KeystrikeApp, pilot, clock: FakeClock) -> PracticeScreen:
     await pilot.press("enter")
     await pilot.pause()
@@ -495,7 +498,7 @@ async def _finish_one_session(app: KeystrikeApp, pilot, clock: FakeClock) -> Pra
 
 @pytest.mark.asyncio
 async def test_ai_disabled_by_default_keeps_panel_idle_and_calls_nothing():
-    chat = _FakeChat('{"summary": "hi"}')
+    chat = FakeChat('{"summary": "hi"}')
     app, clock, session_repo, _ = _build_app(ai_chat=chat)
     async with app.run_test() as pilot:
         practice = await _finish_one_session(app, pilot, clock)
@@ -508,8 +511,8 @@ async def test_ai_disabled_by_default_keeps_panel_idle_and_calls_nothing():
 
 @pytest.mark.asyncio
 async def test_ai_enabled_shows_analysis_after_session():
-    chat = _FakeChat('{"summary": "Nice rhythm [bold]", "focus_key": "a"}')
-    app, clock, _repo, _ = _build_app(settings=Settings(ai_provider="ollama"), ai_chat=chat)
+    chat = FakeChat('{"summary": "Nice rhythm [bold]", "focus_key": "a"}')
+    app, clock, _repo, _ = _build_app(ai_settings=AiSettings(provider="ollama"), ai_chat=chat)
     async with app.run_test() as pilot:
         practice = await _finish_one_session(app, pilot, clock)
         panel = practice.query_one(AiAnalysisPanel)
@@ -521,8 +524,10 @@ async def test_ai_enabled_shows_analysis_after_session():
 
 @pytest.mark.asyncio
 async def test_ai_failure_shows_error_instead_of_sticking_on_analyzing():
-    chat = _FakeChat(error=ConnectionRefusedError())
-    app, clock, session_repo, _ = _build_app(settings=Settings(ai_provider="ollama"), ai_chat=chat)
+    chat = FakeChat(error=ConnectionRefusedError())
+    app, clock, session_repo, _ = _build_app(
+        ai_settings=AiSettings(provider="ollama"), ai_chat=chat
+    )
     async with app.run_test() as pilot:
         practice = await _finish_one_session(app, pilot, clock)
         panel = practice.query_one(AiAnalysisPanel)
@@ -530,3 +535,49 @@ async def test_ai_failure_shows_error_instead_of_sticking_on_analyzing():
         assert panel.analysis is not None
         assert panel.analysis.failed
         assert len(session_repo.headers) == 1  # practice itself is unaffected
+
+
+class _GatedChat(FakeChat):
+    """Holds every reply until `gate` is set, like a slow model."""
+
+    def __init__(self, reply: str) -> None:
+        super().__init__(reply)
+        self.gate = asyncio.Event()
+
+    async def chat(self, system_prompt, user_prompt, *, schema=None) -> str:
+        self.prompts.append((system_prompt, user_prompt))
+        self.schemas.append(schema)
+        await self.gate.wait()
+        return self.reply
+
+
+async def _type_session(pilot, practice: PracticeScreen, clock: FakeClock) -> None:
+    for ch in practice._session.target_text:
+        clock.advance(100_000_000)
+        await pilot.press("space" if ch == " " else ch)
+        await pilot.pause()
+
+
+@pytest.mark.asyncio
+async def test_slow_ai_is_not_cancelled_and_queued_sessions_fold_into_one_request():
+    chat = _GatedChat('{"summary": "ok", "focus_key": "a"}')
+    app, clock, session_repo, _ = _build_app(
+        ai_settings=AiSettings(provider="ollama"), ai_chat=chat
+    )
+    async with app.run_test() as pilot:
+        await pilot.press("enter")
+        await pilot.pause()
+        practice = app.screen
+        assert isinstance(practice, PracticeScreen)
+        for _ in range(3):
+            await _type_session(pilot, practice, clock)
+        assert len(session_repo.headers) == 3
+        assert chat.calls == 1  # one request in flight, the rest queued
+        chat.gate.set()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert chat.calls == 2  # the first one finished, plus one follow-up
+        panel = practice.query_one(AiAnalysisPanel)
+        assert panel.panel_state is PanelState.READY
+        assert panel.analysis is not None
+        assert panel.analysis.summary == "ok"
