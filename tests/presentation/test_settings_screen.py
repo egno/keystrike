@@ -1,7 +1,11 @@
+from dataclasses import replace
+
 import pytest
 from textual.app import App
 from textual.widgets import Input, Select, Static
 
+from keystrike.application.advisor_registry import AdvisorRegistry
+from keystrike.application.advisor_use_cases import TestAdvisor, UpdateAdvisorConfig
 from keystrike.application.session_use_cases import GetKeystrokesPerWord
 from keystrike.application.settings_use_cases import UpdateSettings
 from keystrike.application.wordlist_use_cases import (
@@ -10,12 +14,24 @@ from keystrike.application.wordlist_use_cases import (
     GetWordListCacheStatus,
     ImportWordList,
 )
+from keystrike.domain.advice import (
+    AdvisorCapabilities,
+    AdvisorConfig,
+    AdvisorContext,
+    AdvisorSpec,
+    Kind,
+    LessonAdvice,
+    SettingField,
+)
 from keystrike.domain.enums import Mode, TargetSpeedUnit
 from keystrike.domain.models import SessionResult, Settings, WordGenBounds
 from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS
 from keystrike.presentation.screens.settings import SettingsScreen
 from keystrike.presentation.services import SettingsServices
+from tests.advice_helpers import rec
 from tests.fakes import (
+    FakeAdvisorConfigRepository,
+    FakeKeystrokeArchive,
     FakeLayoutRepository,
     FakeSessionRepository,
     FakeSettingsRepository,
@@ -464,3 +480,136 @@ async def test_clear_removes_wordlist_and_uses_markov():
         assert app.screen.query_one("#settings-wordlist-url", Input).value == DEFAULT_WORDLIST_URL
         status = str(app.screen.query_one("#settings-wordlist-status", Static).content)
         assert "Markov" in status
+
+
+async def _fake_advisor(_ctx: AdvisorContext) -> LessonAdvice:
+    return LessonAdvice(summary="sample ok", recommendations=(rec(Kind.FOCUS, ord("e")),))
+
+
+def _spec(name: str, *, off_device: bool, keystrokes: bool = False) -> AdvisorSpec:
+    def create(cfg):
+        if cfg.get("endpoint", "http://x").startswith("ftp"):
+            raise ValueError("endpoint must be http(s)")
+        return _fake_advisor
+
+    return AdvisorSpec(
+        name=name,
+        label=name.upper(),
+        capabilities=AdvisorCapabilities(
+            needs_keystrokes=keystrokes, sends_data_off_device=off_device
+        ),
+        settings=(
+            SettingField("mode", "Mode", "fast", choices=("fast", "slow")),
+            SettingField("endpoint", "Endpoint", "http://x", env_hint="X_KEY"),
+        ),
+        create=create,
+    )
+
+
+def _build_advisor_screen(config: AdvisorConfig | None = None):
+    screen, settings_repo, _store = _build_screen()
+    registry = AdvisorRegistry()
+    registry.register(_spec("local", off_device=False))
+    registry.register(_spec("remote", off_device=True, keystrokes=True))
+    repo = FakeAdvisorConfigRepository(config or AdvisorConfig(active="local"))
+    archive = FakeKeystrokeArchive()
+    services = replace(
+        screen._services,
+        advisor_registry=registry,
+        advisor_config_repo=repo,
+        update_advisor_config=UpdateAdvisorConfig(repo=repo, registry=registry, archive=archive),
+        test_advisor=TestAdvisor(registry=registry),
+    )
+    return SettingsScreen(services=services), settings_repo, repo, archive
+
+
+@pytest.mark.asyncio
+async def test_advisor_section_is_hidden_without_advisor_services():
+    app = App()
+    async with app.run_test() as pilot:
+        screen, _repo, _store = _build_screen()
+        await app.push_screen(screen)
+        await pilot.pause()
+        assert not app.screen.query("#settings-advisor")
+
+
+@pytest.mark.asyncio
+async def test_advisor_form_is_drawn_from_the_spec_and_saved():
+    app = App()
+    async with app.run_test() as pilot:
+        screen, _repo, config_repo, _archive = _build_advisor_screen()
+        await app.push_screen(screen)
+        await pilot.pause()
+        assert app.screen.query("#settings-advisor-field-mode")
+        app.screen.query_one("#settings-advisor-field-endpoint", Input).value = "http://h:1"
+        await pilot.press("ctrl+s")
+        await pilot.pause()
+        assert config_repo.config.active == "local"
+        assert config_repo.config.section("local") == {"mode": "fast", "endpoint": "http://h:1"}
+        assert app.screen_stack[-1] is not screen
+
+
+@pytest.mark.asyncio
+async def test_switching_advisor_redraws_the_form():
+    app = App()
+    async with app.run_test() as pilot:
+        screen, _repo, _config_repo, _archive = _build_advisor_screen()
+        await app.push_screen(screen)
+        await pilot.pause()
+        app.screen.query_one("#settings-advisor", Select).value = "off"
+        await pilot.pause()
+        assert not app.screen.query("#settings-advisor-field-mode")
+        app.screen.query_one("#settings-advisor", Select).value = "remote"
+        await pilot.pause()
+        assert app.screen.query("#settings-advisor-field-endpoint")
+
+
+@pytest.mark.asyncio
+async def test_off_device_advisor_needs_confirmation_on_a_second_save():
+    app = App()
+    async with app.run_test() as pilot:
+        screen, _repo, config_repo, _archive = _build_advisor_screen()
+        await app.push_screen(screen)
+        await pilot.pause()
+        app.screen.query_one("#settings-advisor", Select).value = "remote"
+        await pilot.pause()
+        await pilot.press("ctrl+s")
+        await pilot.pause()
+        assert app.screen_stack[-1] is screen  # notice shown, nothing saved
+        assert config_repo.config.active == "local"
+        assert "sends practice data" in str(app.screen.query_one("#settings-error", Static).content)
+        await pilot.press("ctrl+s")
+        await pilot.pause()
+        assert config_repo.config.active == "remote"
+        assert config_repo.config.confirmed_off_device == ("remote",)
+        assert app.screen_stack[-1] is not screen
+
+
+@pytest.mark.asyncio
+async def test_invalid_advisor_config_blocks_the_whole_save():
+    app = App()
+    async with app.run_test() as pilot:
+        screen, settings_repo, config_repo, _archive = _build_advisor_screen()
+        await app.push_screen(screen)
+        await pilot.pause()
+        app.screen.query_one("#settings-advisor-field-endpoint", Input).value = "ftp://x"
+        app.screen.query_one("#settings-speed", Input).value = "77"
+        await pilot.press("ctrl+s")
+        await pilot.pause()
+        assert app.screen_stack[-1] is screen
+        assert config_repo.config == AdvisorConfig(active="local")
+        assert settings_repo.settings.target_speed != 77
+
+
+@pytest.mark.asyncio
+async def test_test_advisor_shows_the_result():
+    app = App()
+    async with app.run_test() as pilot:
+        screen, _repo, _config_repo, _archive = _build_advisor_screen()
+        await app.push_screen(screen)
+        await pilot.pause()
+        await pilot.press("ctrl+t")
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        status = str(app.screen.query_one("#settings-advisor-status", Static).content)
+        assert "sample ok" in status

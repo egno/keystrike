@@ -30,8 +30,7 @@ def focus_transition_pair(focus_reason: FocusReason | None) -> Bigram | None:
 _FULL_REASON_WORD = {"wk": "weak", "cal": "calibrating", "rev": "review"}
 
 
-def focus_reason_label_short(focus_reason: FocusReason) -> str:
-    """Compact HUD/note label: wk, cal, rev."""
+def _kind_label_short(focus_reason: FocusReason) -> str:
     match focus_reason.kind:
         case FocusKind.KEY_WEAK | FocusKind.TRANSITION_WEAK:
             return "wk"
@@ -43,14 +42,21 @@ def focus_reason_label_short(focus_reason: FocusReason) -> str:
             assert_never(focus_reason.kind)
 
 
+def focus_reason_label_short(focus_reason: FocusReason) -> str:
+    """Compact HUD/note label: wk, cal, rev; prefixed with the advisor's name
+    ("rules wk", "llm rev") when an advisor chose the focus."""
+    label = _kind_label_short(focus_reason)
+    return f"{focus_reason.advisor} {label}" if focus_reason.advisor else label
+
+
 def focus_reason_label(focus_reason: FocusReason) -> str:
     """Full display text for a focus reason (wiki/docs). UI uses
     `focus_reason_label_short` instead."""
-    word = _FULL_REASON_WORD[focus_reason_label_short(focus_reason)]
+    word = _FULL_REASON_WORD[_kind_label_short(focus_reason)]
     if focus_reason.is_transition:
         assert focus_reason.pair is not None
-        return f"{focus_reason.pair.chars()} {word} transition"
-    return word
+        word = f"{focus_reason.pair.chars()} {word} transition"
+    return f"{word} ({focus_reason.advisor})" if focus_reason.advisor else word
 
 
 def _confidence_style(confidence: float | None) -> str:

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import datetime as dt
-from collections.abc import Iterable, Iterator
+from collections.abc import Collection, Iterable, Iterator, Sequence
 from dataclasses import dataclass, field, replace
 from itertools import count
 
+from keystrike.domain.advice import AdvisorConfig, LessonAdvice
 from keystrike.domain.aggregate import tally_session
 from keystrike.domain.markov import TransitionTable
 from keystrike.domain.models import (
@@ -196,3 +197,69 @@ class FakeSyncStore:
             only_local=0,
             only_clone=0,
         )
+
+
+@dataclass(slots=True)
+class FakeAdvisorConfigRepository:
+    config: AdvisorConfig = field(default_factory=AdvisorConfig)
+
+    def load(self) -> AdvisorConfig:
+        return self.config
+
+    def save(self, config: AdvisorConfig) -> None:
+        self.config = config
+
+
+def _empty_advice() -> dict[tuple[str, str], LessonAdvice]:
+    return {}
+
+
+@dataclass(slots=True)
+class FakeAdviceStore:
+    by_key: dict[tuple[str, str], LessonAdvice] = field(default_factory=_empty_advice)
+
+    def get(self, layout: str, advisor: str) -> LessonAdvice | None:
+        return self.by_key.get((layout, advisor))
+
+    def put(self, layout: str, advice: LessonAdvice) -> None:
+        if not advice.failed:
+            self.by_key[(layout, advice.source)] = advice
+
+    def clear(self) -> None:
+        self.by_key.clear()
+
+
+def _empty_streams() -> dict[str, list[Keystroke]]:
+    return {}
+
+
+@dataclass(slots=True)
+class FakeKeystrokeArchive:
+    saved: dict[str, list[Keystroke]] = field(default_factory=_empty_streams)
+    meta: dict[str, tuple[str, float, float]] = field(
+        default_factory=dict[str, tuple[str, float, float]]
+    )
+    error: Exception | None = None
+
+    def save(
+        self,
+        session_id: str,
+        keystrokes: Sequence[Keystroke],
+        *,
+        layout: str = "",
+        started_at: float = 0.0,
+        ended_at: float = 0.0,
+    ) -> None:
+        if self.error is not None:
+            raise self.error
+        self.saved[session_id] = list(keystrokes)
+        self.meta[session_id] = (layout, started_at, ended_at)
+
+    def load(self, session_ids: Sequence[str]) -> dict[str, list[Keystroke]]:
+        return {sid: self.saved[sid] for sid in session_ids if sid in self.saved}
+
+    def prune(self, keep: Collection[str]) -> None:
+        self.saved = {sid: ks for sid, ks in self.saved.items() if sid in keep}
+
+    def clear(self) -> None:
+        self.saved.clear()

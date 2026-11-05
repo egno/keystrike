@@ -77,3 +77,59 @@ def test_presentation_has_no_path_reads():
                 violations.append(f"{rel} imports {module!r}")
 
     assert not violations, "Presentation Path violations:\n" + "\n".join(violations)
+
+
+_PACKAGES = _SRC.parent.parent / "packages"
+_NETWORK_MODULES = {"urllib", "http", "socket", "ssl", "ftplib", "smtplib", "xmlrpc"}
+# Word-list import and git sync use the network, and only when the user starts them.
+_NETWORK_ALLOWED_PREFIXES = ("wordlist_", "sync_")
+
+
+def _only_keystrike_imports(files: list[Path], allowed: set[str], *, what: str) -> list[str]:
+    violations: list[str] = []
+    for path in files:
+        for module in _imported_modules(path):
+            if not (module == "keystrike" or module.startswith("keystrike.")):
+                continue
+            if any(module == p or module.startswith(f"{p}.") for p in allowed):
+                continue
+            violations.append(f"{path.name} ({what}) imports {module!r}")
+    return violations
+
+
+def test_builtin_advisors_import_only_domain_and_plugin_api():
+    files = list((_SRC / "advisors").rglob("*.py"))
+    assert files
+    allowed = {"keystrike.domain", "keystrike.plugin_api", "keystrike.advisors"}
+    violations = _only_keystrike_imports(files, allowed, what="advisors")
+    assert not violations, "Advisor rule violations:\n" + "\n".join(violations)
+
+
+def test_plugin_api_facade_imports_only_domain_and_application():
+    allowed = {"keystrike.domain", "keystrike.application"}
+    violations = _only_keystrike_imports([_SRC / "plugin_api.py"], allowed, what="plugin_api")
+    assert not violations, "Facade rule violations:\n" + "\n".join(violations)
+
+
+def test_plugin_packages_import_only_the_plugin_api_from_keystrike():
+    files = [p for p in _PACKAGES.rglob("src/**/*.py")]
+    assert files
+    violations = _only_keystrike_imports(files, {"keystrike.plugin_api"}, what="plugin package")
+    # `import keystrike` alone is also not the facade.
+    for path in files:
+        if "keystrike" in _imported_modules(path):
+            violations.append(f"{path.name} imports bare 'keystrike'")
+    assert not violations, "Plugin package violations:\n" + "\n".join(violations)
+
+
+def test_core_has_no_network_code_outside_wordlist_and_sync_modules():
+    """'Fully local' is checked, not promised: advice leaves the device only
+    through a plugin the user installed."""
+    violations: list[str] = []
+    for path in _SRC.rglob("*.py"):
+        if path.name.startswith(_NETWORK_ALLOWED_PREFIXES):
+            continue
+        for module in _imported_modules(path):
+            if module.split(".")[0] in _NETWORK_MODULES:
+                violations.append(f"{path.relative_to(_SRC)} imports {module!r}")
+    assert not violations, "Network imports in the core:\n" + "\n".join(violations)

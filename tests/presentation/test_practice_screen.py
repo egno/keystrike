@@ -1,9 +1,12 @@
+import asyncio
 import datetime as dt
 from random import Random
 
 import pytest
 from textual.widgets import Static
 
+from keystrike.application.advice_runner import AdviceRunner
+from keystrike.application.advisor_registry import AdvisorRegistry
 from keystrike.application.build_lesson import BuildLesson
 from keystrike.application.learn_budget_use_cases import GetDailyLearnBudget
 from keystrike.application.prepare_practice import PreparePracticeSession
@@ -29,6 +32,16 @@ from keystrike.application.wordlist_use_cases import (
     GetWordListCacheStatus,
     ImportWordList,
 )
+from keystrike.domain.advice import (
+    EMPTY_ADVICE,
+    Advisor,
+    AdvisorCapabilities,
+    AdvisorConfig,
+    AdvisorContext,
+    AdvisorSpec,
+    Kind,
+    LessonAdvice,
+)
 from keystrike.domain.enums import Mode, SessionState
 from keystrike.domain.models import Keystroke, SessionResult, Settings
 from keystrike.domain.session import LEARN_IDLE_PAUSE_NS
@@ -44,11 +57,16 @@ from keystrike.presentation.services import (
     StatsServices,
 )
 from keystrike.presentation.textual_app import KeystrikeApp
+from keystrike.presentation.widgets.advice_panel import AdvicePanel, PanelState
 from keystrike.presentation.widgets.kb_heatmap import KbHeatmap
+from tests.advice_helpers import advice, rec
 from tests.fakes import (
+    FakeAdviceStore,
+    FakeAdvisorConfigRepository,
     FakeAggregatesCache,
     FakeClock,
     FakeIdGenerator,
+    FakeKeystrokeArchive,
     FakeLanguageProvider,
     FakeLayoutRepository,
     FakeSessionRepository,
@@ -69,6 +87,9 @@ def _build_app(
     clock: FakeClock | None = None,
     settings: Settings | None = None,
     session_repo: FakeSessionRepository | None = None,
+    advisor: Advisor | None = None,
+    budget_s: float = 0.05,
+    stored_advice: LessonAdvice | None = None,
 ) -> tuple[KeystrikeApp, FakeClock, FakeSessionRepository, FakeSettingsRepository]:
     clock = clock or FakeClock(
         wall=dt.datetime(2026, 7, 28, 12, 0, tzinfo=_TZ).timestamp(),
@@ -112,6 +133,31 @@ def _build_app(
         ensure_aggregates=ensure_aggregates,
     )
 
+    registry = AdvisorRegistry()
+    if advisor is not None:
+        registry.register(
+            AdvisorSpec(
+                name="fake",
+                label="Fake",
+                capabilities=AdvisorCapabilities(),
+                settings=(),
+                create=lambda _cfg: advisor,
+            )
+        )
+    advice_store = FakeAdviceStore()
+    if stored_advice is not None:
+        advice_store.put((settings or Settings()).layout, stored_advice)
+    advice_runner = AdviceRunner(
+        registry=registry,
+        config_repo=FakeAdvisorConfigRepository(
+            AdvisorConfig(active="fake" if advisor is not None else "off")
+        ),
+        store=advice_store,
+        archive=FakeKeystrokeArchive(),
+        history=GetHistory(repo=session_repo),
+        settings_repo=settings_repo,
+        budget_s=budget_s,
+    )
     app = KeystrikeApp(
         home=HomeServices(
             settings_repo=settings_repo,
@@ -132,6 +178,7 @@ def _build_app(
             get_latest_session_header=GetLatestSessionHeader(repo=session_repo),
             get_session_baseline=GetSessionBaseline(repo=session_repo, settings_repo=settings_repo),
             rebuild_aggregates=rebuild_aggregates,
+            advice_runner=advice_runner,
             get_daily_learn_budget=get_daily_learn_budget,
         ),
         stats=StatsServices(
@@ -457,3 +504,186 @@ async def test_hud_stays_fixed_while_typing():
 
         hud_text_after = str(practice.query_one("#hud-text", Static).content)
         assert hud_text_after == hud_text_before
+
+
+async def _finish_one_session(app: KeystrikeApp, pilot, clock: FakeClock) -> PracticeScreen:
+    await pilot.press("enter")
+    await pilot.pause()
+    practice = app.screen
+    assert isinstance(practice, PracticeScreen)
+    for ch in practice._session.target_text:
+        clock.advance(100_000_000)
+        await pilot.press("space" if ch == " " else ch)
+        await pilot.pause()
+    await app.workers.wait_for_complete()
+    await pilot.pause()
+    return practice
+
+
+class _Counting:
+    """An advisor that counts its calls and returns `advice` (or raises)."""
+
+    def __init__(self, advice: LessonAdvice = EMPTY_ADVICE, error: Exception | None = None):
+        self.advice = advice
+        self.error = error
+        self.calls = 0
+
+    async def __call__(self, ctx: AdvisorContext) -> LessonAdvice:
+        self.calls += 1
+        if self.error is not None:
+            raise self.error
+        return self.advice
+
+
+class _Gated(_Counting):
+    """Holds every reply until `gate` is set, like a slow model."""
+
+    def __init__(self, advice: LessonAdvice) -> None:
+        super().__init__(advice)
+        self.gate = asyncio.Event()
+
+    async def __call__(self, ctx: AdvisorContext) -> LessonAdvice:
+        self.calls += 1
+        await self.gate.wait()
+        return self.advice
+
+
+@pytest.mark.asyncio
+async def test_advice_off_by_default_keeps_panel_idle_and_calls_nothing():
+    app, clock, session_repo, _ = _build_app()
+    async with app.run_test() as pilot:
+        practice = await _finish_one_session(app, pilot, clock)
+        panel = practice.query_one(AdvicePanel)
+        assert panel.panel_state is PanelState.IDLE
+        assert not panel.display
+        assert len(session_repo.headers) == 1
+        assert "Last: WPM" in str(practice.query_one("#last-session-stats", Static).content)
+
+
+@pytest.mark.asyncio
+async def test_advice_is_shown_after_session():
+    advisor = _Counting(advice(rec(Kind.FOCUS, ord("a")), summary="Nice rhythm [bold]"))
+    app, clock, _repo, _ = _build_app(advisor=advisor)
+    async with app.run_test() as pilot:
+        practice = await _finish_one_session(app, pilot, clock)
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        panel = practice.query_one(AdvicePanel)
+        assert advisor.calls == 1
+        assert panel.panel_state is PanelState.READY
+        assert panel.advice is not None
+        assert panel.advice.summary == "Nice rhythm [bold]"  # markup is not interpreted
+        assert panel.advice.source == "fake"
+
+
+@pytest.mark.asyncio
+async def test_advisor_failure_shows_error_instead_of_sticking_on_thinking():
+    advisor = _Counting(error=ConnectionRefusedError())
+    app, clock, session_repo, _ = _build_app(advisor=advisor)
+    async with app.run_test() as pilot:
+        practice = await _finish_one_session(app, pilot, clock)
+        await pilot.pause()
+        panel = practice.query_one(AdvicePanel)
+        assert panel.panel_state is PanelState.READY
+        assert panel.advice is not None
+        assert panel.advice.failed
+        assert len(session_repo.headers) == 1  # practice itself is unaffected
+
+
+async def _type_session(pilot, practice: PracticeScreen, clock: FakeClock) -> None:
+    for ch in practice._session.target_text:
+        clock.advance(100_000_000)
+        await pilot.press("space" if ch == " " else ch)
+        await pilot.pause()
+
+
+@pytest.mark.asyncio
+async def test_slow_advisor_is_not_cancelled_and_queued_sessions_fold_into_one_request():
+    advisor = _Gated(advice(rec(Kind.FOCUS, ord("a")), summary="ok"))
+    app, clock, session_repo, _ = _build_app(advisor=advisor)
+    async with app.run_test() as pilot:
+        await pilot.press("enter")
+        await pilot.pause()
+        practice = app.screen
+        assert isinstance(practice, PracticeScreen)
+        for _ in range(3):
+            await _type_session(pilot, practice, clock)
+        assert len(session_repo.headers) == 3  # the slow advisor never blocked practice
+        assert advisor.calls == 1  # one request in flight, the rest queued
+        advisor.gate.set()
+        await app.workers.wait_for_complete()
+        for _ in range(5):
+            await pilot.pause()
+        assert advisor.calls == 2  # the first one finished, plus one follow-up
+        panel = practice.query_one(AdvicePanel)
+        assert panel.panel_state is PanelState.READY
+        assert panel.advice is not None
+        assert panel.advice.summary == "ok"
+
+
+@pytest.mark.asyncio
+async def test_stored_advice_is_shown_as_soon_as_practice_opens():
+    stored = advice(rec(Kind.FOCUS, ord("a")), summary="Keep going", source="fake")
+    app, _clock, _repo, _ = _build_app(advisor=_Counting(), stored_advice=stored)
+    async with app.run_test() as pilot:
+        await pilot.press("enter")
+        await pilot.pause()
+        panel = app.screen.query_one(AdvicePanel)
+        assert panel.panel_state is PanelState.READY
+        assert panel.advice is not None
+        assert panel.advice.summary == "Keep going"
+        assert panel.display
+        assert panel.advisor == "Fake"  # the advisor's label, not its name
+        assert str(panel.render()).startswith("Advisor: Fake\n")
+
+
+@pytest.mark.asyncio
+async def test_with_an_advisor_but_no_advice_yet_the_panel_says_when_it_comes():
+    app, _clock, _repo, _ = _build_app(advisor=_Counting())
+    async with app.run_test() as pilot:
+        await pilot.press("enter")
+        await pilot.pause()
+        panel = app.screen.query_one(AdvicePanel)
+        assert panel.panel_state is PanelState.WAITING
+        assert panel.display
+        assert str(panel.render()).splitlines()[0] == "Advisor: Fake"
+        assert "first session" in str(panel.render())
+
+
+@pytest.mark.asyncio
+async def test_with_the_advisor_off_the_panel_stays_empty_at_the_start():
+    stored = advice(rec(Kind.FOCUS, ord("a")), source="fake")
+    app, _clock, _repo, _ = _build_app(stored_advice=stored)
+    async with app.run_test() as pilot:
+        await pilot.press("enter")
+        await pilot.pause()
+        panel = app.screen.query_one(AdvicePanel)
+        assert panel.panel_state is PanelState.IDLE
+        assert not panel.display  # it takes no row while there is nothing to show
+
+
+@pytest.mark.asyncio
+async def test_the_waiting_hint_gives_way_to_the_advice_after_a_session():
+    advisor = _Counting(advice(rec(Kind.FOCUS, ord("a")), summary="Nice"))
+    app, clock, _repo, _ = _build_app(advisor=advisor)
+    async with app.run_test() as pilot:
+        practice = await _finish_one_session(app, pilot, clock)
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        panel = practice.query_one(AdvicePanel)
+        assert panel.panel_state is PanelState.READY
+        assert panel.advice is not None
+        assert panel.advice.summary == "Nice"
+        assert str(panel.render()).startswith("Advisor: Fake\n")
+
+
+@pytest.mark.asyncio
+async def test_a_failed_advisor_is_still_named_in_the_panel():
+    app, clock, _repo, _ = _build_app(advisor=_Counting(error=ConnectionRefusedError()))
+    async with app.run_test() as pilot:
+        practice = await _finish_one_session(app, pilot, clock)
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        text = str(practice.query_one(AdvicePanel).render())
+        assert text.splitlines()[0] == "Advisor: Fake"
+        assert "unavailable" in text

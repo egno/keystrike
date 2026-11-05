@@ -31,6 +31,8 @@ class Keystroke:
     typed: int  # actual char typed
     t_ns: int  # monotonic ns since session start
     correct: bool
+    finger: Finger | None = None
+    hand: Hand | None = None
 
 
 def _empty_key_confidence() -> dict[int, float]:
@@ -120,6 +122,12 @@ class SessionResult:
     # second letter); the next lesson keeps it while it still needs work.
     # Written only when set, so schema 5 rows without it read back unchanged.
     focus_pair: Bigram | None = None
+    # The advisor whose advice steered this lesson. Written only when set,
+    # like `focus_pair`, so old rows read back unchanged.
+    advice_source: str | None = None
+    # Which kinds of recommendation shaped the lesson, e.g. ("emphasize",).
+    # Written only when set.
+    advice_kinds: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         # Freezing the dataclass only blocks attribute rebinding — wrap the

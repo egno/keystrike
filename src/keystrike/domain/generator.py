@@ -179,6 +179,20 @@ def _append_word_if_under_repeat_cap(
 
 
 @dataclass(frozen=True, slots=True)
+class WordBoost:
+    """A word-level sampling boost, for example for a contrast drill: words
+    that contain every character in `needs_all` weigh `factor` times more,
+    and `min_words` lesson words are reserved for them."""
+
+    needs_all: frozenset[str]
+    factor: float = 1.0
+    min_words: int = 0
+
+    def matches(self, word: str) -> bool:
+        return bool(self.needs_all) and all(ch in word for ch in self.needs_all)
+
+
+@dataclass(frozen=True, slots=True)
 class LessonWeighting:
     """Practice-weighting knobs threaded through lesson generation.
 
@@ -193,6 +207,7 @@ class LessonWeighting:
     words: tuple[str, ...] | None = None
     focus_word_boost: float = FOCUS_WORD_BOOST
     focus_bigram_word_boost: float = FOCUS_BIGRAM_WORD_BOOST
+    word_boosts: tuple[WordBoost, ...] = ()
 
     def __post_init__(self) -> None:
         # Freezing the dataclass only blocks attribute rebinding — wrap the
@@ -240,6 +255,9 @@ def wordlist_weight_for_word(
         weight *= weighting.focus_bigram_word_boost
     elif focus_char and focus_char in word:
         weight *= weighting.focus_word_boost
+    for boost in weighting.word_boosts:
+        if boost.matches(word):
+            weight *= boost.factor
     return weight
 
 
@@ -512,7 +530,90 @@ class AdaptiveGenerator:
             generated_min_len=generated_min_len,
             generated_max_len=generated_max_len,
         )
+        self._reserve_boost_words(
+            lesson_words,
+            alphabet,
+            weighting,
+            focus_char=focus_char,
+            focus_bigrams=focus_bigrams,
+            max_word_repeats=max_word_repeats,
+            generated_min_len=generated_min_len,
+            generated_max_len=generated_max_len,
+        )
         return " ".join(lesson_words)
+
+    def _reserve_boost_words(
+        self,
+        lesson_words: list[str],
+        alphabet: frozenset[str],
+        weighting: LessonWeighting,
+        *,
+        focus_char: str,
+        focus_bigrams: Sequence[Bigram],
+        max_word_repeats: int,
+        generated_min_len: int,
+        generated_max_len: int,
+    ) -> None:
+        """Make sure each boost with `min_words` has that many matching words.
+        Only words that carry no focus are replaced, so the focus guarantees
+        stay true. When no matching word can be found the lesson stays as it
+        is: a missing word is not an error."""
+        focus_strs = tuple(pair.chars() for pair in focus_bigrams)
+
+        def is_focus_word(word: str) -> bool:
+            return focus_char in word or any(s in word for s in focus_strs)
+
+        for boost in weighting.word_boosts:
+            need = boost.min_words - sum(boost.matches(w) for w in lesson_words)
+            if need <= 0:
+                continue
+            slots = [
+                i
+                for i, w in enumerate(lesson_words)
+                if not is_focus_word(w) and not any(b.matches(w) for b in weighting.word_boosts)
+            ]
+            self.rng.shuffle(slots)
+            candidates = [w for w in (weighting.words or ()) if boost.matches(w)]
+            for index in slots[:need]:
+                counts = Counter(lesson_words)
+                word = self._boost_candidate(
+                    boost,
+                    candidates,
+                    counts,
+                    alphabet,
+                    weighting,
+                    max_word_repeats=max_word_repeats,
+                    generated_min_len=generated_min_len,
+                    generated_max_len=generated_max_len,
+                )
+                if word is None:
+                    return
+                lesson_words[index] = word
+
+    def _boost_candidate(
+        self,
+        boost: WordBoost,
+        candidates: list[str],
+        counts: Counter[str],
+        alphabet: frozenset[str],
+        weighting: LessonWeighting,
+        *,
+        max_word_repeats: int,
+        generated_min_len: int,
+        generated_max_len: int,
+    ) -> str | None:
+        pool = [w for w in candidates if counts[w] < max_word_repeats]
+        if pool:
+            return self.rng.choice(pool)
+        if not boost.needs_all <= alphabet:
+            return None
+        for _ in range(MAX_REPEAT_RESAMPLE):
+            word = self._generate_word_via_markov(
+                alphabet, weighting, generated_min_len, generated_max_len
+            )
+            if boost.matches(word) and counts[word] < max_word_repeats:
+                return word
+        return None
 
     def _ensure_single_focus_match(
         self,

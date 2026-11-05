@@ -5,6 +5,126 @@ rationale lives in commit history/diffs — these are pointers, not narratives.
 Milestone-level feature work (what shipped in M1–M4, the keybr algorithm
 design) stays in `PLAN.md` §5/§6.
 
+## 2.3.0
+
+- **Advice protocol v2** — advisors now return typed recommendations, and the
+  next lesson is prepared from them. Design: `docs/ADVICE-PROTOCOL.md`.
+  `PLUGIN_API_VERSION` is 2.
+  - A `Recommendation` has a kind (`focus`, `focus_pair`, `emphasize`, `ease`,
+    `contrast`), a reason (`accuracy`, `speed`, `confusion`, `mastered`), a
+    strength and **evidence** (events of opportunities). The core drops weak
+    evidence (under 2 events or 10 presses) and scales the effect by it: 2
+    events give 40% of the push, 5 give all of it.
+  - A budget keeps emphasis honest: at most a third of the unlocked keys can
+    be emphasized, and the same for eased keys. `ease` needs a mastered key.
+  - `contrast (target, typed)` boosts words that contain both keys and
+    reserves up to 20% of the lesson for them (`WordBoost` in
+    `LessonWeighting`). It never changes the focus.
+  - The context carries `coverage` (sessions behind the tallies and behind
+    the raw streams), the layout's key positions, and `neighbors()`. The
+    panel shows `Focus: s (accuracy, 3 of 40)`.
+  - **Fix:** `keystroke_insights` counts one attempt and at most one error per
+    position. The cursor does not advance on an error, so a stumble of three
+    wrong keys used to count as three mistypes.
+  - **Rules advisor tuning.** The summary names the recommendation with the
+    strongest evidence, and two events never lead it. A key about at the goal
+    (95%–105%) is neither emphasized nor eased, so advice does not flip between
+    sessions. When nothing needs practice, the summary is "On track". The
+    advisor returns only what the core would keep.
+  - **The panel names the advisor.** The first line is `Advisor: <label>`
+    (for example `Rules (local)`), also while it thinks, while it waits for the
+    first advice, and when it fails. `AdviceRunner.label()` gives the display name.
+  - **Advice on the first screen.** The practice screen shows the stored advice
+    that steers the lesson as soon as it opens. With an advisor on but no advice
+    yet, it says when advice comes. With the advisor off, the panel stays empty.
+  - **Recency decay.** Older sessions weigh less: session `i` weighs
+    `recency_decay ** i` (default 0.85, set in `advisors.toml`; 1.0 = equal).
+    The exact counts stay the evidence; recency decides the ranking and the
+    strength (`digest.recent`, `Confusion.recency`, `recent_*` on finger
+    stats). A mistype you stopped making fades, a new one counts at once, and a
+    recent error stops a key from being eased. `build_advisor_context` takes
+    `recency_decay`, and `session_weights` is in the context.
+  - **`scripts/replay_advice.py`** (dev-only, read-only) replays stored
+    sessions through an advisor and compares advised keys with the others
+    before and after, with a standard error. `--decay 1.0 0.85 0.7` compares
+    recency settings. See `docs/ADVICE-PROTOCOL.md` §11.
+  - The session header records `advice_kinds` next to `advice_source`.
+  - `advice.json` rows are versioned; an old row is ignored until the next
+    advice.
+  - **Honest evidence (review fixes).** A second analysis of 10 raw sessions
+    was checked by two reviews; its errors are listed in
+    `docs/ADVICE-PROTOCOL.md` §1b. What changed:
+    - **Timing from the raw streams.** `domain/timing.py` times each key on
+      *eligible* intervals only (correct first attempts; not the first press
+      of a session, the first press after an error, the press after a space,
+      or a rollover under 30 ms). `digest.timing` holds a `KeyTiming` per
+      unlocked key (`presses`, `over_goal`, `tail`, `median_ms`,
+      `recent_median_ms`, `sessions`); the space is in `digest.space`.
+    - **Speed on the recent median.** The rules advisor flags a key above
+      105% of the goal (at least 20 presses from 2 sessions) and eases one at
+      or below 95%. The evidence is over-goal presses, not all correct presses
+      ("529 of 551" is gone).
+    - **Follow-ups.** The `Ctrl+T` sample context has per-key timing, so the
+      rules advisor shows speed advice on it. The LLM plugin judges speed with
+      the same recency-weighted median rule (no longer the mean), takes the
+      speed evidence from `digest.timing`, and its prompt lists the speed per
+      key.
+    - **One key per recommendation.** `emphasize` and `ease` name one key; the
+      budget keeps the strongest per key and drops whole recommendations.
+      `Recommendation.note` is removed. Pooled finger evidence is gone: each
+      key carries its own.
+    - **The core writes the summary** (`render_summary`) when the advisor
+      leaves it empty; an LLM's own text stays.
+    - **Contrast floor.** A `contrast` needs 3 events in 2 sessions
+      (`Evidence.event_sessions`); the rules advisor also needs one in the
+      newer half of the streams (`Confusion.sessions`, `.newest_half`).
+    - `advice.json` rows are version 3; older rows are ignored.
+    - `drill_pair`, hints and pooled observations are deferred, with
+      safeguards (`docs/ADVICE-PROTOCOL.md` §13).
+
+- **Advisor plugins** — the AI coach is replaced by a general advice system.
+  An advisor (rules, a local model, an LLM) is a function from an
+  `AdvisorContext` to a `LessonAdvice`. Design: `docs/ADVISOR-PLUGINS.md`.
+  - **Core** keeps validation, the tie-breaker rule, scheduling, time
+    budget, error isolation, persistence and all UI. `domain/advice.py`:
+    `validate_advice` (unlocked keys only, at most 5 per list, never rest the
+    newest key), `apply_focus_advice` and `weigh_advice` (focus only inside
+    `FocusChoices`; fixed weights 1.5 / 0.7). `AdviceRunner` runs one request
+    at a time, never cancels it, and waits 150 ms before the next lesson: a
+    fast advisor steers the next lesson, a slow one the lesson after.
+  - **Plugins** register through the `keystrike.advisors` entry point
+    (`plugin_loader`) and import only `keystrike.plugin_api`
+    (`PLUGIN_API_VERSION = 1`). A failing plugin is skipped and its error is
+    shown in Settings. Architecture tests enforce the import rules and that the
+    core has no network code outside word-list and sync modules.
+  - **Rules advisor** (`advisors/rules.py`) is the new **default**: local,
+    deterministic, uses mistypes, the worst finger and shrunk error rates.
+    Its effect is bounded like any advice. "Off" is one select away.
+  - **LLM advisor** moved to the separate package `packages/keystrike-ai`
+    (uv workspace). It sends data off the device, so Keystrike asks you to
+    confirm once. Old `ai.toml` is read once as its settings.
+  - **Settings** — a select for the advisor and a form drawn from its
+    `SettingField`s; `Ctrl+T` runs it on sample data. Stored in the unsynced
+    `advisors.toml`.
+  - **HUD** — `FocusReason.advisor` replaces `FocusReason.coach`: the tag is
+    the advisor's name (`rules wk`, `llm rev`) instead of `ai wk`.
+  - **Session header** — new optional `advice_source` records which advisor
+    steered the lesson. It is written only when set, so old rows read back
+    unchanged.
+  - Each raw keystroke file (`raw_keystrokes/<session id>.jsonl`) starts with
+    a header line: `session_id`, `layout`, and wall-clock `started_at` /
+    `ended_at` (unix epoch). `t_ns` stays relative (active typing time).
+    Readers skip the header, and old files without it still load.
+  - Advice is kept per layout **and** advisor in `cache/advice.json`
+    (replaces `ai_coach.json`). Raw keystrokes are kept only while the active
+    advisor needs them.
+  - Deviations from the design: `apply_advice` is split into pure domain
+    functions plus a thin step in `build_lesson` (the domain cannot import
+    `LessonProgress`); `AdvisorContext` also carries the shared `digest`;
+    a failed `LessonAdvice` carries an `error` string instead of a separate
+    result type; `plugin_loader` checks `PLUGIN_API_VERSION` from
+    `domain.advice` (infrastructure cannot import `plugin_api`).
+
 ## 2.2.5
 
 - **Fewer saved pairs** — `FinishSession` saves pair tallies only for the

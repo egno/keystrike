@@ -112,6 +112,8 @@ class Session:
     state: SessionState = SessionState.RUNNING
     focus_key: int | None = None  # adaptive mode: the key this lesson emphasized
     focus_pair: Bigram | None = None  # adaptive mode: the pair, for pair focus
+    advice_source: str | None = None  # adaptive mode: the advisor that steered the lesson
+    advice_kinds: tuple[str, ...] = ()  # adaptive mode: the recommendation kinds applied
 
     @property
     def finished(self) -> bool:

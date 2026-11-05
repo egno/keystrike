@@ -41,6 +41,8 @@ class FocusReason:
 
     kind: FocusKind
     pair: Bigram | None = None
+    # Name of the advisor that picked this focus instead of the engine.
+    advisor: str | None = None
 
     @property
     def is_transition(self) -> bool:

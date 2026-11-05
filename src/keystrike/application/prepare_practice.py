@@ -33,6 +33,8 @@ class SessionPrep:
     layout_obj: Layout | None
     lesson_heatmap: dict[int, float] | None
     bigram_calibration: tuple[int, int] | None
+    advice_source: str | None = None
+    advice_kinds: tuple[str, ...] = ()
 
 
 @dataclass(slots=True)
@@ -62,4 +64,6 @@ class PreparePracticeSession:
             layout_obj=self.layout_repo.get(settings.layout),
             lesson_heatmap=lesson.skill_heatmap,
             bigram_calibration=lesson.bigram_calibration,
+            advice_source=lesson.advice_source,
+            advice_kinds=lesson.advice_kinds,
         )

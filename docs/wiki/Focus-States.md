@@ -20,6 +20,12 @@ The practice HUD shows `Focus: <key or pair> · <reason>`.
 For **transition focus**, the HUD shows the two-letter pair (e.g. `eo`) instead
 of a single key; the reason suffix is still `wk`, `cal`, or `rev`.
 
+When an advisor chose the focus, the reason starts with the advisor's name
+(`rules wk`, `llm cal`, `rules rev`). An advisor only picks among the candidates the
+engine allows at that stage: any key that is not cleared yet; then only the
+newest key's gate pairs; and only after that, any unlocked key or pair. So it
+never delays the next unlock.
+
 Examples:
 
 - `Focus: t · cal` — key **t** is the focus; still calibrating (fewer than the minimum attempts).

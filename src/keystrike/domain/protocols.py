@@ -1,11 +1,13 @@
 import datetime as dt
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
 from typing import Protocol
 
+from .advice import AdvisorConfig, LessonAdvice
 from .daily_learn import DailyLearnBudget
 from .markov import TransitionTable
 from .models import (
     KeyStats,
+    Keystroke,
     Layout,
     LayoutAggregates,
     SessionResult,
@@ -35,6 +37,48 @@ class SessionRepository(Protocol):
     def replace_all_headers(self, headers: Iterable[SessionResult]) -> None:
         """Rewrite the whole history with `headers` (used by history retention)."""
         ...
+
+
+class KeystrokeArchive(Protocol):
+    """Local-only store for finished sessions' raw keystroke streams
+    (separate from `SessionRepository`, which only keeps per-key/bigram
+    tallies). Used only while the active advisor needs keystrokes."""
+
+    def save(
+        self,
+        session_id: str,
+        keystrokes: Sequence[Keystroke],
+        *,
+        layout: str = "",
+        started_at: float = 0.0,
+        ended_at: float = 0.0,
+    ) -> None:
+        """`layout` and the wall-clock `started_at` / `ended_at` (unix epoch)
+        make the stored stream self-describing for analysis."""
+        ...
+
+    def load(self, session_ids: Sequence[str]) -> dict[str, list[Keystroke]]: ...
+    def prune(self, keep: Collection[str]) -> None:
+        """Delete every stored stream whose session id is not in `keep`."""
+        ...
+
+    def clear(self) -> None: ...
+
+
+class AdvisorConfigRepository(Protocol):
+    def load(self) -> AdvisorConfig: ...
+    def save(self, config: AdvisorConfig) -> None: ...
+
+
+class AdviceStore(Protocol):
+    """The last good advice per (layout, advisor), kept across restarts."""
+
+    def get(self, layout: str, advisor: str) -> LessonAdvice | None: ...
+    def put(self, layout: str, advice: LessonAdvice) -> None:
+        """Keyed by `advice.source`. Failed advice is not kept."""
+        ...
+
+    def clear(self) -> None: ...
 
 
 class SettingsRepository(Protocol):

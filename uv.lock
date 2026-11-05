@@ -1,6 +1,12 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.12"
+
+[manifest]
+members = [
+    "keystrike",
+    "keystrike-ai",
+]
 
 [[package]]
 name = "annotated-doc"
@@ -79,7 +85,7 @@ wheels = [
 
 [[package]]
 name = "keystrike"
-version = "2.2.5"
+version = "2.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "platformdirs" },
@@ -89,6 +95,7 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "keystrike-ai" },
     { name = "pre-commit" },
     { name = "pyright" },
     { name = "pytest" },
@@ -110,6 +117,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "keystrike-ai", editable = "packages/keystrike-ai" },
     { name = "pre-commit", specifier = ">=4" },
     { name = "pyright", specifier = ">=1.1.380" },
     { name = "pytest", specifier = ">=8" },
@@ -117,6 +125,17 @@ dev = [
 ]
 lint = [{ name = "ruff", specifier = ">=0.6" }]
 snapshot = [{ name = "pytest-textual-snapshot", specifier = ">=1.1" }]
+
+[[package]]
+name = "keystrike-ai"
+version = "0.1.0"
+source = { editable = "packages/keystrike-ai" }
+dependencies = [
+    { name = "keystrike" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "keystrike", editable = "." }]
 
 [[package]]
 name = "linkify-it-py"

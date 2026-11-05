@@ -1,3 +1,4 @@
+import asyncio
 from typing import ClassVar
 
 from textual import events
@@ -7,12 +8,14 @@ from textual.containers import Vertical
 from textual.screen import Screen
 from textual.widgets import Footer, Static
 
+from keystrike.application.advice_runner import AdviceRunner
 from keystrike.application.prepare_practice import SessionPrep
 from keystrike.domain.models import Bigram, SessionResult
 from keystrike.domain.session import leading_key_char, skip_leading_whitespace
 from keystrike.presentation.bindings import BACK_BINDINGS
 from keystrike.presentation.formatting.trends import format_session_stats_line
 from keystrike.presentation.services import PracticeServices
+from keystrike.presentation.widgets.advice_panel import AdvicePanel
 from keystrike.presentation.widgets.hud import HUD
 from keystrike.presentation.widgets.kb_heatmap import (
     HeatmapDisplay,
@@ -67,6 +70,8 @@ class PracticeScreen(Screen[None]):
             mode=initial.mode,
             focus_key=initial.focus_key,
             focus_pair=initial.focus_pair,
+            advice_source=initial.advice_source,
+            advice_kinds=initial.advice_kinds,
         )
         self._typing_area = TypingArea(self._session)
         self._hud = HUD(
@@ -74,6 +79,8 @@ class PracticeScreen(Screen[None]):
             get_daily_learn_budget=self._services.get_daily_learn_budget,
             focus_reason=initial.focus_reason,
         )
+        self._advice_panel: AdvicePanel | None = None
+        self._advice_task: asyncio.Task[None] | None = None
 
     def compose(self) -> ComposeResult:
         with Vertical():
@@ -92,6 +99,8 @@ class PracticeScreen(Screen[None]):
                 id="focus-note",
             )
             yield Static("", id="last-session-stats")
+            self._advice_panel = AdvicePanel()
+            yield self._advice_panel
         yield Footer()
 
     def _focus_note_text(self) -> str:
@@ -125,9 +134,27 @@ class PracticeScreen(Screen[None]):
     def on_mount(self) -> None:
         self._refresh_focus_note()
         self._refresh_last_session_stats()
+        self._show_stored_advice()
         self.focus()
 
-    def on_key(self, event: events.Key) -> None:
+    def _show_stored_advice(self) -> None:
+        """Show the advice that already steers this lesson, so the panel is not
+        empty until the first session ends. With no advice yet, say when it comes."""
+        panel = self._advice_panel
+        runner = self._services.advice_runner
+        if panel is None or runner is None:
+            return
+        if not runner.enabled():
+            panel.show_idle()
+            return
+        stored = runner.current(self._prep.layout)
+        label = runner.label(stored.source)
+        if stored.actionable or stored.summary:
+            panel.show_advice(stored, advisor=label)
+        else:
+            panel.show_waiting(runner.label())
+
+    async def on_key(self, event: events.Key) -> None:
         key = event.key
         char: str | None = event.character
 
@@ -149,12 +176,13 @@ class PracticeScreen(Screen[None]):
         self._typing_area.refresh_display()
 
         if self._session.finished:
-            self._finish_session()
+            await self._finish_session()
 
-    def _finish_session(self) -> None:
+    async def _finish_session(self) -> None:
         result = self._services.finish(self._session)
         self._services.rebuild_aggregates(result.layout)
         self._refresh_last_session_stats(result)
+        await self._request_advice(result.layout)
         prep = self._services.prepare_practice()
         if prep is None:
             return
@@ -168,6 +196,31 @@ class PracticeScreen(Screen[None]):
             return
         baseline = self._services.get_session_baseline(header)
         widget.update(format_session_stats_line(header, baseline=baseline))
+
+    async def _request_advice(self, layout: str) -> None:
+        """Ask the active advisor, and wait for it at most `budget_s` before
+        the next lesson is built. A fast advisor steers that lesson; a slow
+        one (an LLM) keeps working, the panel shows its advice when it
+        arrives, and it steers the lesson after. The runner never cancels a
+        request and runs one at a time (sessions that finish meanwhile give
+        one follow-up request)."""
+        panel = self._advice_panel
+        runner = self._services.advice_runner
+        if panel is None or runner is None:
+            return
+        if not runner.enabled():
+            panel.show_idle()
+            return
+        panel.show_thinking(runner.label())
+        task = asyncio.get_running_loop().create_task(self._advise(runner, layout, panel))
+        self._advice_task = task
+        await asyncio.wait({task}, timeout=runner.budget_s)
+
+    @staticmethod
+    async def _advise(runner: AdviceRunner, layout: str, panel: AdvicePanel) -> None:
+        advice = await runner.request(layout)
+        previous = runner.current(layout) if advice.failed else None
+        panel.show_advice(advice, previous=previous, advisor=runner.label(advice.source))
 
     def _refresh_focus_note(self) -> None:
         note = self.query_one("#focus-note", Static)
@@ -183,6 +236,8 @@ class PracticeScreen(Screen[None]):
             mode=prep.mode,
             focus_key=prep.focus_key,
             focus_pair=prep.focus_pair,
+            advice_source=prep.advice_source,
+            advice_kinds=prep.advice_kinds,
         )
         self._typing_area.set_session(self._session)
         self._hud.set_session(

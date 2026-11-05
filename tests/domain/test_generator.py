@@ -5,6 +5,7 @@ from keystrike.domain.generator import (
     FOCUS_WORD_MIN_FRACTION,
     AdaptiveGenerator,
     LessonWeighting,
+    WordBoost,
     clamp_focus_word_fraction,
     cpm_from_wpm,
     effective_generated_word_bounds,
@@ -597,3 +598,55 @@ def test_generate_lesson_distributes_multi_bigram_coverage():
     words = lesson.split()
     assert all(any(pair.chars() in word for word in words) for pair in pairs)
     assert sum(any(pair.chars() in word for pair in pairs) for word in words) >= 8
+
+
+# --- word boosts (contrast drills) ----------------------------------------------
+
+
+def test_word_boost_matches_only_words_with_every_character():
+    boost = WordBoost(needs_all=frozenset("ea"), factor=2.0)
+    assert boost.matches("tea")
+    assert not boost.matches("tee")
+    assert not WordBoost(needs_all=frozenset()).matches("tea")  # empty boost matches nothing
+
+
+def _lesson(boosts, words=None, seed=0, alphabet="etaonis", focus="o"):
+    gen = AdaptiveGenerator(table=_uniform_table(alphabet), rng=Random(seed))
+    return gen.generate_lesson(
+        frozenset(alphabet),
+        focus,
+        word_count=20,
+        weighting=LessonWeighting(
+            char_weights={c: 1.0 for c in alphabet}, words=words, word_boosts=boosts
+        ),
+    ).split()
+
+
+def test_reserved_words_hold_both_characters_without_a_dictionary():
+    boost = WordBoost(needs_all=frozenset("ea"), factor=2.0, min_words=4)
+    for seed in range(5):
+        words = _lesson((boost,), seed=seed)
+        assert sum(boost.matches(w) for w in words) >= 4
+
+
+def test_reserved_words_come_from_the_dictionary_when_there_is_one():
+    dictionary = tuple(w for w in ("tea", "eat", "seat", "eta", "tone", "note", "ion", "sit"))
+    boost = WordBoost(needs_all=frozenset("ea"), factor=3.0, min_words=3)
+    words = _lesson((boost,), words=dictionary, alphabet="etaonis")
+    assert sum(boost.matches(w) for w in words) >= 3
+
+
+def test_the_boost_never_replaces_focus_words():
+    boost = WordBoost(needs_all=frozenset("ea"), min_words=4)
+    for seed in range(5):
+        words = _lesson((boost,), seed=seed, focus="o")
+        assert any("o" in w for w in words)  # the focus guarantee still holds
+
+
+def test_a_boost_with_no_possible_word_leaves_the_lesson_alone():
+    boost = WordBoost(needs_all=frozenset("ez"), min_words=4)  # z is not in the alphabet
+    assert _lesson((boost,)) == _lesson(())
+
+
+def test_no_boosts_means_the_same_lesson_as_before():
+    assert _lesson(()) == _lesson((), seed=0)

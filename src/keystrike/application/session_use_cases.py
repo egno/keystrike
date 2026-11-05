@@ -1,3 +1,5 @@
+import contextlib
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from keystrike.application.session_queries import (
@@ -7,6 +9,7 @@ from keystrike.application.session_queries import (
     latest_session_header,
     target_speed_cpm,
 )
+from keystrike.domain.advice import AdvisorCapabilities
 from keystrike.domain.aggregate import (
     SessionTiming,
     combine_sessions,
@@ -22,7 +25,14 @@ from keystrike.domain.confidence import (
 from keystrike.domain.enums import Mode, SessionState
 from keystrike.domain.generator import effective_generated_word_bounds
 from keystrike.domain.learn_order import keyboard_order
-from keystrike.domain.models import Bigram, Keystroke, SessionResult, SessionStats, Settings
+from keystrike.domain.models import (
+    Bigram,
+    Keystroke,
+    Layout,
+    SessionResult,
+    SessionStats,
+    Settings,
+)
 from keystrike.domain.newest_key import newest_key_gating_cohort
 from keystrike.domain.null_adapters import (
     NULL_LAYOUT_REPOSITORY,
@@ -32,6 +42,7 @@ from keystrike.domain.null_adapters import (
 from keystrike.domain.protocols import (
     Clock,
     IdGenerator,
+    KeystrokeArchive,
     LayoutRepository,
     SessionRepository,
     SettingsRepository,
@@ -61,6 +72,8 @@ class StartSession:
         lang: str = "en",
         focus_key: int | None = None,
         focus_pair: Bigram | None = None,
+        advice_source: str | None = None,
+        advice_kinds: tuple[str, ...] = (),
     ) -> Session:
         return Session(
             id=self.id_gen.new_id(),
@@ -72,6 +85,8 @@ class StartSession:
             started_at_ns=self.clock.now_ns(),
             focus_key=focus_key,
             focus_pair=focus_pair,
+            advice_source=advice_source,
+            advice_kinds=advice_kinds,
         )
 
 
@@ -80,6 +95,9 @@ class RecordKeystroke:
     """Ingest one keystroke. Returns True if the session is now finished."""
 
     clock: Clock
+    layout_repo: LayoutRepository = field(default_factory=lambda: NULL_LAYOUT_REPOSITORY)
+    # Layout lookups can hit disk; resolve each layout once for the app's lifetime.
+    _layouts: dict[str, Layout] = field(default_factory=dict[str, Layout], init=False)
 
     def backspace(self, session: Session) -> bool:
         return self(session, BACKSPACE)
@@ -118,7 +136,16 @@ class RecordKeystroke:
         typed_cp = ord(char)
         correct = typed_cp == target_cp
 
-        k = Keystroke(codepoint=target_cp, typed=typed_cp, t_ns=t_ns, correct=correct)
+        key_pos = self._layout(session.layout).keys.get(target_cp)
+
+        k = Keystroke(
+            codepoint=target_cp,
+            typed=typed_cp,
+            t_ns=t_ns,
+            correct=correct,
+            finger=key_pos.finger if key_pos else None,
+            hand=key_pos.hand if key_pos else None,
+        )
         session.keystrokes.append(k)
         session.total_count += 1
         if correct:
@@ -128,6 +155,12 @@ class RecordKeystroke:
             session.error_positions.add(session.position)
 
         return session.finished
+
+    def _layout(self, name: str) -> Layout:
+        layout = self._layouts.get(name)
+        if layout is None:
+            layout = self._layouts[name] = self.layout_repo.get(name)
+        return layout
 
 
 @dataclass(frozen=True, slots=True)
@@ -198,12 +231,28 @@ def _keep_pairs(stats: SessionStats, pairs: set[Bigram]) -> SessionStats:
     )
 
 
+def _recent_session_ids(repo: SessionRepository, window: int) -> set[str]:
+    """Ids of the newest `window` sessions of every layout."""
+    by_layout: dict[str, list[SessionResult]] = {}
+    for header in repo.iter_all_headers():
+        by_layout.setdefault(header.layout, []).append(header)
+    keep: set[str] = set()
+    for headers in by_layout.values():
+        headers.sort(key=lambda h: h.started_at, reverse=True)
+        keep.update(h.session_id for h in headers[: max(1, window)])
+    return keep
+
+
 @dataclass(slots=True)
 class FinishSession:
     clock: Clock
     repo: SessionRepository = field(default_factory=NullSessionRepository)
     settings_repo: SettingsRepository = NULL_SETTINGS_REPOSITORY
     layout_repo: LayoutRepository = NULL_LAYOUT_REPOSITORY
+    # Raw keystrokes are archived only while the active advisor needs them,
+    # and only for the sessions inside each layout's confidence window.
+    keystroke_archive: KeystrokeArchive | None = None
+    advisor_capabilities: Callable[[], AdvisorCapabilities] = AdvisorCapabilities
 
     def __call__(self, session: Session) -> SessionResult:
         session.state = SessionState.COMPLETE
@@ -252,6 +301,8 @@ class FinishSession:
             lesson_alphabet=tuple(sorted({ord(c) for c in session.target_text})),
             focus_key=session.focus_key,
             focus_pair=session.focus_pair,
+            advice_source=session.advice_source,
+            advice_kinds=session.advice_kinds,
             total_keystrokes=session.total_count,
             correct_keystrokes=session.correct_count,
             words_completed=words_completed,
@@ -266,7 +317,27 @@ class FinishSession:
             stats=stats,
         )
         self.repo.save_header(result)
+        self._archive_keystrokes(session, settings)
         return result
+
+    def _archive_keystrokes(self, session: Session, settings: Settings) -> None:
+        archive = self.keystroke_archive
+        if archive is None:
+            return
+        keep = self.advisor_capabilities().needs_keystrokes
+        # best-effort: an archive failure must not lose the session
+        with contextlib.suppress(OSError):
+            if not keep:
+                archive.clear()
+                return
+            archive.save(
+                session.id,
+                session.keystrokes,
+                layout=session.layout,
+                started_at=session.started_at_wall,
+                ended_at=self.clock.wall_epoch(),
+            )
+            archive.prune(_recent_session_ids(self.repo, settings.confidence_session_window))
 
 
 @dataclass(slots=True)

@@ -1,6 +1,6 @@
 [project]
 name = "keystrike"
-version = "2.2.5"
+version = "2.3.0"
 description = "Offline terminal typing tutor with keybr-style adaptive drills and per-layout stats"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -54,6 +54,7 @@ Changelog = "https://github.com/egno/keystrike/blob/main/docs/CHANGELOG.md"
 # uv sync --all-groups → + lint (Ruff; desktop only)
 [dependency-groups]
 dev = [
+  "keystrike-ai",
   "pre-commit>=4",
   "pytest>=8",
   "pytest-asyncio>=0.24",
@@ -65,6 +66,12 @@ lint = [
 snapshot = [
   "pytest-textual-snapshot>=1.1",  # jinja2 → markupsafe; no Android wheels
 ]
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[tool.uv.sources]
+keystrike-ai = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]
@@ -79,6 +86,7 @@ exclude = [
   "/.github",
   "/tests",
   "/docs",
+  "/packages",
   "/scripts",
   "/uv.lock",
 ]
@@ -86,7 +94,7 @@ exclude = [
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-src = ["src", "tests"]
+src = ["src", "tests", "packages/keystrike-ai/src"]
 
 [tool.ruff.lint]
 select = [
@@ -99,14 +107,25 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["ANN", "PLR2004", "S101"]
+"packages/*/tests/**" = ["ANN", "PLR2004", "S101"]
 
 [tool.pyright]
-include = ["src", "tests"]
+include = ["src", "tests", "packages/keystrike-ai"]
 extraPaths = ["."]
 pythonVersion = "3.12"
 typeCheckingMode = "strict"
 reportMissingTypeStubs = false
 reportUnknownMemberType = false
+
+[[tool.pyright.executionEnvironments]]
+root = "packages/keystrike-ai/tests"
+extraPaths = ["packages/keystrike-ai/src"]
+reportMissingParameterType = false
+reportUnknownParameterType = false
+reportUnknownArgumentType = false
+reportUnknownVariableType = false
+reportUnknownMemberType = false
+reportPrivateUsage = false
 
 [[tool.pyright.executionEnvironments]]
 root = "tests"
@@ -119,7 +138,7 @@ reportPrivateUsage = false
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-testpaths = ["tests"]
+testpaths = ["tests", "packages/keystrike-ai/tests"]
 addopts = "-ra --strict-markers -m 'not snapshot'"
 markers = [
   "snapshot: visual regression (requires pytest-textual-snapshot)",

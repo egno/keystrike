@@ -76,6 +76,32 @@ def test_round_trip_focus_pair(paths):
     assert list(JsonlSessionRepository(paths).iter_headers("qwerty")) == [header]
 
 
+def test_round_trip_advice_source(paths):
+    repo = JsonlSessionRepository(paths)
+    repo.save_header(replace(_header(), advice_source="rules"))
+    assert next(iter(repo.iter_headers("qwerty"))).advice_source == "rules"
+
+
+def test_round_trip_advice_kinds(paths):
+    repo = JsonlSessionRepository(paths)
+    repo.save_header(replace(_header(), advice_kinds=("emphasize", "contrast")))
+    assert next(iter(repo.iter_headers("qwerty"))).advice_kinds == ("emphasize", "contrast")
+
+
+def test_row_without_advice_kinds_reads_back_empty_and_is_not_written(paths):
+    repo = JsonlSessionRepository(paths)
+    repo.save_header(_header())
+    assert "advice_kinds" not in paths.sessions_index.read_text(encoding="utf-8")
+    assert next(iter(repo.iter_headers("qwerty"))).advice_kinds == ()
+
+
+def test_row_without_advice_source_reads_back_as_none_and_is_not_written(paths):
+    repo = JsonlSessionRepository(paths)
+    repo.save_header(_header())
+    assert "advice_source" not in paths.sessions_index.read_text(encoding="utf-8")
+    assert next(iter(repo.iter_headers("qwerty"))).advice_source is None
+
+
 def test_row_without_focus_pair_reads_back_as_none(paths):
     repo = JsonlSessionRepository(paths)
     repo.save_header(_header())

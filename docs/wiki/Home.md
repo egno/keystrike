@@ -8,6 +8,7 @@ Documentation for [Keystrike](https://github.com/egno/keystrike) — an offline 
 - **[Custom layouts](Custom-Layouts)** — add keyboard layouts via TOML files in your layouts directory.
 - **[Word lists](Word-Lists)** — import a remote dictionary for real-word adaptive drills (Settings, optional).
 - **[Confidence tuning](Confidence-Tuning)** — session window and attempt floors in `settings.toml` (not the Settings screen).
+- **[Advisors](Advisors)** — recommendations for the next lesson: reasons, evidence, the built-in rules advisor, the LLM plugin and how to write one.
 - **[Focus states](Focus-States)** — HUD and practice-screen focus labels (`wk`, `cal`, `rev`) and metrics.
 
 ## Project links
