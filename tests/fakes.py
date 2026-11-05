@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import datetime as dt
-from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
+from collections.abc import Collection, Iterable, Iterator, Sequence
 from dataclasses import dataclass, field, replace
 from itertools import count
-from typing import Any
 
+from keystrike.domain.advice import AdvisorConfig, LessonAdvice
 from keystrike.domain.aggregate import tally_session
-from keystrike.domain.ai_models import AiAnalysis, AiSettings
 from keystrike.domain.markov import TransitionTable
 from keystrike.domain.models import (
     Keystroke,
@@ -201,32 +200,33 @@ class FakeSyncStore:
 
 
 @dataclass(slots=True)
-class FakeAiSettingsRepository:
-    settings: AiSettings = field(default_factory=AiSettings)
+class FakeAdvisorConfigRepository:
+    config: AdvisorConfig = field(default_factory=AdvisorConfig)
 
-    def load(self) -> AiSettings:
-        return self.settings
+    def load(self) -> AdvisorConfig:
+        return self.config
 
-    def save(self, settings: AiSettings) -> None:
-        self.settings = settings
+    def save(self, config: AdvisorConfig) -> None:
+        self.config = config
 
 
-def _empty_analyses() -> dict[str, AiAnalysis]:
+def _empty_advice() -> dict[tuple[str, str], LessonAdvice]:
     return {}
 
 
 @dataclass(slots=True)
-class FakeAiAnalysisStore:
-    by_layout: dict[str, AiAnalysis] = field(default_factory=_empty_analyses)
+class FakeAdviceStore:
+    by_key: dict[tuple[str, str], LessonAdvice] = field(default_factory=_empty_advice)
 
-    def get(self, layout: str) -> AiAnalysis | None:
-        return self.by_layout.get(layout)
+    def get(self, layout: str, advisor: str) -> LessonAdvice | None:
+        return self.by_key.get((layout, advisor))
 
-    def put(self, analysis: AiAnalysis) -> None:
-        self.by_layout[analysis.layout] = analysis
+    def put(self, layout: str, advice: LessonAdvice) -> None:
+        if not advice.failed:
+            self.by_key[(layout, advice.source)] = advice
 
     def clear(self) -> None:
-        self.by_layout.clear()
+        self.by_key.clear()
 
 
 def _empty_streams() -> dict[str, list[Keystroke]]:
@@ -236,12 +236,24 @@ def _empty_streams() -> dict[str, list[Keystroke]]:
 @dataclass(slots=True)
 class FakeKeystrokeArchive:
     saved: dict[str, list[Keystroke]] = field(default_factory=_empty_streams)
+    meta: dict[str, tuple[str, float, float]] = field(
+        default_factory=dict[str, tuple[str, float, float]]
+    )
     error: Exception | None = None
 
-    def save(self, session_id: str, keystrokes: Sequence[Keystroke]) -> None:
+    def save(
+        self,
+        session_id: str,
+        keystrokes: Sequence[Keystroke],
+        *,
+        layout: str = "",
+        started_at: float = 0.0,
+        ended_at: float = 0.0,
+    ) -> None:
         if self.error is not None:
             raise self.error
         self.saved[session_id] = list(keystrokes)
+        self.meta[session_id] = (layout, started_at, ended_at)
 
     def load(self, session_ids: Sequence[str]) -> dict[str, list[Keystroke]]:
         return {sid: self.saved[sid] for sid in session_ids if sid in self.saved}
@@ -251,31 +263,3 @@ class FakeKeystrokeArchive:
 
     def clear(self) -> None:
         self.saved.clear()
-
-
-class FakeChat:
-    """Scripted ChatClient: returns `reply` (or raises `error`) and records
-    every request."""
-
-    def __init__(self, reply: str = "", error: Exception | None = None) -> None:
-        self.reply = reply
-        self.error = error
-        self.prompts: list[tuple[str, str]] = []
-        self.schemas: list[Mapping[str, Any] | None] = []
-
-    @property
-    def calls(self) -> int:
-        return len(self.prompts)
-
-    async def chat(
-        self,
-        system_prompt: str,
-        user_prompt: str,
-        *,
-        schema: Mapping[str, Any] | None = None,
-    ) -> str:
-        self.prompts.append((system_prompt, user_prompt))
-        self.schemas.append(schema)
-        if self.error is not None:
-            raise self.error
-        return self.reply

@@ -5,8 +5,9 @@ depend on these types without importing textual_app.py (which imports the screen
 
 from dataclasses import dataclass, field
 
-from keystrike.application.ai_analyzer import AiAnalyzer
-from keystrike.application.ai_settings_use_cases import CheckAiConnection, UpdateAiSettings
+from keystrike.application.advice_runner import AdviceRunner
+from keystrike.application.advisor_registry import AdvisorRegistry
+from keystrike.application.advisor_use_cases import TestAdvisor, UpdateAdvisorConfig
 from keystrike.application.prepare_practice import PreparePracticeSession
 from keystrike.application.session_use_cases import (
     AbortSession,
@@ -31,7 +32,7 @@ from keystrike.application.wordlist_use_cases import (
 )
 from keystrike.domain.null_adapters import NULL_DAILY_LEARN_BUDGET
 from keystrike.domain.protocols import (
-    AiSettingsRepository,
+    AdvisorConfigRepository,
     DailyLearnBudgetProvider,
     LayoutRepository,
     SettingsRepository,
@@ -56,8 +57,7 @@ class PracticeServices:
     get_latest_session_header: GetLatestSessionHeader
     get_session_baseline: GetSessionBaseline
     rebuild_aggregates: StatsRebuilder
-    ai_analyzer: AiAnalyzer | None = None
-    get_history: GetHistory | None = None
+    advice_runner: AdviceRunner | None = None
     get_daily_learn_budget: DailyLearnBudgetProvider = NULL_DAILY_LEARN_BUDGET
 
 
@@ -81,7 +81,10 @@ class SettingsServices:
     clear_wordlist: ClearWordList
     get_wordlist_cache_status: GetWordListCacheStatus
     get_keystrokes_per_word: GetKeystrokesPerWord = field(default_factory=GetKeystrokesPerWord)
-    # AI coach section; the screen hides it when these are not wired.
-    ai_settings_repo: AiSettingsRepository | None = None
-    update_ai_settings: UpdateAiSettings | None = None
-    check_ai_connection: CheckAiConnection | None = None
+    # Advisor section; the screen hides it when these are not wired.
+    advisor_registry: AdvisorRegistry | None = None
+    advisor_config_repo: AdvisorConfigRepository | None = None
+    update_advisor_config: UpdateAdvisorConfig | None = None
+    test_advisor: TestAdvisor | None = None
+    # Plugin load errors, shown under the advisor section.
+    plugin_errors: tuple[str, ...] = ()

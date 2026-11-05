@@ -42,6 +42,10 @@ for sources and how each maps to the code.
 - **Adaptive engine** — row-weighted key unlock order, skill gates for unlocks,
   confidence-weighted focus and heatmap, Markov word drills with a guaranteed
   focus letter or bigram.
+- **Advisors** — after each session an advisor (built-in rules, a local model or
+  an LLM plugin) recommends what the next lesson should practice, with the
+  reason and the evidence. It can only nudge: it never delays an unlock. See
+  [Advisors](#advisors).
 - **Per-layout stats** — heatmap with per-key confidence and urgency; layout-wide
   and focus-key trend grids (confidence, speed, accuracy); press a heatmap key for
   per-letter drill-down.
@@ -113,6 +117,7 @@ overview.
 | Target speed | 75 WPM | Or CPM — your unlock threshold; a WPM goal stays fixed in WPM |
 | Letters unlocked up front | 16 | Force-unlocked before skill gating |
 | Daily learn goal | 10 min | `0` = no goal |
+| Advisor | `Rules (local)` | Who recommends what to practice next; the form below it shows that advisor's own settings. See [Advisors](#advisors) |
 
 Advanced confidence tuning (session window, min key/bigram attempts) is
 **config-file only** — edit `settings.toml` directly; see the
@@ -120,31 +125,113 @@ Advanced confidence tuning (session window, min key/bigram attempts) is
 and [Focus states wiki](https://github.com/egno/keystrike/wiki/Focus-States)
 for HUD labels (`wk`, `cal`, `rev`).
 
-### AI coach (optional)
+### Advisors
 
-Off by default: with no provider set, nothing leaves your machine. When on,
-Keystrike sends a summary of your recent sessions (per-key error rates and
-times, common mistypes, errors per finger) to an LLM after each session. It
-shows the advice under the practice area and gently steers the next lessons.
+An **advisor** looks at your recent sessions and recommends what the next
+lesson should practice. You pick one in Settings. Its advice is shown under
+the practice area. The first line names the advisor that gave it. Each line
+after that says **what**, **why** and **how much evidence** it rests on:
+
+```
+Advisor: Rules (local)
+You typed f instead of a 9 times in 90 presses — practice a and f.
+Tell apart: a / f (confusion, 9 of 90)
+Practice more: m (speed, 31 of 52)
+Practice more: s (speed, 27 of 49)
+Ease up on: e (mastered, 73 of 74)
+```
+
+| Advisor | Where it runs | Notes |
+| --- | --- | --- |
+| `Rules (local)` | On your device | The default. Deterministic. Looks at mistyped keys, slow keys, the weakest finger and mastered keys. Nothing leaves your machine. |
+| `Off` | — | No advice. Lessons come from the adaptive engine alone. |
+| `LLM` | A server you choose | A plugin, `keystrike-ai` (see below). **Sends practice data off the device.** |
+
+What a recommendation can do to the next lesson:
+
+| Recommendation | Effect |
+| --- | --- |
+| Focus | Moves the focus key or pair, only among the candidates the engine allows at that point. |
+| Practice more | Raises the sampling weight of one key (up to ×1.5). |
+| Ease up on | Lowers it (down to ×0.7). Only for keys that are already mastered. Never the focus or the newest key. |
+| Tell apart | Favours words that contain **both** keys of a mixed-up pair, and reserves up to a fifth of the lesson's words for them. |
+
+- **Weak evidence has a weak effect.** A recommendation needs at least 2
+  events in 10 presses to count, and it reaches full strength at 5 events. A
+  contrast ("Tell apart") needs more: 3 events in at least 2 sessions. At most
+  a third of your unlocked keys can be emphasized, so the advice cannot
+  dilute itself.
+- **Speed is the median, not the mean.** A key is slow when its typical
+  press (the median, recent sessions weighing more) is over your goal. A few
+  long pauses do not make a key slow. The press after a space and the first
+  press after an error are not timed. `speed, 31 of 52` means 31 of 52 timed
+  presses were over the goal.
+- **Recent sessions count more.** Each older session weighs 15% less than the
+  next newer one (`recency_decay = 0.85` in `advisors.toml`; `1.0` weighs all
+  sessions the same). A mistype you stopped making fades, and a new one counts
+  at once. The numbers shown in the advice (for example `5 of 99`) are exact
+  counts; recency decides what comes first and how strong it is.
+- **Advice never delays an unlock.** The core checks every recommendation. It
+  drops locked keys, and the advisor cannot change which keys unlock. When an
+  advisor moves the focus, the HUD shows its name before the reason (for
+  example `rules wk`, `llm rev`).
+- The advice that steers the lesson is shown as soon as practice opens, not
+  only after a session. With an advisor on but no advice yet, the panel says
+  it appears after your first session.
+- The advisor is called after each session. A fast advisor (rules) steers
+  the **next** lesson. A slow one (an LLM) takes longer than 150 ms, so its
+  advice steers the lesson after.
+- When nothing needs practice, the advisor says **On track** instead of
+  inventing advice.
+- **`Ctrl+T` in Settings** ("Test advisor") runs the advisor you have selected
+  in the form on built-in sample data, without saving anything. The result
+  shows in the status line under the advisor settings: the advisor's name and
+  its summary, or `Failed: <error>` (a bad setting or a timeout after 30
+  seconds). Use it to check a plugin's settings, such as the LLM endpoint and
+  model, before you save. The sample data is synthetic, not your practice, so
+  the advice you see is not about your typing.
+- Advisor settings live in `advisors.toml`. That file is **not synced**, so
+  each device decides for itself which advisor runs.
+- Raw keystrokes of the sessions in the confidence window are kept locally in
+  `raw_keystrokes/`, only while the chosen advisor needs them. Switching to an
+  advisor that does not need them deletes them.
+- Each raw keystroke file starts with a header line (`session_id`, `layout`,
+  `started_at`, `ended_at` as unix epoch), so it can be analysed on its own.
+  Per-key `t_ns` is relative to the typing start.
+- Each finished session records which advisor steered its lesson
+  (`advice_source`) and which kinds of recommendation it used
+  (`advice_kinds`).
+
+See the [Advisors wiki](https://github.com/egno/keystrike/wiki/Advisors) for
+the reasons, the evidence rules and how to write a plugin.
+
+#### Plugins
+
+An advisor can come from a separate package. A plugin registers through the
+`keystrike.advisors` entry point and imports only `keystrike.plugin_api`
+(plugin API version 2). See [docs/ADVISOR-PLUGINS.md](docs/ADVISOR-PLUGINS.md)
+and [docs/ADVICE-PROTOCOL.md](docs/ADVICE-PROTOCOL.md) for the design.
+
+> **Installing a plugin means trusting it.** A plugin runs in the same process
+> as Keystrike and can do anything Python can. The "sends data off the device"
+> flag is a notice, not a sandbox.
+
+**`keystrike-ai`** (in `packages/keystrike-ai`) is the LLM advisor. It is not
+on PyPI yet. From a clone, `uv sync` installs it next to Keystrike, or use
+`pip install ./packages/keystrike-ai`. Then choose `LLM` in Settings:
 
 | Setting | Default | Notes |
 | --- | --- | --- |
-| Provider | Off | `Ollama`, or `OpenAI-compatible` (llama.cpp, LM Studio, vLLM, hosted APIs) |
+| Provider | `ollama` | `ollama`, or `openai` (any OpenAI-compatible server: llama.cpp, LM Studio, vLLM, hosted APIs) |
 | Model | `llama3.2` | Model name on that server |
 | Endpoint | `http://localhost:11434` | Ollama root, or the `/v1` base URL for OpenAI-compatible servers |
 
-- Press `Ctrl+T` in Settings to test the connection before you save.
+- It sends per-key error rates and times, common mistypes and errors per
+  finger. Keystrike asks you to confirm this once before the plugin starts.
 - API key (OpenAI-compatible servers only): set the `KEYSTRIKE_AI_API_KEY`
   environment variable. It is never written to a file.
-- These settings live in `ai.toml`. That file is **not synced**, so each
-  device decides for itself whether to send data.
-- The coach never changes which keys unlock. It can only choose among the
-  keys or pairs the adaptive engine would accept at that point. When it
-  chooses the focus, the HUD shows `ai` before the reason (for example
-  `ai wk`).
-- While the coach is on, raw keystrokes of the sessions in the confidence
-  window are kept locally in `raw_keystrokes/`. Turning the coach off
-  deletes them.
+- If you used the earlier AI coach, `ai.toml` is read once and becomes the
+  `LLM` advisor's settings (already confirmed).
 
 ## Backup sync
 
@@ -178,8 +265,9 @@ directory.
 | Sync config (after `sync init`) | `~/.config/keystrike/sync.toml` | `~/Library/Application Support/keystrike/sync.toml` |
 | Session history (`index.jsonl`) | `~/.local/share/keystrike/sessions/` | `~/Library/Application Support/keystrike/sessions/` |
 | Stats cache | `~/.local/share/keystrike/cache/` | `~/Library/Application Support/keystrike/cache/` |
-| AI coach settings (not synced) | `~/.config/keystrike/ai.toml` | `~/Library/Application Support/keystrike/ai.toml` |
-| AI coach keystroke archive (not synced) | `~/.local/share/keystrike/raw_keystrokes/` | `~/Library/Application Support/keystrike/raw_keystrokes/` |
+| Advisor settings (not synced) | `~/.config/keystrike/advisors.toml` | `~/Library/Application Support/keystrike/advisors.toml` |
+| Advice cache (not synced) | `~/.local/share/keystrike/cache/advice.json` | `~/Library/Application Support/keystrike/cache/advice.json` |
+| Advisor keystroke archive (not synced) | `~/.local/share/keystrike/raw_keystrokes/` | `~/Library/Application Support/keystrike/raw_keystrokes/` |
 
 Windows uses `%LOCALAPPDATA%\keystrike\` for the same layout (single directory).
 
@@ -199,7 +287,7 @@ not cmd.exe. Raw mode is not verified on every Windows build; please
 ## Development
 
 ```bash
-uv sync                  # runtime + dev (pytest, pyright, pre-commit)
+uv sync                  # runtime + dev (pytest, pyright, pre-commit, keystrike-ai plugin)
 uv run pre-commit install  # optional: ruff + pyright hooks on commit
 uv run pytest -q
 uv run pyright
@@ -247,6 +335,14 @@ it does not depend on the snapshot baselines:
 ```bash
 uv pip install pillow cairosvg   # one-off; system cairo on macOS/Linux
 uv run python scripts/generate_demo_gif.py
+```
+
+Check whether an advisor's advice was followed by improvement. The script
+replays your stored sessions through an advisor and compares the advised keys
+with the others, before and after. It only reads data:
+
+```bash
+uv run python scripts/replay_advice.py --layout qwerty
 ```
 
 ## License

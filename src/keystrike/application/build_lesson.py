@@ -10,7 +10,15 @@ from random import Random
 
 from keystrike.application.alphabet_sync import sync_alphabet_size
 from keystrike.application.session_queries import latest_session_header, target_speed_cpm
-from keystrike.domain.ai_models import AiAnalysis
+from keystrike.domain.advice import (
+    NO_CHOICES,
+    FocusChoices,
+    Kind,
+    LessonAdvice,
+    apply_focus_advice,
+    weigh_advice,
+    word_boosts,
+)
 from keystrike.domain.confidence import (
     CONFIDENCE_GOOD,
     accuracy_of,
@@ -38,6 +46,7 @@ from keystrike.domain.focus import (
 from keystrike.domain.generator import (
     AdaptiveGenerator,
     LessonWeighting,
+    WordBoost,
     effective_generated_word_bounds,
     effective_lesson_word_count,
     weak_focus_word_quota,
@@ -96,12 +105,10 @@ class LessonProgress:
     gating_bigrams: tuple[Bigram, ...]
     bigram_calibration: tuple[int, int] | None
     skill_heatmap: dict[int, float]
-    # What the AI coach may pick as focus at this stage (see
-    # `_coach_choices`). `coach_pairs` None = any pair of `coach_keys`.
-    coach_keys: frozenset[int] = frozenset()
-    coach_pairs: frozenset[Bigram] | None = frozenset()
-    # True when the AI coach chose `focus` / `focus_bigram`.
-    coach_focus: bool = False
+    # What advice may pick as focus at this stage (see `_focus_choices`).
+    choices: FocusChoices = NO_CHOICES
+    # Name of the advisor that chose `focus` / `focus_bigram`, if any.
+    focus_advisor: str | None = None
 
 
 def _key_focus_metrics(
@@ -257,6 +264,10 @@ class Lesson:
     focus_attempts: int | None = None
     focus_min_attempts: int | None = None
     bigram_calibration: tuple[int, int] | None = None
+    # The advisor whose advice steered this lesson (focus or weights), if any.
+    advice_source: str | None = None
+    # The recommendation kinds that were applied, for example ("emphasize", "contrast").
+    advice_kinds: tuple[str, ...] = ()
 
     @property
     def focus_key(self) -> int:
@@ -353,13 +364,10 @@ def _resolve_lesson_focus(
     )
 
 
-def _coach_choices(
-    ctx: _LessonContext,
-    gating: _GatingState,
-) -> tuple[frozenset[int], frozenset[Bigram] | None]:
-    """The focus candidates the AI coach may choose from, by the stage of
+def _focus_choices(ctx: _LessonContext, gating: _GatingState) -> FocusChoices:
+    """The focus candidates advice may choose from, by the stage of
     `select_lesson_focus` the engine is in. Each stage must finish before
-    the next key unlocks, so letting the coach reorder work inside a stage
+    the next key unlocks, so letting advice reorder work inside a stage
     never delays an unlock:
 
     1. Uncleared keys exist -- any uncleared key, no pairs.
@@ -376,10 +384,10 @@ def _coach_choices(
                 min_attempts=ctx.settings.unlock.min_confidence_attempts,
             )
         )
-        return uncleared, frozenset()
+        return FocusChoices(keys=uncleared, pairs=frozenset())
     if gating.gating_bigrams:
-        return frozenset(), frozenset(gating.gating_bigrams)
-    return frozenset(gating.unlocked), None
+        return FocusChoices(keys=frozenset(), pairs=frozenset(gating.gating_bigrams))
+    return FocusChoices(keys=frozenset(gating.unlocked), pairs=None)
 
 
 def _lesson_progress(
@@ -388,7 +396,7 @@ def _lesson_progress(
 ) -> LessonProgress:
     gating = _gating_state(ctx)
     focus, focus_bigram = _resolve_lesson_focus(ctx, gating)
-    coach_keys, coach_pairs = _coach_choices(ctx, gating)
+    choices = _focus_choices(ctx, gating)
     keys = tuple(
         LessonKey(
             codepoint=cp,
@@ -421,8 +429,7 @@ def _lesson_progress(
         gating_bigrams=gating.gating_bigrams,
         bigram_calibration=gating.bigram_calibration,
         skill_heatmap={cp: skill_of(cp, ctx.stats, ctx.target) for cp in gating.unlocked},
-        coach_keys=coach_keys,
-        coach_pairs=coach_pairs,
+        choices=choices,
     )
 
 
@@ -491,68 +498,52 @@ def _compute_weights(
     return char_weights, transition_weights
 
 
-# Sampling multipliers for the AI coach's "practice more / less" key lists.
-# Deliberately mild: the confidence engine stays in charge of what unlocks.
-AI_EMPHASIS_WEIGHT = 1.5
-AI_REST_WEIGHT = 0.7
-
-
-def _coach_pair_allowed(progress: LessonProgress, pair: Bigram) -> bool:
-    if progress.coach_pairs is None:
-        return pair.prev_cp in progress.coach_keys and pair.next_cp in progress.coach_keys
-    return pair in progress.coach_pairs
-
-
-def _apply_ai_focus(progress: LessonProgress, analysis: AiAnalysis) -> LessonProgress:
-    """Let the AI coach act as a tie-breaker for the lesson focus: it may
-    pick only among the candidates the engine's current stage allows
-    (`progress.coach_keys` / `coach_pairs`), so the next unlock is never
-    pushed back."""
-    pair = analysis.focus_pair
-    if pair is not None and _coach_pair_allowed(progress, pair):
-        focus, bigram = pair.next_cp, pair
-    elif analysis.focus_key is not None and analysis.focus_key in progress.coach_keys:
-        focus, bigram = analysis.focus_key, None
-    else:
+def _apply_advice(progress: LessonProgress, advice: LessonAdvice) -> LessonProgress:
+    """Let the advisor act as a tie-breaker for the lesson focus. The pure
+    rule is `domain.advice.apply_focus_advice`; this moves the result into
+    the lesson's key list."""
+    picked = apply_focus_advice(progress.focus, progress.focus_bigram, advice, progress.choices)
+    if picked is None:
         return progress
-    if (focus, bigram) == (progress.focus, progress.focus_bigram):
-        return progress  # the engine already chose it
+    focus, bigram = picked
     keys = tuple(replace(k, is_focus=(k.codepoint == focus)) for k in progress.state.keys)
     return replace(
         progress,
         focus=focus,
         focus_bigram=bigram,
         state=replace(progress.state, keys=keys),
-        coach_focus=True,
+        focus_advisor=advice.source or None,
     )
 
 
-def _apply_ai_weights(
-    char_weights: dict[str, float],
-    analysis: AiAnalysis,
-    *,
-    protected: frozenset[int] = frozenset(),
-) -> dict[str, float]:
-    """Scale the coach's emphasis / rest keys. `protected` keys (the focus
-    and the newest key) are never eased off."""
-    weights = dict(char_weights)
-    for cp in analysis.rest_keys:
-        if chr(cp) in weights and cp not in protected:
-            weights[chr(cp)] *= AI_REST_WEIGHT
-    for cp in analysis.emphasis_keys:
-        if chr(cp) in weights:
-            weights[chr(cp)] *= AI_EMPHASIS_WEIGHT
-    return weights
-
-
-def _coach_explanation(explanation: FocusExplanation, progress: LessonProgress) -> FocusExplanation:
-    """Mark a coach-chosen focus as such. A coach focus is always called
-    out, even when the engine would see no reason to (a cleared key)."""
+def _advice_explanation(
+    explanation: FocusExplanation, progress: LessonProgress
+) -> FocusExplanation:
+    """Mark an advisor-chosen focus as such. It is always called out, even
+    when the engine would see no reason to (a cleared key)."""
     if explanation.reason is not None:
-        return replace(explanation, reason=replace(explanation.reason, coach=True))
+        return replace(
+            explanation, reason=replace(explanation.reason, advisor=progress.focus_advisor)
+        )
     pair = progress.focus_bigram
     kind = FocusKind.TRANSITION_REVIEW if pair is not None else FocusKind.KEY_REVIEW
-    return FocusExplanation(reason=FocusReason(kind=kind, pair=pair, coach=True))
+    return FocusExplanation(
+        reason=FocusReason(kind=kind, pair=pair, advisor=progress.focus_advisor)
+    )
+
+
+def _applied_kinds(advice: LessonAdvice | None, progress: LessonProgress) -> tuple[str, ...]:
+    """The kinds of recommendation that shaped the lesson. A focus kind counts
+    only when the advisor really moved the focus."""
+    if advice is None:
+        return ()
+    focus_kinds = (Kind.FOCUS, Kind.FOCUS_PAIR)
+    kinds = (
+        r.kind.value
+        for r in advice.recommendations
+        if r.kind not in focus_kinds or progress.focus_advisor is not None
+    )
+    return tuple(dict.fromkeys(kinds))
 
 
 @dataclass(slots=True)
@@ -580,16 +571,18 @@ class BuildLesson:
     rng: Random
     clock: Clock
     session_repo: SessionRepository = field(default_factory=NullSessionRepository)
-    # The AI coach's suggestion for the next lesson of a layout (None when AI
-    # is off or nothing is ready yet); steers focus and character weights only.
-    ai_suggestion: Callable[[str], AiAnalysis | None] | None = None
+    # The advice for the next lesson of a layout (`AdviceRunner.current`);
+    # steers focus and character weights only. Empty advice changes nothing.
+    advice: Callable[[str], LessonAdvice] | None = None
 
     def __call__(self, layout_name: str) -> Lesson:
         ctx = self._load_context(layout_name)
         progress = _lesson_progress(layout_name, ctx)
-        ai = self.ai_suggestion(layout_name) if self.ai_suggestion is not None else None
-        if ai is not None:
-            progress = _apply_ai_focus(progress, ai)
+        advice = self.advice(layout_name) if self.advice is not None else None
+        if advice is not None and not advice.actionable:
+            advice = None
+        if advice is not None:
+            progress = _apply_advice(progress, advice)
         # A new letter opening (via `compute_unlocked`'s mastery-driven
         # growth) must bump Settings.alphabet_size before the lesson below
         # is generated -- never show more letters than Settings reports.
@@ -598,11 +591,15 @@ class BuildLesson:
         ctx.settings = sync_alphabet_size(ctx.settings, progress.unlocked, self.settings_repo)
         focus_confidence = _resolve_focus_confidence(progress.focus, progress.focus_bigram, ctx)
         char_weights, transition_weights = _compute_weights(progress, focus_confidence, ctx)
-        if ai is not None:
+        boosts = ()
+        if advice is not None:
+            boosts = word_boosts(
+                advice, effective_lesson_word_count(ctx.settings.lesson_word_count)
+            )
             protected = {progress.focus}
             if progress.unlocked:
                 protected.add(progress.unlocked[-1])
-            char_weights = _apply_ai_weights(char_weights, ai, protected=frozenset(protected))
+            char_weights = weigh_advice(char_weights, advice, protected=frozenset(protected))
         alphabet_chars = frozenset(chr(cp) for cp in progress.unlocked)
         text = self._generate_text(
             ctx,
@@ -613,12 +610,13 @@ class BuildLesson:
             char_weights=char_weights,
             transition_weights=transition_weights,
             gating_bigrams=progress.gating_bigrams,
+            word_boosts=boosts,
         )
         explanation = _compute_focus_explanation(
             progress.focus, progress.focus_bigram, focus_confidence, ctx
         )
-        if progress.coach_focus:
-            explanation = _coach_explanation(explanation, progress)
+        if progress.focus_advisor is not None:
+            explanation = _advice_explanation(explanation, progress)
         return Lesson(
             text=text,
             state=progress.state,
@@ -631,6 +629,8 @@ class BuildLesson:
             focus_attempts=explanation.attempts,
             focus_min_attempts=explanation.min_attempts,
             bigram_calibration=progress.bigram_calibration,
+            advice_source=(advice.source or None) if advice is not None else None,
+            advice_kinds=_applied_kinds(advice, progress),
         )
 
     def _load_context(self, layout_name: str) -> _LessonContext:
@@ -665,6 +665,7 @@ class BuildLesson:
         char_weights: dict[str, float],
         transition_weights: dict[Bigram, float],
         gating_bigrams: tuple[Bigram, ...],
+        word_boosts: tuple[WordBoost, ...] = (),
     ) -> str:
         generator = AdaptiveGenerator(table=ctx.table, rng=self.rng)
         weighting = LessonWeighting(
@@ -674,6 +675,7 @@ class BuildLesson:
             words=self._resolve_dict_words(ctx.settings, alphabet_chars),
             focus_word_boost=ctx.settings.focus.word_boost,
             focus_bigram_word_boost=ctx.settings.focus.bigram_word_boost,
+            word_boosts=word_boosts,
         )
         word_count = effective_lesson_word_count(ctx.settings.lesson_word_count)
         quota = (

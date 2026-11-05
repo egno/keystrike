@@ -8,9 +8,8 @@ from typing import Any
 
 import pytest
 
-from keystrike.domain.ai_models import AiSettings
-from keystrike.infrastructure import ai_clients
-from keystrike.infrastructure.ai_clients import (
+from keystrike_ai import clients as ai_clients
+from keystrike_ai.clients import (
     API_KEY_ENV,
     OllamaClient,
     OpenAiCompatibleClient,
@@ -102,8 +101,8 @@ def test_clients_only_accept_http_endpoints(cls):
 
 def test_factory_reads_api_key_from_environment(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv(API_KEY_ENV, "secret")
-    client = make_chat_client(AiSettings(provider="openai", endpoint="http://h/v1"))
+    client = make_chat_client("openai", "http://h/v1", "m")
     assert isinstance(client, OpenAiCompatibleClient)
-    assert isinstance(make_chat_client(AiSettings(provider="ollama")), OllamaClient)
+    assert isinstance(make_chat_client("ollama", "http://h:11434", "m"), OllamaClient)
     with pytest.raises(ValueError, match="unsupported"):
-        make_chat_client(AiSettings(provider="x"))
+        make_chat_client("x", "http://h", "m")

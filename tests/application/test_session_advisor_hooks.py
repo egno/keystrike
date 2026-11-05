@@ -3,12 +3,11 @@ from __future__ import annotations
 import pytest
 
 from keystrike.application.session_use_cases import FinishSession, RecordKeystroke, StartSession
-from keystrike.domain.ai_models import AiSettings
+from keystrike.domain.advice import AdvisorCapabilities
 from keystrike.domain.enums import Finger, Hand, Mode
 from keystrike.domain.models import Layout, Settings
 from keystrike.infrastructure.layout_repo import BUNDLED_LAYOUTS
 from tests.fakes import (
-    FakeAiSettingsRepository,
     FakeClock,
     FakeIdGenerator,
     FakeKeystrokeArchive,
@@ -45,7 +44,7 @@ def _run(
         settings_repo=FakeSettingsRepository(settings or Settings()),
         layout_repo=layouts,
         keystroke_archive=archive,
-        ai_settings_repo=FakeAiSettingsRepository(AiSettings(provider=provider)),
+        advisor_capabilities=lambda: AdvisorCapabilities(needs_keystrokes=bool(provider)),
     )
     session = start("asd", layout="qwerty", mode=Mode.ADAPTIVE)
     if session_id is not None:
@@ -69,7 +68,7 @@ def test_layout_is_resolved_once_not_per_keystroke():
     assert layouts.calls == 1
 
 
-def test_archive_is_cleared_while_ai_is_disabled():
+def test_archive_is_cleared_while_the_advisor_needs_no_keystrokes():
     archive = FakeKeystrokeArchive()
     archive.save("old", [])
     session, finish, _ = _run("", archive)
@@ -77,9 +76,9 @@ def test_archive_is_cleared_while_ai_is_disabled():
     assert archive.saved == {}
 
 
-def test_archive_receives_keystrokes_when_ai_is_enabled():
+def test_archive_receives_keystrokes_when_the_advisor_needs_them():
     archive = FakeKeystrokeArchive()
-    session, finish, _ = _run("ollama", archive)
+    session, finish, _ = _run("keystrokes", archive)
     finish(session)
     assert [k.codepoint for k in archive.saved[session.id]] == [ord(c) for c in "asd"]
 
@@ -91,7 +90,9 @@ def test_archive_keeps_only_the_confidence_window():
     ids: list[str] = []
     for i in range(4):
         sid = f"s{i}"
-        session, finish, _ = _run("ollama", archive, repo=repo, settings=settings, session_id=sid)
+        session, finish, _ = _run(
+            "keystrokes", archive, repo=repo, settings=settings, session_id=sid
+        )
         session.started_at_wall = float(i)
         finish(session)
         ids.append(sid)
@@ -100,12 +101,38 @@ def test_archive_keeps_only_the_confidence_window():
 
 def test_archive_failure_does_not_lose_the_session():
     archive = FakeKeystrokeArchive(error=OSError("disk full"))
-    session, finish, _ = _run("ollama", archive)
+    session, finish, _ = _run("keystrokes", archive)
     assert finish(session).total_keystrokes == 3
 
 
-@pytest.mark.parametrize("provider", ["", "ollama"])
-def test_finish_result_is_identical_regardless_of_ai(provider: str):
+@pytest.mark.parametrize("provider", ["", "keystrokes"])
+def test_finish_result_is_identical_regardless_of_the_advisor(provider: str):
     session, finish, _ = _run(provider, FakeKeystrokeArchive())
     result = finish(session)
     assert result.correct_keystrokes == 3
+
+
+def test_archive_is_told_the_layout_and_wall_clock_start_and_end():
+    archive = FakeKeystrokeArchive()
+    session, finish, _ = _run("keystrokes", archive)
+    finish(session)
+    layout, started_at, ended_at = archive.meta[session.id]
+    assert layout == "qwerty"
+    assert started_at == session.started_at_wall
+    assert ended_at >= started_at
+
+
+def test_the_advice_that_steered_the_lesson_is_recorded_in_the_header():
+    session, finish, _ = _run("", FakeKeystrokeArchive())
+    session.advice_source = "rules"
+    session.advice_kinds = ("emphasize", "contrast")
+    result = finish(session)
+    assert (result.advice_source, result.advice_kinds) == ("rules", ("emphasize", "contrast"))
+
+
+def test_start_session_carries_the_advice_through():
+    clock, ids = FakeClock(), FakeIdGenerator()
+    session = StartSession(clock=clock, id_gen=ids)(
+        "asd", advice_source="rules", advice_kinds=("focus",)
+    )
+    assert (session.advice_source, session.advice_kinds) == ("rules", ("focus",))

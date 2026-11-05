@@ -82,6 +82,9 @@ pull complete: 3 session(s) imported
 | `layouts/*.toml` (custom layouts) | Bundled layouts shipped with Keystrike |
 | `sessions/index.jsonl` (one row per session: header + per-key stats) | Logs outside the sessions tree |
 | `sessions/**/*.jsonl` (legacy keystroke logs, if a clone still has them) | |
+| | `advisors.toml` (the chosen advisor and its settings — each device decides for itself) |
+| | `cache/advice.json` (last advice per layout and advisor) |
+| | `raw_keystrokes/` (raw keystroke files, kept locally for advisors that need them) |
 
 After a successful **pull**, Keystrike replays all sessions in the merged index and rebuilds the stats cache for every layout it finds. You do not need to sync cache files.
 

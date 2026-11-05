@@ -1,4 +1,4 @@
-"""LLM chat clients for the AI coach, over stdlib urllib (no extra
+"""LLM chat clients for the LLM advisor, over stdlib urllib (no extra
 dependency). Each blocking request runs in a worker thread."""
 
 from __future__ import annotations
@@ -9,20 +9,37 @@ import os
 import urllib.error
 import urllib.request
 from collections.abc import Mapping
-from typing import Any, cast
+from typing import Any, Protocol, cast
 from urllib.parse import urlparse
 
-from keystrike.domain.ai_models import AI_PROVIDER_OLLAMA, AI_PROVIDER_OPENAI, AiSettings
-from keystrike.domain.protocols import ChatClient
+PROVIDER_OLLAMA = "ollama"
+# Any server with an OpenAI-style `/chat/completions` route: llama.cpp,
+# LM Studio, vLLM, Ollama's `/v1`, or a hosted API.
+PROVIDER_OPENAI = "openai"
+PROVIDERS = (PROVIDER_OLLAMA, PROVIDER_OPENAI)
 
 HTTP_TIMEOUT_S = 60.0
-# Low temperature: the coach must return the same kind of JSON every time.
+# Low temperature: the advisor must return the same kind of JSON every time.
 _TEMPERATURE = 0.2
 # Read only from the environment, never from a settings file (those can be
 # synced or shared).
 API_KEY_ENV = "KEYSTRIKE_AI_API_KEY"
 _HTTP_BAD_REQUEST = 400
 _HTTP_UNPROCESSABLE = 422
+
+
+class ChatClient(Protocol):
+    """One request/response exchange with an LLM. `schema` is a JSON Schema
+    the reply should follow; clients pass it to servers that support
+    structured output and ignore it otherwise."""
+
+    async def chat(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        *,
+        schema: Mapping[str, Any] | None = None,
+    ) -> str: ...
 
 
 def _check_endpoint(endpoint: str) -> str:
@@ -135,7 +152,7 @@ class OpenAiCompatibleClient:
         if schema is not None:
             payload["response_format"] = {
                 "type": "json_schema",
-                "json_schema": {"name": "coach_reply", "schema": dict(schema)},
+                "json_schema": {"name": "advice", "schema": dict(schema)},
             }
         return await asyncio.to_thread(self._post, payload)
 
@@ -158,20 +175,20 @@ class OpenAiCompatibleClient:
         return content
 
 
-def make_chat_client(settings: AiSettings) -> ChatClient:
-    if settings.provider == AI_PROVIDER_OLLAMA:
-        return OllamaClient(endpoint=settings.endpoint, model=settings.model)
-    if settings.provider == AI_PROVIDER_OPENAI:
+def make_chat_client(provider: str, endpoint: str, model: str) -> ChatClient:
+    if provider == PROVIDER_OLLAMA:
+        return OllamaClient(endpoint=endpoint, model=model)
+    if provider == PROVIDER_OPENAI:
         return OpenAiCompatibleClient(
-            endpoint=settings.endpoint,
-            model=settings.model,
-            api_key=os.environ.get(API_KEY_ENV, ""),
+            endpoint=endpoint, model=model, api_key=os.environ.get(API_KEY_ENV, "")
         )
-    raise ValueError(f"unsupported AI provider {settings.provider!r}")
+    raise ValueError(f"unsupported provider {provider!r}")
 
 
 __all__ = [
     "API_KEY_ENV",
+    "PROVIDERS",
+    "ChatClient",
     "OllamaClient",
     "OpenAiCompatibleClient",
     "make_chat_client",

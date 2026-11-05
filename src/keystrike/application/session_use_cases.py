@@ -1,4 +1,5 @@
 import contextlib
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from keystrike.application.session_queries import (
@@ -8,6 +9,7 @@ from keystrike.application.session_queries import (
     latest_session_header,
     target_speed_cpm,
 )
+from keystrike.domain.advice import AdvisorCapabilities
 from keystrike.domain.aggregate import (
     SessionTiming,
     combine_sessions,
@@ -38,7 +40,6 @@ from keystrike.domain.null_adapters import (
     NullSessionRepository,
 )
 from keystrike.domain.protocols import (
-    AiSettingsRepository,
     Clock,
     IdGenerator,
     KeystrokeArchive,
@@ -71,6 +72,8 @@ class StartSession:
         lang: str = "en",
         focus_key: int | None = None,
         focus_pair: Bigram | None = None,
+        advice_source: str | None = None,
+        advice_kinds: tuple[str, ...] = (),
     ) -> Session:
         return Session(
             id=self.id_gen.new_id(),
@@ -82,6 +85,8 @@ class StartSession:
             started_at_ns=self.clock.now_ns(),
             focus_key=focus_key,
             focus_pair=focus_pair,
+            advice_source=advice_source,
+            advice_kinds=advice_kinds,
         )
 
 
@@ -244,10 +249,10 @@ class FinishSession:
     repo: SessionRepository = field(default_factory=NullSessionRepository)
     settings_repo: SettingsRepository = NULL_SETTINGS_REPOSITORY
     layout_repo: LayoutRepository = NULL_LAYOUT_REPOSITORY
-    # Raw keystrokes are archived only while the AI coach is enabled, and
-    # only for the sessions inside each layout's confidence window.
+    # Raw keystrokes are archived only while the active advisor needs them,
+    # and only for the sessions inside each layout's confidence window.
     keystroke_archive: KeystrokeArchive | None = None
-    ai_settings_repo: AiSettingsRepository | None = None
+    advisor_capabilities: Callable[[], AdvisorCapabilities] = AdvisorCapabilities
 
     def __call__(self, session: Session) -> SessionResult:
         session.state = SessionState.COMPLETE
@@ -296,6 +301,8 @@ class FinishSession:
             lesson_alphabet=tuple(sorted({ord(c) for c in session.target_text})),
             focus_key=session.focus_key,
             focus_pair=session.focus_pair,
+            advice_source=session.advice_source,
+            advice_kinds=session.advice_kinds,
             total_keystrokes=session.total_count,
             correct_keystrokes=session.correct_count,
             words_completed=words_completed,
@@ -317,13 +324,19 @@ class FinishSession:
         archive = self.keystroke_archive
         if archive is None:
             return
-        ai_on = self.ai_settings_repo is not None and self.ai_settings_repo.load().enabled
+        keep = self.advisor_capabilities().needs_keystrokes
         # best-effort: an archive failure must not lose the session
         with contextlib.suppress(OSError):
-            if not ai_on:
+            if not keep:
                 archive.clear()
                 return
-            archive.save(session.id, session.keystrokes)
+            archive.save(
+                session.id,
+                session.keystrokes,
+                layout=session.layout,
+                started_at=session.started_at_wall,
+                ended_at=self.clock.wall_epoch(),
+            )
             archive.prune(_recent_session_ids(self.repo, settings.confidence_session_window))
 
 

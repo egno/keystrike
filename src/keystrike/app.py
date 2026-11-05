@@ -3,8 +3,10 @@
 from dataclasses import dataclass
 from random import Random
 
-from keystrike.application.ai_analyzer import AiAnalyzer
-from keystrike.application.ai_settings_use_cases import CheckAiConnection, UpdateAiSettings
+from keystrike.advisors import rules
+from keystrike.application.advice_runner import AdviceRunner
+from keystrike.application.advisor_registry import AdvisorRegistry
+from keystrike.application.advisor_use_cases import TestAdvisor, UpdateAdvisorConfig
 from keystrike.application.build_lesson import BuildLesson
 from keystrike.application.learn_budget_use_cases import GetDailyLearnBudget
 from keystrike.application.prepare_practice import PreparePracticeSession
@@ -36,15 +38,15 @@ from keystrike.application.wordlist_use_cases import (
     ImportWordList,
 )
 from keystrike.domain.version import __version__
+from keystrike.infrastructure.advice_store import FileAdviceStore
+from keystrike.infrastructure.advisor_config_toml import TomlAdvisorConfigRepository
 from keystrike.infrastructure.aggregates_cache import FileAggregatesCache
-from keystrike.infrastructure.ai_analysis_store import FileAiAnalysisStore
-from keystrike.infrastructure.ai_clients import make_chat_client
-from keystrike.infrastructure.ai_settings_repo_toml import TomlAiSettingsRepository
 from keystrike.infrastructure.clock import MonotonicClock
 from keystrike.infrastructure.id_gen import UlidGenerator
 from keystrike.infrastructure.languages import BundledLanguageProvider
 from keystrike.infrastructure.layout_repo import CompositeLayoutRepository
 from keystrike.infrastructure.paths import Paths, default_paths, ensure_dirs
+from keystrike.infrastructure.plugin_loader import load_plugins
 from keystrike.infrastructure.raw_keystroke_store import RawKeystrokeStore
 from keystrike.infrastructure.session_migration import migrate_keystroke_files
 from keystrike.infrastructure.session_repo_jsonl import JsonlSessionRepository
@@ -119,19 +121,15 @@ def build() -> KeystrikeApp:
     layout_repo = CompositeLayoutRepository(paths)
     aggregates_cache = FileAggregatesCache(paths)
     language_provider = BundledLanguageProvider()
-    ai_settings_repo = TomlAiSettingsRepository(paths)
+    advisor_config_repo = TomlAdvisorConfigRepository(paths)
+    # Built-in advisors register through the same path as plugins.
+    advisor_registry = AdvisorRegistry()
+    rules.register(advisor_registry)
+    plugin_errors = load_plugins(advisor_registry)
     keystroke_archive = RawKeystrokeStore(paths.raw_keystrokes_dir)
 
     start = StartSession(clock=clock, id_gen=id_gen)
     record = RecordKeystroke(clock=clock, layout_repo=layout_repo)
-    finish = FinishSession(
-        clock=clock,
-        repo=session_repo,
-        settings_repo=settings_repo,
-        layout_repo=layout_repo,
-        keystroke_archive=keystroke_archive,
-        ai_settings_repo=ai_settings_repo,
-    )
     abort = AbortSession()
     get_session_baseline = GetSessionBaseline(repo=session_repo, settings_repo=settings_repo)
     get_latest_session_header = GetLatestSessionHeader(repo=session_repo)
@@ -178,13 +176,23 @@ def build() -> KeystrikeApp:
     import_wordlist = ImportWordList(store=wordlist_store, settings_repo=settings_repo)
     clear_wordlist = ClearWordList(settings_repo=settings_repo)
     get_wordlist_cache_status = GetWordListCacheStatus(store=wordlist_store)
-    ai_analyzer = AiAnalyzer(
-        ai_settings_repo,
-        settings_repo,
-        make_chat_client,
-        store=FileAiAnalysisStore(paths),
+    advice_runner = AdviceRunner(
+        registry=advisor_registry,
+        config_repo=advisor_config_repo,
+        store=FileAdviceStore(paths),
         archive=keystroke_archive,
+        history=get_history,
+        settings_repo=settings_repo,
+        layout_repo=layout_repo,
         wall_epoch=clock.wall_epoch,
+    )
+    finish = FinishSession(
+        clock=clock,
+        repo=session_repo,
+        settings_repo=settings_repo,
+        layout_repo=layout_repo,
+        keystroke_archive=keystroke_archive,
+        advisor_capabilities=advice_runner.capabilities,
     )
     build_lesson = BuildLesson(
         layout_repo=layout_repo,
@@ -195,7 +203,7 @@ def build() -> KeystrikeApp:
         rng=Random(),
         clock=clock,
         session_repo=session_repo,
-        ai_suggestion=ai_analyzer.suggestion,
+        advice=advice_runner.current,
     )
     prepare_practice = PreparePracticeSession(
         settings_repo=settings_repo,
@@ -220,8 +228,7 @@ def build() -> KeystrikeApp:
             get_latest_session_header=get_latest_session_header,
             get_session_baseline=get_session_baseline,
             rebuild_aggregates=rebuild_aggregates,
-            ai_analyzer=ai_analyzer,
-            get_history=get_history,
+            advice_runner=advice_runner,
             get_daily_learn_budget=get_daily_learn_budget,
         ),
         stats=StatsServices(
@@ -241,13 +248,16 @@ def build() -> KeystrikeApp:
             clear_wordlist=clear_wordlist,
             get_wordlist_cache_status=get_wordlist_cache_status,
             get_keystrokes_per_word=get_keystrokes_per_word,
-            ai_settings_repo=ai_settings_repo,
-            update_ai_settings=UpdateAiSettings(
-                repo=ai_settings_repo,
+            advisor_registry=advisor_registry,
+            advisor_config_repo=advisor_config_repo,
+            update_advisor_config=UpdateAdvisorConfig(
+                repo=advisor_config_repo,
+                registry=advisor_registry,
                 archive=keystroke_archive,
-                forget_analyses=ai_analyzer.forget,
+                forget_advice=advice_runner.forget,
             ),
-            check_ai_connection=CheckAiConnection(client_factory=make_chat_client),
+            test_advisor=TestAdvisor(registry=advisor_registry),
+            plugin_errors=tuple(plugin_errors),
         ),
         app_version=__version__,
     )

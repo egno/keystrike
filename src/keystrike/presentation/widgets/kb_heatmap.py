@@ -43,10 +43,10 @@ def _kind_label_short(focus_reason: FocusReason) -> str:
 
 
 def focus_reason_label_short(focus_reason: FocusReason) -> str:
-    """Compact HUD/note label: wk, cal, rev; prefixed with "ai" when the AI
-    coach chose the focus."""
+    """Compact HUD/note label: wk, cal, rev; prefixed with the advisor's name
+    ("rules wk", "llm rev") when an advisor chose the focus."""
     label = _kind_label_short(focus_reason)
-    return f"ai {label}" if focus_reason.coach else label
+    return f"{focus_reason.advisor} {label}" if focus_reason.advisor else label
 
 
 def focus_reason_label(focus_reason: FocusReason) -> str:
@@ -56,7 +56,7 @@ def focus_reason_label(focus_reason: FocusReason) -> str:
     if focus_reason.is_transition:
         assert focus_reason.pair is not None
         word = f"{focus_reason.pair.chars()} {word} transition"
-    return f"{word} (AI coach)" if focus_reason.coach else word
+    return f"{word} ({focus_reason.advisor})" if focus_reason.advisor else word
 
 
 def _confidence_style(confidence: float | None) -> str:

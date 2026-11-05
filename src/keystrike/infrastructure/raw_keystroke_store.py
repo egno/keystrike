@@ -51,9 +51,30 @@ class RawKeystrokeStore:
     def _path(self, session_id: str) -> Path:
         return self._dir / f"{session_id}{_SUFFIX}"
 
-    def save(self, session_id: str, keystrokes: Sequence[Keystroke]) -> None:
+    def save(
+        self,
+        session_id: str,
+        keystrokes: Sequence[Keystroke],
+        *,
+        layout: str = "",
+        started_at: float = 0.0,
+        ended_at: float = 0.0,
+    ) -> None:
+        """The first line describes the session (`session_id`, `layout`,
+        wall-clock `started_at` / `ended_at` as unix epoch); keystroke lines
+        follow. `t_ns` stays relative (active typing time). Readers skip the
+        header line because it has no `target`."""
         self._dir.mkdir(parents=True, exist_ok=True)
-        lines = [
+        header = json.dumps(
+            {
+                "session_id": session_id,
+                "layout": layout,
+                "started_at": started_at,
+                "ended_at": ended_at,
+            }
+        )
+        lines = [header]
+        lines += [
             json.dumps(
                 {
                     "target": ks.codepoint,
@@ -66,7 +87,7 @@ class RawKeystrokeStore:
             )
             for ks in keystrokes
         ]
-        atomic_write_text(self._path(session_id), "\n".join(lines) + ("\n" if lines else ""))
+        atomic_write_text(self._path(session_id), "\n".join(lines) + "\n")
 
     def load(self, session_ids: Sequence[str]) -> dict[str, list[Keystroke]]:
         result: dict[str, list[Keystroke]] = {}

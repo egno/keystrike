@@ -18,13 +18,18 @@ class Paths:
         return self.config_dir / "settings.toml"
 
     @property
-    def ai_settings_file(self) -> Path:
+    def advisors_file(self) -> Path:
         # Not in the git-synced set (`sync_git._SYNC_REL_PATHS`).
+        return self.config_dir / "advisors.toml"
+
+    @property
+    def ai_settings_file(self) -> Path:
+        # The AI coach's file; read once by the advisor config (migration).
         return self.config_dir / "ai.toml"
 
     @property
-    def ai_analysis_file(self) -> Path:
-        return self.cache_dir / "ai_coach.json"
+    def advice_file(self) -> Path:
+        return self.cache_dir / "advice.json"
 
     @property
     def layouts_dir(self) -> Path:

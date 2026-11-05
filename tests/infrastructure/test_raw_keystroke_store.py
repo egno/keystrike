@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from keystrike.domain.enums import Finger, Hand
@@ -62,3 +63,25 @@ def test_prune_keeps_only_listed_sessions_and_clear_removes_all(tmp_path: Path):
     store.clear()
     assert store.load(["b"]) == {}
     RawKeystrokeStore(tmp_path / "missing").clear()  # no directory: no error
+
+
+def test_first_line_describes_the_session_and_readers_skip_it(tmp_path: Path):
+    store = RawKeystrokeStore(tmp_path)
+    store.save(
+        "sid", _KEYS, layout="colemak", started_at=1_700_000_000.5, ended_at=1_700_000_060.25
+    )
+    first = json.loads((tmp_path / "sid.jsonl").read_text(encoding="utf-8").splitlines()[0])
+    assert first == {
+        "session_id": "sid",
+        "layout": "colemak",
+        "started_at": 1_700_000_000.5,
+        "ended_at": 1_700_000_060.25,
+    }
+    assert store.load(["sid"]) == {"sid": _KEYS}  # the header is not a keystroke
+
+
+def test_files_without_a_header_still_load(tmp_path: Path):
+    (tmp_path / "old.jsonl").write_text(
+        '{"target": 97, "typed": 97, "t_ns": 1, "correct": true}\n', encoding="utf-8"
+    )
+    assert len(RawKeystrokeStore(tmp_path).load(["old"])["old"]) == 1

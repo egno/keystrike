@@ -39,6 +39,8 @@ _LEGACY_KEYS_KEY = "keys"
 _LEGACY_PAIRS_KEY = "pairs"
 _NS_PER_MS = 1_000_000
 _FOCUS_PAIR_KEY = "focus_pair"
+_ADVICE_SOURCE_KEY = "advice_source"
+_ADVICE_KINDS_KEY = "advice_kinds"
 _TALLY_FIELDS = 4
 _PAIR_FIELDS = 2
 
@@ -164,6 +166,12 @@ def header_to_row(h: SessionResult) -> dict[str, object]:
         del base[_FOCUS_PAIR_KEY]
     else:
         base[_FOCUS_PAIR_KEY] = [h.focus_pair.prev_cp, h.focus_pair.next_cp]
+    if not h.advice_source:
+        del base[_ADVICE_SOURCE_KEY]
+    if h.advice_kinds:
+        base[_ADVICE_KINDS_KEY] = list(h.advice_kinds)
+    else:
+        del base[_ADVICE_KINDS_KEY]
     return base
 
 
@@ -202,6 +210,16 @@ def _parse_focus_pair(raw: object) -> Bigram | None:
     return Bigram(prev, nxt)
 
 
+def _parse_advice_source(raw: object) -> str | None:
+    return raw if isinstance(raw, str) and raw else None
+
+
+def _parse_advice_kinds(raw: object) -> tuple[str, ...]:
+    if not isinstance(raw, list):
+        return ()
+    return tuple(v for v in cast("list[object]", raw) if isinstance(v, str))
+
+
 def header_from_row(d: dict[str, object]) -> SessionResult:
     session_id = require_str(d, "session_id")
     validate_session_id(session_id)  # Reject path-traversal attempts
@@ -227,4 +245,6 @@ def header_from_row(d: dict[str, object]) -> SessionResult:
         wpm=require_float(d, "wpm", 0.0),
         stats=stats_from_row(d.get(_STATS_KEY)),
         focus_pair=_parse_focus_pair(d.get(_FOCUS_PAIR_KEY)),
+        advice_source=_parse_advice_source(d.get(_ADVICE_SOURCE_KEY)),
+        advice_kinds=_parse_advice_kinds(d.get(_ADVICE_KINDS_KEY)),
     )

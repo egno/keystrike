@@ -1,6 +1,10 @@
 # Advisor plugins — design
 
-Status: **proposed** (not implemented). Branch: `refactor/advisor-plugins`.
+Status: **implemented** in 2.3 (steps 1–8 of §13; see the CHANGELOG for the small
+deviations). **Superseded in part:** `LessonAdvice` and the plugin API version
+changed in the advice protocol v2. See `ADVICE-PROTOCOL.md`: advice is now a list
+of typed recommendations with reasons and evidence. The type listings in §4 below
+show the v1 shapes.
 Replaces the built-in AI coach (`AiAnalyzer`, commit `93d297c`) with a
 general advice system. Any advisor — hardcoded rules, a small local ML
 model, an LLM — plugs into the same interface.
